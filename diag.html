@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>연결 진단</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         margin: 0; padding: 18px; background: #EFEEE4; color: #1E2A26; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { font-size: 12px; color: #7C7561; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; margin: 14px 0 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 12px; font-size: 16px;
+          border: 1px solid #DAD7C8; border-radius: 8px; }
+  button { width: 100%; padding: 14px; font-size: 15px; margin-top: 12px;
+           background: #1F3D3A; color: #EFEEE4; border: 0; border-radius: 8px; }
+  button.alt { background: #A9822F; }
+  pre { background: #1F3D3A; color: #E8E4D6; padding: 12px; border-radius: 8px;
+        font-size: 11px; white-space: pre-wrap; word-break: break-all; margin-top: 14px; }
+  .ok { color: #2F5D55; font-weight: 600; }
+  .bad { color: #A23B2E; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>연결 진단</h1>
+<div class="sub">이 페이지는 서버 응답을 가공 없이 그대로 보여줍니다.</div>
+
+<label>웹 앱 URL</label>
+<input id="url" value="https://script.google.com/macros/s/AKfycbyQ8VLoyS6ewqaNbOW4BYxLOM_DBoALK4UObnshIYNpuVFI-BMEqezgNKeKcfa6ajdY/exec" />
+
+<label>암호</label>
+<input id="pass" value="3012" autocapitalize="none" autocorrect="off" spellcheck="false" />
+
+<button onclick="testGet()">① GET 테스트 (배포 버전 확인)</button>
+<button class="alt" onclick="testPost()">② POST 테스트 (암호 전달 확인)</button>
+
+<pre id="out">결과가 여기에 표시됩니다.</pre>
+
+<script>
+var out = document.getElementById('out');
+function show(t) { out.textContent = t; }
+
+function info() {
+  return '실행 위치: ' + location.href.slice(0, 60) +
+         '\norigin: ' + location.origin +
+         '\n\n';
+}
+
+async function testGet() {
+  show(info() + 'GET 요청 중…');
+  try {
+    var res = await fetch(document.getElementById('url').value.trim(), { method: 'GET' });
+    var text = await res.text();
+    show(info() + '① GET 결과\nHTTP ' + res.status + '\n\n' + text.slice(0, 800));
+  } catch (e) {
+    show(info() + '① GET 실패\n' + e.name + ': ' + e.message +
+         '\n\n→ 이 기기에서 스크립트에 접속 자체가 안 됩니다.');
+  }
+}
+
+async function testPost() {
+  var pass = document.getElementById('pass').value;
+  var codes = pass.split('').map(function (c) { return c.charCodeAt(0); }).join(',');
+  show(info() + '보낸 암호 길이: ' + pass.length + '자\n보낸 문자코드: ' + codes + '\n\nPOST 요청 중…');
+  try {
+    var res = await fetch(document.getElementById('url').value.trim(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'load', workspaceId: 'default', passphrase: pass })
+    });
+    var text = await res.text();
+    var verdict = '';
+    if (text.indexOf('UNAUTHORIZED') > -1) verdict = '\n\n>>> 서버가 암호를 거부했습니다.';
+    else if (text.indexOf('"data"') > -1) verdict = '\n\n>>> 성공! 암호가 맞습니다.';
+    show(info() + '② POST 결과\n보낸 암호 길이: ' + pass.length + '자\n보낸 문자코드: ' + codes +
+         '\n\nHTTP ' + res.status + '\n최종 주소: ' + res.url.slice(0, 70) +
+         '\n\n응답 본문:\n' + text.slice(0, 800) + verdict);
+  } catch (e) {
+    show(info() + '② POST 실패\n' + e.name + ': ' + e.message +
+         '\n\n→ 요청이 서버까지 가지 못했습니다 (CORS 또는 네트워크 차단).');
+  }
+}
+</script>
+</body>
+</html>

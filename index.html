@@ -657,6 +657,9 @@ async function gasRequest(cfg, action, data) {
     }
     throw new Error("AUTH_REQUIRED");
   }
+  if (json.error && /50000|50,000|maximum of/i.test(json.error)) {
+    throw new Error("서버 코드가 예전 버전이라 사진이 포함된 데이터를 저장하지 못했습니다(셀 용량 초과). 최신 apps-script-code.gs로 교체하고 [배포 관리 → 편집 → 새 버전]으로 배포해 주세요.");
+  }
   if (json.error) throw new Error(json.error);
   return json;
 }
@@ -669,8 +672,18 @@ async function gsheetLoad(cfg) {
   };
 }
 async function gsheetSave(cfg, data) {
-  await gasRequest(cfg, "save", data);
-  return true;
+  const json = await gasRequest(cfg, "save", data);
+  return {
+    updatedAt: json.updatedAt || null
+  };
+}
+
+// 데이터 전체를 받지 않고 "마지막 저장 시각"만 확인 — 바뀌었을 때만 전체를 다시 받는다
+async function gsheetMeta(cfg) {
+  const json = await gasRequest(cfg, "meta");
+  return {
+    updatedAt: json.updatedAt || null
+  };
 }
 
 /* ---------- Supabase Auth (직원별 로그인) ---------- */
@@ -1411,7 +1424,7 @@ function uid() {
 }
 
 // 업로드한 증빙 이미지를 저장소 용량 절약을 위해 축소 후 base64로 변환 (저장용 썸네일)
-function fileToResizedDataUrl(file, maxWidth = 480, quality = 0.6) {
+function fileToResizedDataUrl(file, maxWidth = 400, quality = 0.55) {
   return fileToScaledDataUrl(file, {
     scaleFor: w => Math.min(1, maxWidth / w),
     quality
@@ -1544,6 +1557,8 @@ function describeAiError(message, lang) {
   if (m === "AI_NO_KEY") return en ? "The AI key is not set on the server. In Apps Script → Project settings → Script properties, add ANTHROPIC_API_KEY." : "서버에 AI 키가 없습니다. Apps Script → 프로젝트 설정 → 스크립트 속성에 ANTHROPIC_API_KEY를 추가하세요.";
   if (m === "AI_AUTH") return en ? "The server rejected the request (passphrase). Lock and reopen with the correct passphrase." : "서버가 요청을 거부했습니다(암호). 잠금 후 올바른 암호로 다시 열어 주세요.";
   if (m === "AI_NETWORK" || /Failed to fetch|미리보기 창|연결할 수 없습니다/.test(m)) return en ? "Couldn't reach the AI service — the preview window or network blocks it. Open the app (or the GitHub page) and try again." : "AI 서버에 연결하지 못했습니다 — 미리보기 창이거나 네트워크가 막혀 있습니다. 앱(또는 GitHub 페이지)에서 열어 다시 시도해 주세요.";
+  if (m === "UNKNOWN_ACTION") return en ? "The Google Apps Script on the server is an old version without photo recognition. Replace it with the latest apps-script-code.gs and deploy a new version (Deploy → Manage deployments → Edit → New version)." : "Google 서버(Apps Script)에 배포된 코드가 예전 버전이라 사진 인식 기능이 없습니다. 최신 apps-script-code.gs로 교체한 뒤 [배포 → 배포 관리 → 편집(연필) → 버전: 새 버전 → 배포]를 해 주세요.";
+  if (/UrlFetchApp|권한|permission/i.test(m)) return en ? "The Apps Script isn't authorised to call the AI service yet. In the Apps Script editor, run the function testAiConnection once and allow access." : "Apps Script가 아직 AI 서버에 접속할 권한이 없습니다. Apps Script 편집기에서 testAiConnection 함수를 한 번 실행해 권한을 허용해 주세요.";
   if (m === "AI_BAD_JSON") return en ? "The AI reply couldn't be read. Press Retry." : "AI 응답 형식을 읽지 못했습니다. [다시 인식]을 눌러 주세요.";
   if (/overloaded|529|rate|429/i.test(m)) return en ? "The AI service is busy. Wait a few seconds and press Retry." : "AI 서비스가 혼잡합니다. 잠시 후 [다시 인식]을 눌러 주세요.";
   return m;
@@ -1928,6 +1943,7 @@ function CambodiaTaxApp() {
   const [authRequired, setAuthRequired] = useState(false);
   const dataRef = useRef(data);
   const lastPersistTsRef = useRef(0);
+  const sheetUpdatedRef = useRef(null); // 서버에 마지막으로 저장된 시각 (변경 확인용)
   const sessionRef = useRef(null);
   const [sessionPass, setSessionPass] = useState(null);
   // 월별 신고 화면에 저장하지 않은 편집이 있을 때, 메뉴 이동 전에 확인받기 위한 참조
@@ -2006,7 +2022,11 @@ function CambodiaTaxApp() {
   // 백엔드가 설정되어 있으면 Supabase에서, 아니면 아티팩트 공유 저장소에서 읽는다
   const loadFromSource = useCallback(async cfg => {
     if (!cfg.enabled) return artifactLoad();
-    if (cfg.mode === "gsheet") return gsheetLoad(cfg);
+    if (cfg.mode === "gsheet") {
+      const r = await gsheetLoad(cfg);
+      sheetUpdatedRef.current = r?.updatedAt || null;
+      return r;
+    }
     const token = await currentToken(cfg);
     return supabaseLoad(cfg, token);
   }, [currentToken]);
@@ -2103,23 +2123,34 @@ function CambodiaTaxApp() {
       // 저장 실패해도 화면상 언어 전환은 유지
     }
   };
-  const persist = useCallback(async next => {
-    setData(next);
+
+  // optimistic=false 이면 서버 저장이 성공한 뒤에만 화면 데이터를 바꾼다 (월별 신고 저장용 — 실패 시 편집 내용 보존)
+  const persist = useCallback(async (next, {
+    optimistic = true
+  } = {}) => {
+    const prev = dataRef.current;
+    if (optimistic) setData(next);
     const cfg = backendRef.current;
     try {
       if (!cfg.enabled) {
         await artifactSave(next);
       } else if (cfg.mode === "gsheet") {
-        await gsheetSave(cfg, next);
+        const r = await gsheetSave(cfg, next);
+        sheetUpdatedRef.current = r.updatedAt || sheetUpdatedRef.current;
       } else {
         const token = await currentToken(cfg);
         await supabaseSave(cfg, next, token);
       }
+      if (!optimistic) setData(next);
+      dataRef.current = next;
       lastPersistTsRef.current = Date.now();
       setBackendError("");
       setAuthRequired(false);
       setStatus(lang === "en" ? "Saved" : "저장됨");
+      setTimeout(() => setStatus(""), 1800);
+      return true;
     } catch (e) {
+      if (optimistic) setData(prev); // 저장 안 된 내용이 저장된 것처럼 보이지 않도록 되돌린다
       if (e.message === "AUTH_REQUIRED") {
         setAuthRequired(true);
         setStatus(lang === "en" ? "Sign in required" : "로그인이 필요합니다");
@@ -2127,8 +2158,9 @@ function CambodiaTaxApp() {
         setBackendError(e.message || String(e));
         setStatus(lang === "en" ? "Save failed — please try again" : "저장 실패 — 다시 시도해주세요");
       }
+      setTimeout(() => setStatus(""), 6000);
+      return false;
     }
-    setTimeout(() => setStatus(""), 1800);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, currentToken]);
 
@@ -2138,6 +2170,19 @@ function CambodiaTaxApp() {
     if (Date.now() - lastPersistTsRef.current < 3000) return;
     const cfg = backendRef.current;
     try {
+      // Google 시트: 마지막 저장 시각이 그대로면 데이터 전체를 다시 받지 않는다 (휴대폰 데이터·속도 절약)
+      if (cfg.enabled && cfg.mode === "gsheet" && sheetUpdatedRef.current) {
+        try {
+          const meta = await gsheetMeta(cfg);
+          if (meta.updatedAt && meta.updatedAt === sheetUpdatedRef.current) {
+            setBackendError("");
+            setSyncedAt(Date.now());
+            return;
+          }
+        } catch (e) {
+          if (e.message !== "UNKNOWN_ACTION") throw e; // 예전 서버 — 전체 불러오기로 진행
+        }
+      }
       const res = await loadFromSource(cfg);
       if (res?.data) {
         const parsed = normalize(res.data);
@@ -2198,6 +2243,7 @@ function CambodiaTaxApp() {
     });
     // 암호가 맞는지 실제로 백엔드에 확인 (틀리면 AUTH_REQUIRED 예외 발생)
     const res = await gsheetLoad(cfg);
+    sheetUpdatedRef.current = res?.updatedAt || null;
     setSessionPass(pass);
     backendRef.current = cfg;
     if (remember) {
@@ -2453,7 +2499,9 @@ function CambodiaTaxApp() {
         [clientId]: clientFilings
       }
     };
-    persist(next);
+    return persist(next, {
+      optimistic: false
+    });
   };
   const selectedClient = data.clients.find(c => c.id === selectedClientId) || null;
   const mKey = monthKey(selectedYear, selectedMonth);
@@ -2648,7 +2696,23 @@ function CambodiaTaxApp() {
   }, status))), /*#__PURE__*/React.createElement("main", {
     style: S.main,
     className: "main-content"
-  }, backend.reviewMode && /*#__PURE__*/React.createElement("div", {
+  }, (status || backendError) && /*#__PURE__*/React.createElement("div", {
+    className: "mobile-only",
+    role: "status",
+    "aria-live": "polite",
+    style: {
+      position: "sticky",
+      top: 120,
+      zIndex: 8,
+      marginBottom: 12,
+      padding: "8px 12px",
+      borderRadius: 8,
+      fontSize: 12.5,
+      background: backendError ? "#FBEDEA" : "#E4EEE9",
+      color: backendError ? PALETTE.red : PALETTE.teal,
+      border: `1px solid ${backendError ? PALETTE.red : PALETTE.teal}`
+    }
+  }, status || (lang === "en" ? "Sync error: " : "동기화 오류: ") + backendError), backend.reviewMode && /*#__PURE__*/React.createElement("div", {
     className: "mobile-only",
     style: {
       marginBottom: 14,
@@ -3022,8 +3086,13 @@ function MonthlyView({
   // 수동저장: 입력 중에는 화면에만 반영되고, [저장] 버튼을 눌러야 실제 데이터에 기록된다.
   // 세무 데이터는 확정 전 중간값이 다른 직원에게 보이면 혼란이 생기므로 자동저장을 쓰지 않는다.
   const isDirty = useMemo(() => JSON.stringify(local) !== JSON.stringify(filing), [local, filing]);
-  const handleSave = () => {
-    onSave(local);
+  const handleSave = async () => {
+    setSaveState("saving");
+    const ok = await onSave(local);
+    if (ok === false) {
+      setSaveState("failed"); // 편집 내용은 화면에 그대로 남아 있어 다시 저장할 수 있다
+      return;
+    }
     setSaveState("saved");
     setLastSavedAt(new Date());
   };
@@ -3184,11 +3253,11 @@ function MonthlyView({
   }, lang === "en" ? y : `${y}년`))), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.buttonPrimary,
-      opacity: isDirty ? 1 : 0.45,
+      opacity: isDirty && saveState !== "saving" ? 1 : 0.45,
       cursor: isDirty ? "pointer" : "default"
     },
     onClick: handleSave,
-    disabled: !isDirty
+    disabled: !isDirty || saveState === "saving"
   }, lang === "en" ? "Save" : "저장"), isDirty && /*#__PURE__*/React.createElement("button", {
     style: S.buttonGhost,
     onClick: handleRevert
@@ -3197,9 +3266,9 @@ function MonthlyView({
     "aria-live": "polite",
     style: {
       ...S.autosaveTag,
-      color: isDirty ? PALETTE.red : PALETTE.teal
+      color: isDirty || saveState === "failed" ? PALETTE.red : PALETTE.teal
     }
-  }, isDirty ? lang === "en" ? "● Unsaved changes" : "● 저장되지 않은 변경사항" : saveState === "saved" && lastSavedAt ? lang === "en" ? `Saved · ${lastSavedAt.toLocaleTimeString("en-US", {
+  }, saveState === "saving" ? lang === "en" ? "Saving…" : "저장 중…" : saveState === "failed" ? lang === "en" ? "✕ Save failed — your entries are kept. Press Save again." : "✕ 저장 실패 — 입력 내용은 남아 있습니다. [저장]을 다시 눌러 주세요." : isDirty ? lang === "en" ? "● Unsaved changes" : "● 저장되지 않은 변경사항" : saveState === "saved" && lastSavedAt ? lang === "en" ? `Saved · ${lastSavedAt.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit"
   })}` : `저장됨 · ${lastSavedAt.toLocaleTimeString("ko-KR", {
@@ -3489,14 +3558,19 @@ function MonthlyView({
       },
       disabled: blocked,
       "aria-describedby": "filed-help",
-      onClick: () => {
+      onClick: async () => {
         const next = {
           ...local,
           filed: !local.filed,
           filedAt: new Date().toISOString()
         };
         setLocal(next);
-        onSave(next); // 제출완료 표시는 확정 행위이므로 화면의 내용과 함께 즉시 저장한다
+        setSaveState("saving");
+        const ok = await onSave(next); // 제출완료 표시는 확정 행위이므로 화면의 내용과 함께 즉시 저장한다
+        if (ok === false) {
+          setSaveState("failed");
+          return;
+        }
         setSaveState("saved");
         setLastSavedAt(new Date());
       }
@@ -3581,9 +3655,9 @@ function MonthlyView({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11.5,
-      color: "#D8DDD3"
+      color: saveState === "failed" ? "#F2B3A8" : "#D8DDD3"
     }
-  }, lang === "en" ? "Total tax due (GDT)" : "이번 달 총 납부세액"), /*#__PURE__*/React.createElement("div", {
+  }, saveState === "failed" ? lang === "en" ? "Save failed — entries kept" : "저장 실패 — 입력 내용 보존됨" : lang === "en" ? "Total tax due (GDT)" : "이번 달 총 납부세액"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: FONT.mono,
       fontWeight: 700,
@@ -3594,13 +3668,13 @@ function MonthlyView({
   }, fmt(calc.totalDue), " KHR")), /*#__PURE__*/React.createElement("button", {
     style: {
       ...S.buttonPrimary,
-      background: isDirty ? PALETTE.brassDeep : "transparent",
+      background: isDirty ? saveState === "failed" ? PALETTE.red : PALETTE.brassDeep : "transparent",
       color: isDirty ? "#fff" : "#D8DDD3",
       border: isDirty ? "none" : "1px solid rgba(255,255,255,.35)"
     },
     onClick: handleSave,
-    disabled: !isDirty
-  }, isDirty ? lang === "en" ? "Save" : "저장" : lang === "en" ? "Saved" : "저장됨")));
+    disabled: !isDirty || saveState === "saving"
+  }, saveState === "saving" ? lang === "en" ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? lang === "en" ? "Retry save" : "다시 저장" : isDirty ? lang === "en" ? "Save" : "저장" : lang === "en" ? "Saved" : "저장됨")));
 }
 
 /* ---------------- Exchange rate (GDT official rate) ---------------- */
@@ -4141,7 +4215,7 @@ function EvidencePanel({
     value: c.id
   }, lang === "en" ? c.en : c.ko))), /*#__PURE__*/React.createElement("div", {
     style: S.evidenceMeta
-  }, e.txDate ? `${e.txDate} · ` : "", e.vendor || (lang === "en" ? "Vendor unknown" : "거래처 미상"), " · ", fmt(e.amount), " ", e.currency, e.isVatInvoice ? ` (VAT ${fmt(e.vatAmountKHR)} KHR)` : ""), e.description && /*#__PURE__*/React.createElement("div", {
+  }, e.txDate ? `${e.txDate} · ` : "", e.vendor || (lang === "en" ? "Vendor unknown" : "거래처 미상"), " · ", e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`, e.isVatInvoice ? ` (VAT ${fmt(e.vatAmountKHR)} KHR)` : ""), e.description && /*#__PURE__*/React.createElement("div", {
     style: S.evidenceDesc
   }, e.description), (() => {
     const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
@@ -6182,20 +6256,25 @@ function doPost(e) {
 
     if (req.action === 'load') {
       if (!row) return out({ data: null });
-      return out({
-        data: JSON.parse(sheet.getRange(row, 2).getValue() || 'null'),
-        updatedAt: sheet.getRange(row, 3).getValue()
-      });
+      return out(readData(sheet, row));
+    }
+
+    // 마지막 저장 시각만 돌려준다 — 앱이 바뀐 게 있을 때만 전체 데이터를 다시 받도록
+    if (req.action === 'meta') {
+      if (!row) return out({ updatedAt: null });
+      return out({ updatedAt: readUpdatedAt(sheet.getRange(row, 3).getValue()) });
     }
 
     if (req.action === 'save') {
       var payload = JSON.stringify(req.data);
       var now = new Date().toISOString();
-      if (row) {
-        sheet.getRange(row, 2).setValue(payload);
-        sheet.getRange(row, 3).setValue(now);
-      } else {
-        sheet.appendRow([wsId, payload, now]);
+      // 두 기기가 동시에 저장해도 데이터가 섞이지 않도록 잠금
+      var lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try {
+        writeData(sheet, findRow(sheet, wsId), wsId, payload, now);
+      } finally {
+        lock.releaseLock();
       }
       // 사람이 읽을 수 있는 월별요약 시트를 함께 갱신 (실패해도 저장은 유지)
       try {
@@ -6207,7 +6286,7 @@ function doPost(e) {
     }
 
     if (req.action === 'classify') {
-      return out(classifyProxy(req.payload));
+      return out(classifyProxy(req.data || req.payload)); // 앱은 data 로 보낸다
     }
 
     return out({ error: 'UNKNOWN_ACTION' });
@@ -6224,6 +6303,47 @@ function getSheet() {
     sheet.appendRow(['workspace_id', 'data', 'updated_at']);
   }
   return sheet;
+}
+
+// ── 큰 데이터 나눠 저장 ──
+// 스프레드시트 셀 하나에는 5만 자까지만 들어가므로(증빙 사진 1장이면 넘을 수 있음)
+// 4만 자씩 잘라 B열, D열, E열 … 에 차례로 저장한다. 각 조각 앞의 ~ 는
+// 시트가 숫자·날짜·수식으로 바꾸지 못하게 하는 표시이며 읽을 때 떼어낸다.
+var CHUNK = 40000;
+
+function stripMark(v) {
+  var s = String(v === null || v === undefined ? '' : v);
+  return s.charAt(0) === '~' ? s.substring(1) : s;
+}
+
+function readUpdatedAt(v) {
+  if (v && typeof v.getTime === 'function') return v.toISOString(); // 예전 방식(날짜 칸)으로 저장된 경우
+  return stripMark(v) || null;
+}
+
+function writeData(sheet, row, wsId, payload, now) {
+  var parts = [];
+  for (var i = 0; i < payload.length; i += CHUNK) parts.push('~' + payload.substring(i, i + CHUNK));
+  if (!parts.length) parts.push('~null');
+  var values = [wsId, parts[0], '~' + now].concat(parts.slice(1));
+  if (!row) {
+    sheet.appendRow(values);
+    return;
+  }
+  var width = Math.max(sheet.getLastColumn(), values.length);
+  while (values.length < width) values.push(''); // 예전에 쓰던 뒤쪽 조각 칸은 비운다
+  sheet.getRange(row, 1, 1, width).setValues([values]);
+}
+
+function readData(sheet, row) {
+  var width = Math.max(sheet.getLastColumn(), 3);
+  var v = sheet.getRange(row, 1, 1, width).getValues()[0];
+  var text = stripMark(v[1]);
+  for (var c = 3; c < v.length; c++) {
+    if (v[c] === '' || v[c] === null) break;
+    text += stripMark(v[c]);
+  }
+  return { data: text ? JSON.parse(text) : null, updatedAt: readUpdatedAt(v[2]) };
 }
 
 function findRow(sheet, wsId) {
@@ -6292,6 +6412,17 @@ function classifyProxy(payload) {
 
 // 브라우저로 이 URL을 직접 열었을 때 배포 상태를 확인하는 용도
 // version 값이 최신이 아니면 = 코드를 붙여넣었지만 아직 배포되지 않았다는 뜻
+// ▶ 설치 확인용: 편집기 위쪽 함수 목록에서 testAiConnection 을 고르고 [실행]을 누르세요.
+//   처음 실행하면 "외부 서비스 연결" 권한을 묻습니다 → 허용. 실행 로그에 "AI 연결 성공"이 나오면 준비 완료입니다.
+function testAiConnection() {
+  var r = classifyProxy({ model: 'claude-sonnet-5-5', messages: [{ role: 'user', content: 'Reply with the single word OK.' }] });
+  if (r.aiError) {
+    Logger.log('AI 연결 실패: ' + r.aiError);
+  } else {
+    Logger.log('AI 연결 성공: ' + r.result);
+  }
+}
+
 function doGet() {
   return out({
     ok: true,

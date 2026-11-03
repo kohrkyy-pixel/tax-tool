@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// GitHub Actions 실행 번호를 버전 번호로 사용 (빌드할 때마다 자동 증가)
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+def keystorePath = System.getenv("KEYSTORE_PATH")
+def hasReleaseKey = keystorePath != null && new File(keystorePath).exists()
+
+android {
+    namespace 'com.kohr.cambodiatax'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.kohr.cambodiatax'
+        minSdk 24
+        targetSdk 34
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS") ?: "cambodiatax"
+                keyPassword System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // 고정 서명키가 등록돼 있으면 그것으로, 없으면 디버그 키로 서명 (설치는 가능)
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'androidx.core:core:1.13.1'
+}

@@ -16,22 +16,22 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.7'
 
@@ -39,6 +39,9 @@ jobs:
         run: |
           mkdir -p android/app/src/main/assets
           cp index.html android/app/src/main/assets/index.html
+
+      - name: Stamp the app version (used by the in-app update check)
+        run: sed -i "s/__APK_BUILD__/${{ github.run_number }}/g" android/app/src/main/assets/index.html
 
       - name: Restore signing key
         if: env.KEYSTORE_B64 != ''
@@ -56,13 +59,13 @@ jobs:
           ls -la dist
 
       - name: Upload APK (Actions artifact)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: CambodiaTax-v1.0.${{ github.run_number }}
           path: dist/*.apk
 
       - name: Publish to Releases (휴대폰에서 바로 다운로드)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: apk-v1.0.${{ github.run_number }}
           name: CambodiaTax APK v1.0.${{ github.run_number }}

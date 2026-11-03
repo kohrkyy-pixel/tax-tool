@@ -435,6 +435,48 @@ const GAS_PASSPHRASE = ""; // 비워두면 실행할 때마다 암호를 입력�
 //   ▶ 실제 배포 전에 반드시 false 로 바꾸세요.
 const ALLOW_SKIP_LOGIN = true;
 
+// ── 앱 버전 확인 ──
+// APK를 만들 때 GitHub Actions가 아래 "__APK_BUILD__" 자리에 빌드 번호(v1.0.N의 N)를 써 넣는다.
+// 웹(GitHub 페이지)에서는 그대로 남아 있으므로 "웹 버전"으로 취급한다.
+const APK_BUILD_RAW = "__APK_BUILD__";
+const RELEASES_API = "https://api.github.com/repos/kohrkyy-pixel/tax-tool/releases/latest";
+const RELEASES_PAGE = "https://github.com/kohrkyy-pixel/tax-tool/releases/latest";
+const UPDATE_CHECK_KEY = "ctt:update-check";
+function currentApkBuild() {
+  const n = parseInt(APK_BUILD_RAW, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// GitHub Releases의 최신 APK 정보 — 6시간 안에 확인했다면 저장해 둔 결과를 쓴다 (force면 바로 확인)
+async function fetchLatestRelease(force = false) {
+  if (!force) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY) || "null");
+      if (cached && Date.now() - cached.at < 6 * 3600 * 1000) return cached;
+    } catch (e) {/* 저장된 값 없음 */}
+  }
+  const res = await fetch(RELEASES_API, {
+    headers: {
+      Accept: "application/vnd.github+json"
+    }
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  const json = await res.json();
+  const m = String(json.tag_name || "").match(/(\d+)\s*$/);
+  const apk = (json.assets || []).find(a => /\.apk$/i.test(a.name || ""));
+  const info = {
+    at: Date.now(),
+    build: m ? parseInt(m[1], 10) : null,
+    name: json.name || json.tag_name || "",
+    url: apk ? apk.browser_download_url : RELEASES_PAGE,
+    publishedAt: json.published_at || null
+  };
+  try {
+    localStorage.setItem(UPDATE_CHECK_KEY, JSON.stringify(info));
+  } catch (e) {/* 무시 */}
+  return info;
+}
+
 // 방법 B — Supabase
 const SUPABASE_URL = ""; // 예: "https://abcdefgh.supabase.co"
 const SUPABASE_ANON_KEY = ""; // 예: "eyJhbGciOiJIUzI1NiIs..."
@@ -1897,9 +1939,9 @@ const NAV = [{
   id: "settings",
   ko: "설정",
   en: "Settings",
-  hintKo: "세율·서버·언어",
-  hintEn: "Rates, server, language",
-  children: ["rates", "backend"]
+  hintKo: "세율·서버·앱 정보",
+  hintEn: "Rates, server, app info",
+  children: ["rates", "backend", "about"]
 }];
 const SUBVIEW_LABELS = {
   draft: {
@@ -1925,6 +1967,10 @@ const SUBVIEW_LABELS = {
   backend: {
     ko: "서버 연결",
     en: "Server connection"
+  },
+  about: {
+    ko: "앱 정보·업데이트",
+    en: "App info & updates"
   }
 };
 function navGroupOf(view) {
@@ -1975,6 +2021,16 @@ function CambodiaTaxApp() {
   const [bypassUnlock, setBypassUnlock] = useState(false);
   // 공유 시트에 연결됐을 때, 이 기기에만 있던 데이터를 합칠지 묻기 위한 상태
   const [localImport, setLocalImport] = useState(null);
+  // 앱(APK)일 때 새 버전이 있으면 화면 위에 업데이트 안내를 띄운다
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    const mine = currentApkBuild();
+    if (!isAndroidApp() || mine == null) return;
+    fetchLatestRelease(false).then(info => {
+      if (info.build && info.build > mine) setUpdateInfo(info);
+    }).catch(() => {/* 인터넷이 없으면 조용히 넘어간다 */});
+  }, []);
   const backend = useMemo(() => {
     const cfg = resolveBackendConfig({
       ...(backendOverride || {}),
@@ -2583,7 +2639,8 @@ function CambodiaTaxApp() {
       onUnlock: unlockWithPassphrase,
       onSkip: ALLOW_SKIP_LOGIN && !isAndroidApp() ? skipUnlock : null,
       gasUrl: backend.gasUrl,
-      onChangeUrl: changeGasUrl
+      onChangeUrl: changeGasUrl,
+      update: updateInfo
     }));
   }
 
@@ -2811,7 +2868,42 @@ function CambodiaTaxApp() {
   }, lang === "en" ? "Merge into shared data" : "공유 데이터로 합치기"), /*#__PURE__*/React.createElement("button", {
     style: S.buttonGhost,
     onClick: dismissLocalImport
-  }, lang === "en" ? "Not now" : "나중에"))), navGroupOf(view).children && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Not now" : "나중에"))), updateInfo && !updateDismissed && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: S.updateBanner
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700
+    }
+  }, lang === "en" ? `A new version (v1.0.${updateInfo.build}) is available` : `새 버전(v1.0.${updateInfo.build})이 나왔습니다`), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft,
+      marginTop: 2
+    }
+  }, lang === "en" ? `You have v1.0.${currentApkBuild()}. Download, then tap the notification to install — your data stays.` : `지금 쓰는 버전은 v1.0.${currentApkBuild()}입니다. 받은 뒤 다운로드 알림을 눌러 설치하세요 — 데이터는 그대로 유지됩니다.`)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("a", {
+    href: updateInfo.url,
+    style: {
+      ...S.buttonPrimary,
+      textDecoration: "none",
+      display: "inline-flex",
+      alignItems: "center"
+    }
+  }, lang === "en" ? "Get update" : "업데이트 받기"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => setUpdateDismissed(true)
+  }, lang === "en" ? "Later" : "나중에"))), navGroupOf(view).children && /*#__PURE__*/React.createElement("div", {
     style: S.subTabs,
     role: "tablist"
   }, navGroupOf(view).children.map(v => /*#__PURE__*/React.createElement("button", {
@@ -2894,7 +2986,12 @@ function CambodiaTaxApp() {
     setSelectedYear: setSelectedYear,
     selectedMonth: selectedMonth,
     setSelectedMonth: setSelectedMonth
-  }), view === "rates" && /*#__PURE__*/React.createElement(RatesView, null), view === "backend" && /*#__PURE__*/React.createElement(BackendView, {
+  }), view === "rates" && /*#__PURE__*/React.createElement(RatesView, null), view === "about" && /*#__PURE__*/React.createElement(AboutView, {
+    onFound: info => {
+      setUpdateInfo(info);
+      setUpdateDismissed(false);
+    }
+  }), view === "backend" && /*#__PURE__*/React.createElement(BackendView, {
     backend: backend,
     backendError: backendError,
     onSave: saveBackendConfig
@@ -6138,7 +6235,8 @@ function UnlockScreen({
   onUnlock,
   onSkip,
   gasUrl,
-  onChangeUrl
+  onChangeUrl,
+  update
 }) {
   const [pass, setPass] = useState("");
   const [showUrl, setShowUrl] = useState(false);
@@ -6165,7 +6263,26 @@ function UnlockScreen({
     style: S.loginScreen
   }, /*#__PURE__*/React.createElement("div", {
     style: S.loginCard
+  }, update && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      ...S.updateBanner,
+      marginBottom: 16
+    }
   }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 14.5
+    }
+  }, lang === "en" ? `New version v1.0.${update.build} is available` : `새 버전 v1.0.${update.build}이 나왔습니다`), /*#__PURE__*/React.createElement("a", {
+    href: update.url,
+    style: {
+      ...S.buttonPrimary,
+      textDecoration: "none",
+      display: "inline-flex",
+      alignItems: "center"
+    }
+  }, lang === "en" ? "Get update" : "업데이트 받기")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -7278,6 +7395,107 @@ function BackendView({
 
 /* ---------------- Rates reference ---------------- */
 
+function AboutView({
+  onFound
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const mine = currentApkBuild();
+  const inApp = isAndroidApp() && mine != null;
+  const [state, setState] = useState({
+    busy: false,
+    info: null,
+    error: ""
+  });
+  const check = async () => {
+    setState({
+      busy: true,
+      info: null,
+      error: ""
+    });
+    try {
+      const info = await fetchLatestRelease(true);
+      setState({
+        busy: false,
+        info,
+        error: ""
+      });
+      if (inApp && info.build && info.build > mine) onFound(info);
+    } catch (e) {
+      setState({
+        busy: false,
+        info: null,
+        error: en ? "Couldn't check — check the internet connection." : "확인하지 못했습니다 — 인터넷 연결을 확인하세요."
+      });
+    }
+  };
+  const info = state.info;
+  const newer = inApp && info?.build && info.build > mine;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: en ? "App info & updates" : "앱 정보·업데이트",
+    sub: ""
+  }), /*#__PURE__*/React.createElement("section", {
+    style: S.panel
+  }, /*#__PURE__*/React.createElement(NumberRow, {
+    noFmt: true,
+    label: en ? "This copy" : "지금 쓰는 것",
+    value: inApp ? `${en ? "Android app" : "안드로이드 앱"} v1.0.${mine}` : en ? "Web version (always up to date)" : "웹 버전 (항상 최신)"
+  }), info && /*#__PURE__*/React.createElement(NumberRow, {
+    noFmt: true,
+    label: en ? "Latest app" : "최신 앱",
+    value: info.build ? `v1.0.${info.build}` : "—"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      alignItems: "center",
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: check,
+    disabled: state.busy
+  }, state.busy ? en ? "Checking…" : "확인 중…" : en ? "Check for updates" : "업데이트 확인"), newer && /*#__PURE__*/React.createElement("a", {
+    href: info.url,
+    style: {
+      ...S.buttonPrimary,
+      textDecoration: "none",
+      display: "inline-flex",
+      alignItems: "center"
+    }
+  }, en ? `Get v1.0.${info.build}` : `v1.0.${info.build} 받기`), info && inApp && !newer && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.teal,
+      fontWeight: 600
+    }
+  }, en ? "You're on the latest version." : "최신 버전을 쓰고 있습니다."), state.error && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.red
+    }
+  }, state.error))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 16
+    }
+  }), /*#__PURE__*/React.createElement("section", {
+    style: S.panel
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.panelTitle
+  }, en ? "Install the Android app" : "안드로이드 앱 설치"), /*#__PURE__*/React.createElement("p", {
+    style: S.stepIntro
+  }, en ? "Open this link on the phone, download the .apk and install it. When asked, allow installs from this source." : "휴대폰에서 아래 링크를 열어 .apk 파일을 받아 설치하세요. '출처를 알 수 없는 앱' 안내가 나오면 허용하면 됩니다."), /*#__PURE__*/React.createElement("a", {
+    href: RELEASES_PAGE,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      ...S.rateBarLink,
+      fontSize: 14.5
+    }
+  }, RELEASES_PAGE.replace("https://", ""))));
+}
 function RatesView() {
   const lang = useLang();
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
@@ -8173,6 +8391,20 @@ const S = {
     gap: 6,
     padding: 0,
     margin: "4px 0 18px"
+  },
+  updateBanner: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    background: PALETTE.tealTint,
+    border: `1px solid #BFDDD2`,
+    borderRadius: 12,
+    padding: "12px 16px",
+    marginBottom: 18,
+    fontSize: 15,
+    color: PALETTE.ink
   },
   summaryRow: {
     display: "grid",

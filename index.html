@@ -4,8 +4,18 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Kohr &amp; Co. · 캄보디아 세무신고 관리</title>
+<!-- 홈 화면 앱(아이폰·안드로이드 브라우저) -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<meta name="theme-color" content="#0E6B57" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Kohr 세무" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="format-detection" content="telephone=no" />
 <style>
-  html, body { margin: 0; padding: 0; background: #EFEEE4; }
+  html, body { margin: 0; padding: 0; background: #F4F6F8; }
   #boot {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     display: flex; align-items: center; justify-content: center; flex-direction: column;
@@ -450,10 +460,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.2";
+const APP_RELEASE = "2026.11.04.3";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.04.3",
+  ko: ["아이폰에서도 앱처럼 써요 — Safari 공유 버튼 → [홈 화면에 추가]", "홈 화면 아이콘(Kohr 세무)으로 열면 주소창 없이 전체 화면으로 실행"],
+  en: ["Use it like an app on iPhone — Safari Share → Add to Home Screen", "Opens full-screen from the “Kohr 세무” home-screen icon"]
+}, {
   version: "2026.11.04.2",
   ko: ["앱 안에서 사용 설명서(PDF)를 받을 수 있어요 — 설정 › 앱 정보, 홈의 사용 방법, 로그인 화면", "업데이트되면 이렇게 팝업으로 알려 드려요"],
   en: ["Download the user manual (PDF) inside the app — Settings › App info, Home guide, sign-in screen", "Updates are announced with a pop-up like this one"]
@@ -3223,7 +3237,11 @@ function CambodiaTaxApp() {
       border: `1px solid ${PALETTE.brass}`,
       color: PALETTE.ink
     }
-  }, lang === "en" ? "🧪 Review mode — saved on this device only, not synced." : "🧪 검토 모드 — 이 기기에만 저장되며 공유 시트와 연동되지 않습니다."), localImport && !backend.reviewMode && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "🧪 Review mode — saved on this device only, not synced." : "🧪 검토 모드 — 이 기기에만 저장되며 공유 시트와 연동되지 않습니다."), /*#__PURE__*/React.createElement(IosInstallHint, {
+    style: {
+      marginBottom: 14
+    }
+  }), localImport && !backend.reviewMode && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#FFF7E6",
       border: `1px solid ${PALETTE.brass}`,
@@ -5556,6 +5574,102 @@ function ExchangeRatePanel({
 }
 
 /* ---------------- 증빙 사진 크게 보기 ---------------- */
+
+// 아이폰·아이패드에서 아직 홈 화면 앱으로 설치하지 않았을 때 설치 방법을 알려 주는 안내
+const IOS_HINT_KEY = "ctt:ios-hint-dismissed";
+function isIosDevice() {
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/.test(ua) || /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+}
+function isStandaloneApp() {
+  try {
+    return window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  } catch (e) {
+    return false;
+  }
+}
+function IosInstallHint({
+  style
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [show, setShow] = useState(() => {
+    try {
+      return isIosDevice() && !isStandaloneApp() && /^https?:$/.test(location.protocol) && !localStorage.getItem(IOS_HINT_KEY);
+    } catch (e) {
+      return false;
+    }
+  });
+  if (!show) return null;
+  const close = () => {
+    setShow(false);
+    try {
+      localStorage.setItem(IOS_HINT_KEY, "1");
+    } catch (e) {/* 무시 */}
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    role: "note",
+    className: "ios-hint",
+    style: {
+      ...S.iosHint,
+      ...style
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: "icons/icon-180.png",
+    alt: "",
+    width: "44",
+    height: "44",
+    style: {
+      borderRadius: 10,
+      flexShrink: 0
+    },
+    onError: e => {
+      e.currentTarget.style.display = "none";
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15
+    }
+  }, en ? "Use it like an app on iPhone" : "아이폰에서 앱처럼 쓰기"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      lineHeight: 1.6,
+      color: PALETTE.inkSoft,
+      marginTop: 2
+    }
+  }, en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Tap the Share button ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: PALETTE.ink
+    }
+  }, "(□↑)"), " below, then ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: PALETTE.ink
+    }
+  }, "Add to Home Screen"), ".") : /*#__PURE__*/React.createElement(React.Fragment, null, "아래 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: PALETTE.ink
+    }
+  }, "공유 버튼(□↑)"), " → ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: PALETTE.ink
+    }
+  }, "[홈 화면에 추가]"), "를 누르면 홈 화면에 ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: PALETTE.ink
+    }
+  }, "Kohr 세무"), " 아이콘이 생겨요."))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: close,
+    "aria-label": en ? "Close" : "닫기",
+    style: S.iosHintClose
+  }, "✕"));
+}
 
 // 사용 설명서(PDF) 받기 링크 — 앱 밖(브라우저)에서 열린다
 function ManualLink({
@@ -8445,7 +8559,11 @@ function UnlockScreen({
     style: S.loginScreen
   }, /*#__PURE__*/React.createElement("div", {
     style: S.loginCard
-  }, update && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(IosInstallHint, {
+    style: {
+      marginBottom: 16
+    }
+  }), update && /*#__PURE__*/React.createElement("div", {
     role: "status",
     style: {
       ...S.updateBanner,
@@ -11542,6 +11660,27 @@ const S = {
     borderRadius: 12,
     background: "#FAFCFB"
   },
+  iosHint: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 12,
+    background: "#fff",
+    border: `1px solid ${PALETTE.teal}`,
+    borderRadius: 14,
+    padding: "12px 12px 12px 14px",
+    color: PALETTE.ink
+  },
+  iosHintClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    border: "none",
+    background: PALETTE.paper,
+    color: PALETTE.inkSoft,
+    fontSize: 15,
+    cursor: "pointer",
+    flexShrink: 0
+  },
   modalBackdrop: {
     position: "fixed",
     left: 0,
@@ -11706,6 +11845,14 @@ ReactDOM.createRoot(__rootEl).render(React.createElement(CambodiaTaxApp));
     '<div id="boot">앱 실행 중 오류가 발생했습니다.<br><br><code style="font-size:11px;color:#A23B2E">' +
     String(err && err.message ? err.message : err) + '</code></div>';
   console.error(err);
+}
+</script>
+<script>
+/* 홈 화면 앱: 웹 주소(https)로 열었을 때만 서비스 워커 등록 — 안드로이드 APK·내려받은 파일에서는 건너뜀 */
+if ("serviceWorker" in navigator && location.protocol === "https:" && location.hostname !== "appassets.androidplatform.net") {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  });
 }
 </script>
 </body>

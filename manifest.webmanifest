@@ -1,0 +1,17 @@
+{
+  "name": "Kohr & Co. 캄보디아 세무신고",
+  "short_name": "Kohr 세무",
+  "description": "매달 매출·급여·영수증을 올리고 세금을 확인하는 Kohr & Co. 고객용 앱",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F4F6F8",
+  "theme_color": "#0E6B57",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

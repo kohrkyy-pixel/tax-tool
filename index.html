@@ -564,6 +564,34 @@ function FilingDeadline({
   }, label));
 }
 
+// 신고월 기준 마감일 — 국세청 다음 달 20일, NSSF 다음 달 15일
+function dueDatesFor(year, month) {
+  const dueYear = month === 12 ? year + 1 : year;
+  const dueMonth = month === 12 ? 1 : month + 1;
+  const gdt = new Date(dueYear, dueMonth - 1, 20);
+  const nssf = new Date(dueYear, dueMonth - 1, 15);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return {
+    gdt,
+    nssf,
+    dueMonth,
+    days: Math.round((gdt - today) / 86400000)
+  };
+}
+function fmtMonthDay(d, lang) {
+  return lang === "en" ? d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    weekday: "short"
+  }) : `${d.getMonth() + 1}월 ${d.getDate()}일 (${"일월화수목금토"[d.getDay()]})`;
+}
+function deadlineText(days, lang) {
+  if (days > 0) return lang === "en" ? `D-${days}` : `D-${days}`;
+  if (days === 0) return lang === "en" ? "due today" : "오늘 마감";
+  return lang === "en" ? `${-days} days overdue` : `${-days}일 지남`;
+}
+
 // 안드로이드 앱(APK) 안에서 실행 중인지 감지 — 앱이 넣어주는 AndroidBridge 객체로 판별
 function isAndroidApp() {
   try {
@@ -638,7 +666,7 @@ function isEmbedded() {
    Content-Type을 text/plain으로 보내 CORS 사전요청(preflight)을 피한다.
    Apps Script 웹앱은 단순 POST 요청에는 CORS 허용 헤더를 붙여 응답한다. */
 
-async function gasRequest(cfg, action, data) {
+async function gasRequest(cfg, action, data, extra) {
   const url = (cfg.gasUrl || "").trim();
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) {
     throw new Error("웹 앱 URL 형식이 올바르지 않습니다. https://script.google.com/macros/s/.../exec 형태여야 하며 /exec 로 끝나야 합니다 (/dev 주소는 사용할 수 없습니다).");
@@ -656,7 +684,8 @@ async function gasRequest(cfg, action, data) {
         action,
         workspaceId: cfg.workspaceId,
         passphrase: cfg.passphrase || "",
-        data
+        data,
+        ...(extra || {})
       })
     });
   } catch (e) {
@@ -689,12 +718,15 @@ async function gasRequest(cfg, action, data) {
       if (json.receivedLength !== sent) {
         throw new Error(`전송 중 암호가 변형되었습니다 — 입력 ${sent}자 → 서버 수신 ${json.receivedLength}자. 브라우저를 바꿔서 시도해 보세요.`);
       }
-      if (json.receivedLength !== json.expectedLength) {
+      if (typeof json.expectedLength === "number" && json.receivedLength !== json.expectedLength) {
         throw new Error(`암호가 다릅니다 — 입력 ${sent}자, 스크립트에 설정된 값은 ${json.expectedLength}자입니다. 스크립트의 PASSPHRASE를 확인하세요.`);
       }
-      throw new Error(`암호가 일치하지 않습니다 (길이는 같음). 서버가 받은 문자코드: ${json.receivedCodes}. 앞뒤 공백이나 유사문자를 확인하세요.`);
+      if (json.receivedCodes) {
+        throw new Error(`암호가 일치하지 않습니다 (길이는 같음). 서버가 받은 문자코드: ${json.receivedCodes}. 앞뒤 공백이나 유사문자를 확인하세요.`);
+      }
+      throw new Error("AUTH_REQUIRED");
     }
-    if (json.version && json.version !== "v4-classify") {
+    if (json.version && !/^v[45]-/.test(json.version)) {
       throw new Error("배포된 스크립트가 최신이 아닙니다. [배포 → 배포 관리 → 편집 → 버전: 새 버전 → 배포]를 실행하세요.");
     }
     throw new Error("AUTH_REQUIRED");
@@ -702,22 +734,52 @@ async function gasRequest(cfg, action, data) {
   if (json.error && /50000|50,000|maximum of/i.test(json.error)) {
     throw new Error("서버 코드가 예전 버전이라 사진이 포함된 데이터를 저장하지 못했습니다(셀 용량 초과). 최신 apps-script-code.gs로 교체하고 [배포 관리 → 편집 → 새 버전]으로 배포해 주세요.");
   }
+  if (json.error === "FORBIDDEN") throw new Error("이 계정으로는 할 수 없는 작업입니다 (고객사 계정은 자기 회사 신고 자료만 저장할 수 있어요).");
   if (json.error) throw new Error(json.error);
   return json;
 }
+
+// 서버가 알려주는 로그인 권한: admin(사무소) 또는 client(고객사, 자기 회사만)
 async function gsheetLoad(cfg) {
   const json = await gasRequest(cfg, "load");
-  if (!json.data) return null;
   return {
-    data: json.data,
-    updatedAt: json.updatedAt || null
+    data: json.data || null,
+    updatedAt: json.updatedAt || null,
+    role: json.role === "client" ? "client" : "admin",
+    clientId: json.clientId || null,
+    access: json.access || {},
+    serverVersion: json.version || ""
   };
 }
-async function gsheetSave(cfg, data) {
-  const json = await gasRequest(cfg, "save", data);
+
+// patch 가 있으면 바뀐 부분만 보낸다 — 서버가 최신 저장본에 합쳐서 다른 사람의 저장 내용을 덮어쓰지 않는다
+async function gsheetSave(cfg, data, patch, baseUpdatedAt) {
+  const json = patch ? await gasRequest(cfg, "save", undefined, {
+    patch,
+    baseUpdatedAt: baseUpdatedAt || null
+  }) : await gasRequest(cfg, "save", data, {
+    baseUpdatedAt: baseUpdatedAt || null
+  });
   return {
-    updatedAt: json.updatedAt || null
+    updatedAt: json.updatedAt || null,
+    stale: !!json.stale
   };
+}
+async function gsheetSetClientPassword(cfg, clientId, password) {
+  try {
+    return await gasRequest(cfg, "setClientPassword", {
+      clientId,
+      password
+    });
+  } catch (e) {
+    if (e.message === "UNKNOWN_ACTION") {
+      throw new Error("서버 코드가 예전 버전입니다. 최신 apps-script-code.gs로 교체하고 [배포 관리 → 편집 → 새 버전]으로 배포해 주세요.");
+    }
+    throw e;
+  }
+}
+function getIn(obj, path) {
+  return path.reduce((o, k) => o == null ? undefined : o[k], obj);
 }
 
 // 데이터 전체를 받지 않고 "마지막 저장 시각"만 확인 — 바뀌었을 때만 전체를 다시 받는다
@@ -1976,6 +2038,49 @@ const SUBVIEW_LABELS = {
 function navGroupOf(view) {
   return NAV.find(n => n.id === view || (n.children || []).includes(view)) || NAV[0];
 }
+
+/* 선 아이콘 (시안과 동일한 24px 획 아이콘) */
+const ICON_PATHS = {
+  dashboard: ["M3 10.5L12 3l9 7.5V21H3z"],
+  monthly: ["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"],
+  reports: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M8 13h8M8 17h5"],
+  clients: ["M3 21h18", "M5 21V7l7-4 7 4v14", "M9 21v-6h6v6"],
+  settings: ["M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"],
+  camera: ["M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z", "M12 9a4 4 0 1 0 0 8a4 4 0 1 0 0-8z"],
+  gallery: ["M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M8.5 7a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3z", "M21 15l-5-5L5 21"],
+  check: ["M20 6L9 17l-5-5"],
+  chevronLeft: ["M15 18l-6-6 6-6"],
+  chevronRight: ["M9 18l6-6-6-6"],
+  arrowRight: ["M5 12h14M13 6l6 6-6 6"],
+  doc: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6"]
+};
+function Icon({
+  name,
+  size = 20,
+  stroke = 2,
+  color = "currentColor",
+  style
+}) {
+  return /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: color,
+    strokeWidth: stroke,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    style: {
+      flexShrink: 0,
+      ...style
+    }
+  }, (ICON_PATHS[name] || []).map((d, i) => /*#__PURE__*/React.createElement("path", {
+    key: i,
+    d: d
+  })));
+}
 function CambodiaTaxApp() {
   const [data, setData] = useState({
     clients: [],
@@ -1989,6 +2094,20 @@ function CambodiaTaxApp() {
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState("dashboard");
   const lastSubRef = useRef({}); // 묶음 메뉴(보고서·설정)에서 마지막으로 본 탭 기억
+  const [monthlyStartStep, setMonthlyStartStep] = useState(1); // 홈에서 [영수증 바로 찍기]로 들어오면 3단계부터
+  // 로그인 권한 — admin: 사무소(전체), client: 고객사(자기 회사만). 서버가 정해서 알려준다
+  const [auth, setAuth] = useState({
+    role: "admin",
+    clientId: null,
+    access: {}
+  });
+  const isClient = auth.role === "client";
+  // 고객사 계정에는 [고객사] 메뉴와 [서버 연결] 화면을 보여주지 않는다
+  const navItems = isClient ? NAV.filter(n => n.id !== "clients").map(n => n.children ? {
+    ...n,
+    children: n.children.filter(c => c !== "backend")
+  } : n) : NAV;
+  const groupOf = v => navItems.find(n => n.id === v || (n.children || []).includes(v)) || navItems[0];
   const [selectedClientId, setSelectedClientId] = useState(null);
   // 기본 신고월은 "지난달" — 매달 20일까지 전월분을 신고하므로
   const [selectedYear, setSelectedYear] = useState(() => {
@@ -2007,6 +2126,7 @@ function CambodiaTaxApp() {
   const [session, setSession] = useState(null);
   const [authRequired, setAuthRequired] = useState(false);
   const dataRef = useRef(data);
+  const refreshRef = useRef(null);
   const lastPersistTsRef = useRef(0);
   const sheetUpdatedRef = useRef(null); // 서버에 마지막으로 저장된 시각 (변경 확인용)
   const sessionRef = useRef(null);
@@ -2095,11 +2215,24 @@ function CambodiaTaxApp() {
   }, [saveSession]);
 
   // 백엔드가 설정되어 있으면 Supabase에서, 아니면 아티팩트 공유 저장소에서 읽는다
+  const applyAuth = r => {
+    const next = {
+      role: r?.role === "client" ? "client" : "admin",
+      clientId: r?.clientId || null,
+      access: r?.access || {}
+    };
+    setAuth(prev => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    if (next.role === "client") {
+      setSelectedClientId(next.clientId);
+      setView(v => ["clients", "backend"].includes(v) ? "dashboard" : v);
+    }
+  };
   const loadFromSource = useCallback(async cfg => {
     if (!cfg.enabled) return artifactLoad();
     if (cfg.mode === "gsheet") {
       const r = await gsheetLoad(cfg);
       sheetUpdatedRef.current = r?.updatedAt || null;
+      applyAuth(r);
       return r;
     }
     const token = await currentToken(cfg);
@@ -2164,7 +2297,7 @@ function CambodiaTaxApp() {
           setData(parsed);
           if (parsed.clients?.[0]) setSelectedClientId(parsed.clients[0].id);
         }
-        if (cfg.enabled && cfg.mode === "gsheet" && cfg.passphrase) {
+        if (cfg.enabled && cfg.mode === "gsheet" && cfg.passphrase && res?.role !== "client") {
           checkLocalData(res?.data ? normalize(res.data) : null);
         }
         setBackendError("");
@@ -2201,7 +2334,8 @@ function CambodiaTaxApp() {
 
   // optimistic=false 이면 서버 저장이 성공한 뒤에만 화면 데이터를 바꾼다 (월별 신고 저장용 — 실패 시 편집 내용 보존)
   const persist = useCallback(async (next, {
-    optimistic = true
+    optimistic = true,
+    paths = null
   } = {}) => {
     const prev = dataRef.current;
     if (optimistic) setData(next);
@@ -2210,8 +2344,20 @@ function CambodiaTaxApp() {
       if (!cfg.enabled) {
         await artifactSave(next);
       } else if (cfg.mode === "gsheet") {
-        const r = await gsheetSave(cfg, next);
-        sheetUpdatedRef.current = r.updatedAt || sheetUpdatedRef.current;
+        const patch = paths ? paths.map(path => ({
+          path,
+          value: getIn(next, path) ?? null
+        })) : null;
+        const r = await gsheetSave(cfg, next, patch, sheetUpdatedRef.current);
+        if (r.stale) {
+          // 그 사이 다른 사람이 저장했다 — 서버가 합쳐 두었으니 잠시 후 전체를 다시 받아 화면을 맞춘다
+          sheetUpdatedRef.current = null;
+          setTimeout(() => {
+            refreshRef.current && refreshRef.current();
+          }, 3200);
+        } else {
+          sheetUpdatedRef.current = r.updatedAt || sheetUpdatedRef.current;
+        }
       } else {
         const token = await currentToken(cfg);
         await supabaseSave(cfg, next, token);
@@ -2270,6 +2416,7 @@ function CambodiaTaxApp() {
       if (e.message === "AUTH_REQUIRED") setAuthRequired(true);else if (cfg.enabled) setBackendError(e.message || String(e));
     }
   }, [loadFromSource]);
+  refreshRef.current = refreshFromStorage;
 
   // 로그인
   const signIn = useCallback(async (email, password) => {
@@ -2319,6 +2466,7 @@ function CambodiaTaxApp() {
     // 암호가 맞는지 실제로 백엔드에 확인 (틀리면 AUTH_REQUIRED 예외 발생)
     const res = await gsheetLoad(cfg);
     sheetUpdatedRef.current = res?.updatedAt || null;
+    applyAuth(res);
     setSessionPass(pass);
     backendRef.current = cfg;
     if (remember) {
@@ -2337,7 +2485,7 @@ function CambodiaTaxApp() {
     }
     setBackendError("");
     setSyncedAt(Date.now());
-    checkLocalData(res?.data ? normalize(res.data) : null);
+    if (res?.role !== "client") checkLocalData(res?.data ? normalize(res.data) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backendOverride]);
 
@@ -2497,16 +2645,36 @@ function CambodiaTaxApp() {
       window.removeEventListener("focus", poll);
     };
   }, [loaded, refreshFromStorage]);
-  const addClient = client => {
+  const addClient = async client => {
+    const {
+      password,
+      ...info
+    } = client;
+    const id = uid();
     const next = {
       ...data,
       clients: [...data.clients, {
-        id: uid(),
-        ...client
+        id,
+        ...info
       }]
     };
-    persist(next);
-    setSelectedClientId(next.clients[next.clients.length - 1].id);
+    setSelectedClientId(id);
+    const ok = await persist(next, {
+      paths: [["clients"]]
+    });
+    if (!ok) return {
+      ok: false
+    };
+    if (password) {
+      const r = await setClientPassword(id, password);
+      if (!r.ok) return {
+        ok: true,
+        passwordError: r.error
+      };
+    }
+    return {
+      ok: true
+    };
   };
   const removeClient = id => {
     const nextFilings = {
@@ -2523,7 +2691,9 @@ function CambodiaTaxApp() {
       filings: nextFilings,
       capitalGains: nextCapitalGains
     };
-    persist(next);
+    persist(next, {
+      paths: [["clients"], ["filings", id], ["capitalGains", id]]
+    });
     if (selectedClientId === id) setSelectedClientId(next.clients[0]?.id || null);
   };
   const addCapitalGain = (clientId, entry) => {
@@ -2539,7 +2709,9 @@ function CambodiaTaxApp() {
         [clientId]: list
       }
     };
-    persist(next);
+    persist(next, {
+      paths: [["capitalGains", clientId]]
+    });
   };
   const removeCapitalGain = (clientId, id) => {
     const list = (data.capitalGains[clientId] || []).filter(g => g.id !== id);
@@ -2550,7 +2722,9 @@ function CambodiaTaxApp() {
         [clientId]: list
       }
     };
-    persist(next);
+    persist(next, {
+      paths: [["capitalGains", clientId]]
+    });
   };
   const updateSettings = patch => {
     const next = {
@@ -2560,7 +2734,9 @@ function CambodiaTaxApp() {
         ...patch
       }
     };
-    persist(next);
+    persist(next, {
+      paths: [["settings"]]
+    });
   };
   const saveFiling = (clientId, key, filing) => {
     const clientFilings = {
@@ -2575,8 +2751,48 @@ function CambodiaTaxApp() {
       }
     };
     return persist(next, {
-      optimistic: false
+      optimistic: false,
+      paths: [["filings", clientId, key]]
     });
+  };
+
+  // 관리자: 고객사 비밀번호 지정·변경 (빈 값이면 삭제). 서버에는 암호화된 값만 저장된다
+  const setClientPassword = async (clientId, password) => {
+    const cfg = backendRef.current;
+    if (!cfg.enabled || cfg.mode !== "gsheet") {
+      return {
+        ok: false,
+        error: lang === "en" ? "Client passwords need the shared server connection (not available in review mode)." : "고객사 비밀번호는 공유 서버에 연결된 상태에서만 지정할 수 있어요 (검토 모드에서는 불가)."
+      };
+    }
+    try {
+      const r = await gsheetSetClientPassword(cfg, clientId, password);
+      if (r.error) throw new Error(r.error);
+      setAuth(a => {
+        const access = {
+          ...a.access
+        };
+        if (password) access[clientId] = true;else delete access[clientId];
+        return {
+          ...a,
+          access
+        };
+      });
+      return {
+        ok: true
+      };
+    } catch (e) {
+      const m = e.message || String(e);
+      const msg = {
+        PASSWORD_TOO_SHORT: lang === "en" ? "Use at least 6 characters." : "비밀번호는 6자 이상으로 해 주세요.",
+        PASSWORD_IS_ADMIN: lang === "en" ? "That is the office passphrase — choose another." : "관리자 암호와 같은 비밀번호는 쓸 수 없어요.",
+        PASSWORD_DUPLICATE: lang === "en" ? "Another client already uses this password — choose another." : "다른 고객사가 이미 쓰는 비밀번호예요. 다른 비밀번호를 정해 주세요."
+      }[m] || m;
+      return {
+        ok: false,
+        error: msg
+      };
+    }
   };
   const selectedClient = data.clients.find(c => c.id === selectedClientId) || null;
   const mKey = monthKey(selectedYear, selectedMonth);
@@ -2613,7 +2829,11 @@ function CambodiaTaxApp() {
       window.scrollTo(0, 0);
     } catch (e) {/* 무시 */}
   };
-  const goNav = n => goView(n.children ? lastSubRef.current[n.id] || n.children[0] : n.id);
+  const goNav = n => {
+    if (n.id === "monthly" && view !== "monthly") setMonthlyStartStep(1);
+    const last = lastSubRef.current[n.id];
+    goView(n.children ? n.children.includes(last) ? last : n.children[0] : n.id);
+  };
   if (!loaded) {
     return /*#__PURE__*/React.createElement("div", {
       style: S.loadingScreen
@@ -2698,28 +2918,32 @@ function CambodiaTaxApp() {
       ...(lang === l ? S.langBtnLightActive : {})
     },
     onClick: () => changeLang(l)
-  }, l === "ko" ? "한국어" : "English"))), /*#__PURE__*/React.createElement("nav", {
+  }, l === "ko" ? "한국어" : "English"))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "lang-toggle-compact",
+    onClick: () => changeLang(lang === "en" ? "ko" : "en"),
+    "aria-label": lang === "en" ? "언어를 한국어로 바꾸기" : "Switch language to English"
+  }, lang === "en" ? "EN · 한국어" : "KO · EN"), /*#__PURE__*/React.createElement("nav", {
     className: "side-nav",
     style: {
       marginTop: 18
     },
     "aria-label": lang === "en" ? "Main menu" : "주 메뉴"
-  }, NAV.map(n => {
-    const active = navGroupOf(view).id === n.id;
+  }, navItems.map(n => {
+    const active = groupOf(view).id === n.id;
     return /*#__PURE__*/React.createElement("button", {
       key: n.id,
       "aria-current": active ? "page" : undefined,
       onClick: () => goNav(n),
+      title: lang === "en" ? n.hintEn : n.hintKo,
       style: {
         ...S.navItem,
-        ...(active ? S.navItemActive : {}),
-        flexDirection: "column",
-        alignItems: "flex-start",
-        gap: 0
+        ...(active ? S.navItemActive : {})
       }
-    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.en : n.ko), /*#__PURE__*/React.createElement("span", {
-      style: S.navHint
-    }, lang === "en" ? n.hintEn : n.hintKo));
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: n.id,
+      size: 20
+    }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.en : n.ko));
   })), /*#__PURE__*/React.createElement("div", {
     className: "sidebar-footer",
     style: S.sidebarFooter
@@ -2745,7 +2969,14 @@ function CambodiaTaxApp() {
     style: {
       fontWeight: 600
     }
-  }, backendError ? lang === "en" ? "Sync problem" : "동기화 문제" : backend.reviewMode ? lang === "en" ? "Review mode (this device only)" : "검토 모드 (이 기기만)" : backend.enabled ? lang === "en" ? "Shared data connected" : "공유 데이터 연결됨" : lang === "en" ? "Not connected" : "서버 미연결")), backendError && /*#__PURE__*/React.createElement("div", {
+  }, backendError ? lang === "en" ? "Sync problem" : "동기화 문제" : backend.reviewMode ? lang === "en" ? "Review mode (this device only)" : "검토 모드 (이 기기만)" : backend.enabled ? lang === "en" ? "Shared data connected" : "공유 데이터 연결됨" : lang === "en" ? "Not connected" : "서버 미연결")), backend.enabled && !backend.reviewMode && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft,
+      marginTop: 4,
+      padding: "0 6px"
+    }
+  }, isClient ? `${lang === "en" ? "Client account" : "고객사 계정"} · ${(data.clients[0] || {}).name || ""}` : lang === "en" ? "Office (admin) account" : "사무소(관리자) 계정"), backendError && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12.5,
       color: PALETTE.red,
@@ -2796,14 +3027,17 @@ function CambodiaTaxApp() {
   }, backend.reviewMode ? lang === "en" ? "Back to passphrase" : "암호 입력 화면으로" : lang === "en" ? "Lock" : "잠금"))), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-tabs",
     "aria-label": lang === "en" ? "Main menu" : "주 메뉴"
-  }, NAV.map(n => {
-    const active = navGroupOf(view).id === n.id;
+  }, navItems.map(n => {
+    const active = groupOf(view).id === n.id;
     return /*#__PURE__*/React.createElement("button", {
       key: n.id,
       "aria-current": active ? "page" : undefined,
       onClick: () => goNav(n),
       className: active ? "active" : ""
-    }, lang === "en" ? n.en : n.ko);
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: n.id,
+      size: 22
+    }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.en : n.ko));
   })), /*#__PURE__*/React.createElement("main", {
     style: S.main,
     className: "main-content"
@@ -2903,10 +3137,10 @@ function CambodiaTaxApp() {
     type: "button",
     style: S.buttonGhost,
     onClick: () => setUpdateDismissed(true)
-  }, lang === "en" ? "Later" : "나중에"))), navGroupOf(view).children && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Later" : "나중에"))), groupOf(view).children && /*#__PURE__*/React.createElement("div", {
     style: S.subTabs,
     role: "tablist"
-  }, navGroupOf(view).children.map(v => /*#__PURE__*/React.createElement("button", {
+  }, groupOf(view).children.map(v => /*#__PURE__*/React.createElement("button", {
     key: v,
     role: "tab",
     "aria-selected": view === v,
@@ -2917,21 +3151,26 @@ function CambodiaTaxApp() {
     onClick: () => goView(v)
   }, lang === "en" ? SUBVIEW_LABELS[v].en : SUBVIEW_LABELS[v].ko))), view === "dashboard" && /*#__PURE__*/React.createElement(Dashboard, {
     data: data,
+    isClient: isClient,
     selectedYear: selectedYear,
     selectedMonth: selectedMonth,
     setSelectedYear: setSelectedYear,
     setSelectedMonth: setSelectedMonth,
-    onOpenClient: id => {
+    onOpenClient: (id, step) => {
       setSelectedClientId(id);
+      setMonthlyStartStep(step || 1);
       goView("monthly");
     },
     onGo: goView
-  }), view === "clients" && /*#__PURE__*/React.createElement(ClientsView, {
+  }), view === "clients" && !isClient && /*#__PURE__*/React.createElement(ClientsView, {
     clients: data.clients,
     filings: data.filings,
     capitalGains: data.capitalGains,
     onAdd: addClient,
-    onRemove: removeClient
+    onRemove: removeClient,
+    access: auth.access,
+    onSetPassword: setClientPassword,
+    serverConnected: backend.enabled && backend.mode === "gsheet"
   }), view === "monthly" && /*#__PURE__*/React.createElement(MonthlyView, {
     clients: data.clients,
     selectedClient: selectedClient,
@@ -2947,8 +3186,11 @@ function CambodiaTaxApp() {
     mKey: mKey,
     onSave: filing => saveFiling(selectedClientId, mKey, filing),
     settings: data.settings,
-    onUpdateSettings: updateSettings,
-    onDirtyChange: handleDirtyChange
+    onUpdateSettings: isClient ? null : updateSettings,
+    onDirtyChange: handleDirtyChange,
+    initialStep: monthlyStartStep,
+    onGo: goView,
+    canManageClients: !isClient
   }), view === "annual" && /*#__PURE__*/React.createElement(AnnualView, {
     clients: data.clients,
     selectedClient: selectedClient,
@@ -2991,7 +3233,7 @@ function CambodiaTaxApp() {
       setUpdateInfo(info);
       setUpdateDismissed(false);
     }
-  }), view === "backend" && /*#__PURE__*/React.createElement(BackendView, {
+  }), view === "backend" && !isClient && /*#__PURE__*/React.createElement(BackendView, {
     backend: backend,
     backendError: backendError,
     onSave: saveBackendConfig
@@ -3002,6 +3244,7 @@ function CambodiaTaxApp() {
 
 function Dashboard({
   data,
+  isClient,
   selectedYear,
   selectedMonth,
   setSelectedYear,
@@ -3039,14 +3282,19 @@ function Dashboard({
     setSelectedYear(y);
     setSelectedMonth(m);
   };
+  const prevKey = prevMonthKey(selectedYear, selectedMonth);
   const rows = data.clients.map(c => {
     const filing = (data.filings[c.id] || {})[mKey];
     const hasData = filing && (Number(filing.revenue) > 0 || Number(filing.purchase) > 0 || Number(filing.expenses) > 0 || (filing.employees || []).length > 0 || (filing.evidence || []).length > 0 || (filing.withholding || []).length > 0);
     const status = filing?.filed ? "filed" : hasData ? "draft" : "empty";
+    const stepsDone = filing ? [Number(filing.revenue) > 0 || Number(filing.purchase) > 0 || Number(filing.expenses) > 0, (filing.employees || []).length > 0, (filing.evidence || []).length + (filing.withholding || []).length > 0].filter(Boolean).length : 0;
+    const issues = validateFiling(filing || {}, c, (data.filings[c.id] || {})[prevKey], lang).filter(i => i.level !== "info");
     return {
       c,
       filing,
       status,
+      stepsDone,
+      issues,
       calc: hasData ? calcMonthly(filing) : null
     };
   });
@@ -3055,8 +3303,12 @@ function Dashboard({
     draft: 1,
     filed: 2
   };
-  rows.sort((x, y) => order[x.status] - order[y.status]);
+  rows.sort((x, y) => order[x.status] - order[y.status] || y.issues.length - x.issues.length);
   const count = st => rows.filter(r => r.status === st).length;
+  const total = rows.length;
+  const allFiled = total > 0 && count("filed") === total;
+  const due = dueDatesFor(selectedYear, selectedMonth);
+  const sumDue = rows.reduce((a, r) => a + (r.calc ? r.calc.totalDue : 0), 0);
   const STATUS = {
     empty: {
       ko: "입력 전",
@@ -3080,10 +3332,64 @@ function Dashboard({
       action: en ? "View" : "보기"
     }
   };
+  const actionStyle = st => st === "empty" ? S.buttonPrimary : st === "draft" ? S.buttonOutline : S.buttonGhost;
+  const headline = allFiled ? en ? "All filed" : "모두 제출했어요" : due.days > 0 ? en ? `${due.days} days to the deadline` : `마감까지 ${due.days}일` : due.days === 0 ? en ? "Due today" : "오늘 마감이에요" : en ? `${-due.days} days overdue` : `마감이 ${-due.days}일 지났어요`;
+  const monthLabel = en ? `Filings for ${selectedMonth}/${selectedYear}` : `${selectedYear}년 ${selectedMonth}월분 신고`;
+  const filedText = r => {
+    if (!r.filing?.filedAt) return en ? "Filed" : "제출 완료";
+    const d = new Date(r.filing.filedAt);
+    return en ? `Filed ${d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric"
+    })}` : `${d.getMonth() + 1}월 ${d.getDate()}일 제출`;
+  };
+  const statusLine = r => {
+    if (r.status === "empty") return en ? "Not started yet" : "입력 전 · 아직 시작 안 함";
+    if (r.status === "draft") return `${en ? "In progress" : "입력 중"} · ${en ? `${r.stepsDone}/4 steps` : `${r.stepsDone}/4단계`} · ${fmt(r.calc.totalDue)} KHR`;
+    return `${filedText(r)} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
+  };
+  const attentionText = r => {
+    if (!r.issues.length) return en ? "None" : "없음";
+    if (!r.c.tin && r.issues.length === 1) return en ? "No TIN" : "TIN 없음";
+    return en ? `${r.issues.length} item(s)` : `${r.issues.length}건`;
+  };
+  // 영수증 바로 찍기 — 아직 제출하지 않은 첫 고객사의 증빙 단계로
+  const receiptTarget = rows.find(r => r.status !== "filed") || rows[0];
+  const progress = total > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      fontSize: 13,
+      color: "#E4F1EC",
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? `Filed ${count("filed")} / ${total}` : `제출 완료 ${count("filed")} / ${total}곳`), /*#__PURE__*/React.createElement("span", null, en ? `In progress ${count("draft")} · Not started ${count("empty")}` : `입력 중 ${count("draft")} · 입력 전 ${count("empty")}`)), /*#__PURE__*/React.createElement("div", {
+    role: "img",
+    "aria-label": en ? `${count("filed")} of ${total} filed` : `${total}곳 중 ${count("filed")}곳 제출`,
+    style: {
+      height: 8,
+      borderRadius: 4,
+      background: "rgba(255,255,255,.22)",
+      display: "flex",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: `${count("filed") / total * 100}%`,
+      background: "#fff"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: `${count("draft") / total * 100}%`,
+      background: "rgba(255,255,255,.55)"
+    }
+  })));
   const guide = /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
-      marginBottom: 18
+      marginTop: 14
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3098,7 +3404,7 @@ function Dashboard({
     type: "button",
     style: S.buttonGhostSmall2,
     onClick: hideGuide
-  }, en ? "Hide" : "숨기기")), /*#__PURE__*/React.createElement("ol", {
+  }, en ? "Hide" : "숨기기")), isClient ? /*#__PURE__*/React.createElement("ol", {
     style: {
       margin: 0,
       paddingLeft: 20,
@@ -3106,7 +3412,15 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Print the filing draft under Reports and file with the GDT by the 20th." : "[보고서]의 신고서 작성안을 보고 다음 달 20일까지 국세청에 신고합니다.")), data.clients.length === 0 && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps, then press Save." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 [저장]을 누릅니다."), /*#__PURE__*/React.createElement("li", null, en ? "Snap receipts as you get them — the date and amount are read automatically." : "영수증은 받을 때마다 사진으로 올리세요 — 날짜·금액은 자동으로 읽어요."), /*#__PURE__*/React.createElement("li", null, en ? "Kohr & Co. reviews your entries and files with the GDT by the 20th." : "입력한 내용은 Kohr & Co.가 검토한 뒤 20일까지 국세청에 신고합니다.")) : /*#__PURE__*/React.createElement("ol", {
+    style: {
+      margin: 0,
+      paddingLeft: 20,
+      fontSize: 15,
+      lineHeight: 1.9,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Print the filing draft under Reports and file with the GDT by the 20th." : "[보고서]의 신고서 작성안을 보고 다음 달 20일까지 국세청에 신고합니다.")), data.clients.length === 0 && !isClient && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonPrimary,
@@ -3115,112 +3429,544 @@ function Dashboard({
     onClick: () => onGo("clients")
   }, en ? "Add the first client" : "첫 고객사 추가하기"));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "mobile-only"
+  }, /*#__PURE__*/React.createElement("section", {
+    style: S.heroCard
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      alignItems: "center",
-      gap: 10,
-      flexWrap: "wrap",
-      marginBottom: 6
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: 12
     }
-  }, /*#__PURE__*/React.createElement("h1", {
-    style: S.h1,
-    className: "h1-title"
-  }, en ? `Filings for ${selectedMonth}/${selectedYear}` : `${selectedYear}년 ${selectedMonth}월분 신고`), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      gap: 6
+      minWidth: 0
     }
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhostSmall2,
-    "aria-label": en ? "Previous month" : "이전 달",
-    onClick: () => shiftMonth(-1)
-  }, "‹"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhostSmall2,
-    "aria-label": en ? "Next month" : "다음 달",
-    onClick: () => shiftMonth(1)
-  }, "›"))), /*#__PURE__*/React.createElement(FilingDeadline, {
-    year: selectedYear,
-    month: selectedMonth,
-    filed: rows.length > 0 && count("filed") === rows.length,
-    lang: lang
-  }), (!guideHidden || data.clients.length === 0) && guide, data.clients.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: S.summaryRow
-  }, ["empty", "draft", "filed"].map(st => /*#__PURE__*/React.createElement("div", {
-    key: st,
-    style: S.summaryTile
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13.5,
-      color: PALETTE.inkSoft
+      color: "#CFE6DE"
     }
-  }, en ? STATUS[st].en : STATUS[st].ko), /*#__PURE__*/React.createElement("div", {
+  }, monthLabel), /*#__PURE__*/React.createElement("h1", {
+    className: "h1-title",
     style: {
-      fontSize: 26,
+      margin: "2px 0 0",
+      fontSize: 23,
       fontWeight: 700,
-      color: st === "empty" && count(st) > 0 ? PALETTE.brassText : PALETTE.ink
+      color: "#fff"
     }
-  }, count(st), /*#__PURE__*/React.createElement("span", {
+  }, headline), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 14,
-      fontWeight: 500,
-      color: PALETTE.inkSoft
+      fontSize: 13,
+      color: "#CFE6DE",
+      marginTop: 2
     }
-  }, en ? "" : "곳"))))), /*#__PURE__*/React.createElement("section", {
+  }, en ? `GDT ${fmtMonthDay(due.gdt, lang)} · NSSF ${fmtMonthDay(due.nssf, lang)}` : `국세청 ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일 · NSSF ${due.nssf.getMonth() + 1}월 ${due.nssf.getDate()}일`)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.heroNavBtn,
+    "aria-label": en ? "Previous month" : "이전 달",
+    onClick: () => shiftMonth(-1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronLeft",
+    size: 18
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.heroNavBtn,
+    "aria-label": en ? "Next month" : "다음 달",
+    onClick: () => shiftMonth(1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronRight",
+    size: 18
+  })))), progress), data.clients.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      padding: "18px 2px 10px"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 18,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, isClient ? en ? "This month's to-do" : "이번 달 할 일" : en ? "To-do by client" : "고객사별 할 일"), !isClient && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      textDecoration: "none",
+      padding: "6px 2px"
+    },
+    onClick: () => onGo("clients")
+  }, en ? "Add client" : "고객사 추가")), /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
       padding: 0,
       overflow: "hidden"
     }
-  }, rows.map(({
-    c,
-    status,
-    calc
-  }, i) => /*#__PURE__*/React.createElement("div", {
-    key: c.id,
+  }, rows.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: r.c.id,
     style: {
-      ...S.todoRow,
-      borderTop: i ? `1px solid ${PALETTE.line}` : "none"
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "14px 16px",
+      borderTop: i ? "1px solid #EEF1F4" : "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    "aria-hidden": "true",
+    style: {
+      ...S.avatar,
+      background: STATUS[r.status].bg,
+      color: STATUS[r.status].fg
+    }
+  }, r.status === "filed" ? /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 20,
+    stroke: 2.2
+  }) : (r.c.name || "?").trim().charAt(0).toUpperCase()), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      fontSize: 15.5,
+      fontWeight: 600,
+      color: PALETTE.ink,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, r.c.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      marginTop: 1,
+      color: r.status === "empty" ? PALETTE.brassText : r.status === "filed" ? PALETTE.tealDeep : PALETTE.inkSoft,
+      fontWeight: r.status === "empty" ? 600 : 400
+    }
+  }, statusLine(r))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...actionStyle(r.status),
+      flexShrink: 0
+    },
+    onClick: () => onOpenClient(r.c.id)
+  }, STATUS[r.status].action)))), receiptTarget && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.receiptShortcut,
+    onClick: () => onOpenClient(receiptTarget.c.id, 3)
+  }, /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      ...S.avatar,
+      background: PALETTE.tealTint,
+      color: PALETTE.teal
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "camera",
+    size: 22
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
       minWidth: 0,
-      flex: 1
+      textAlign: "left"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 15,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, en ? "Snap a receipt now" : "영수증 바로 찍기"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, receiptTarget.c.name, " · ", en ? "date and amount are read automatically" : "날짜·금액은 자동으로 읽어요")), /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronRight",
+    size: 18,
+    color: PALETTE.inkSoft
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "desktop-only"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      gap: 16,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, monthLabel), /*#__PURE__*/React.createElement("h1", {
+    className: "h1-title",
+    style: {
+      margin: "2px 0 0",
+      fontSize: 28,
+      fontWeight: 700,
+      letterSpacing: -0.4,
+      color: PALETTE.ink
+    }
+  }, allFiled ? headline : due.days > 0 ? en ? `${due.days} days left to file` : `마감까지 ${due.days}일 남았어요` : headline)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    "aria-label": en ? "Previous month" : "이전 달",
+    onClick: () => shiftMonth(-1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronLeft",
+    size: 16,
+    style: {
+      marginRight: 4,
+      verticalAlign: -3
+    }
+  }), en ? "Previous month" : "이전 달"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    "aria-label": en ? "Next month" : "다음 달",
+    onClick: () => shiftMonth(1)
+  }, en ? "Next month" : "다음 달", /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronRight",
+    size: 16,
+    style: {
+      marginLeft: 4,
+      verticalAlign: -3
+    }
+  })), !isClient && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    onClick: () => onGo("clients")
+  }, en ? "Add client" : "고객사 추가"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+      gap: 12,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.deskTile
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "GDT filing & payment" : "국세청 신고·납부"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      marginTop: 4,
+      color: PALETTE.ink
+    }
+  }, fmtMonthDay(due.gdt, lang))), /*#__PURE__*/React.createElement("div", {
+    style: S.deskTile
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "NSSF payment" : "NSSF 납부"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      marginTop: 4,
+      color: PALETTE.ink
+    }
+  }, fmtMonthDay(due.nssf, lang))), /*#__PURE__*/React.createElement("div", {
+    style: S.deskTile
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Filed" : "제출 완료"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      color: PALETTE.ink,
+      whiteSpace: "nowrap"
+    }
+  }, count("filed"), " / ", total, en ? "" : "곳"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      height: 8,
+      borderRadius: 4,
+      background: "#E6EAEE",
+      display: "flex",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: total ? `${count("filed") / total * 100}%` : 0,
+      background: PALETTE.teal
+    }
+  }))))), data.clients.length > 0 && /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      padding: 0,
+      overflow: "hidden"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 16,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+      padding: "16px 20px",
+      borderBottom: `1px solid ${PALETTE.line}`
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 17,
       fontWeight: 700,
       color: PALETTE.ink
     }
-  }, c.name), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Progress by client" : "고객사별 진행 상황"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 13.5,
-      color: PALETTE.inkSoft,
-      marginTop: 2
+      color: PALETTE.inkSoft
     }
-  }, calc ? `${en ? "Tax due" : "납부세액"} ${fmt(calc.totalDue)} KHR` : en ? "Nothing entered for this month yet" : "이번 달 입력 내용 없음")), /*#__PURE__*/React.createElement("span", {
+  }, en ? "Needs attention first" : "확인 필요한 곳 먼저")), /*#__PURE__*/React.createElement("div", {
+    className: "table-scroll",
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      minWidth: 720,
+      borderCollapse: "collapse",
+      fontSize: 14.5
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      textAlign: "left",
+      color: PALETTE.inkSoft,
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 20px",
+      fontWeight: 500
+    }
+  }, en ? "Client" : "고객사"), /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 12px",
+      fontWeight: 500
+    }
+  }, en ? "Status" : "상태"), /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 12px",
+      fontWeight: 500
+    }
+  }, en ? "Progress" : "진행"), /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 12px",
+      fontWeight: 500,
+      textAlign: "right"
+    }
+  }, en ? "Tax due (KHR)" : "납부세액 (KHR)"), /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 12px",
+      fontWeight: 500
+    }
+  }, en ? "To check" : "확인 필요"), /*#__PURE__*/React.createElement("th", {
+    scope: "col",
+    style: {
+      padding: "10px 20px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: S.srOnly
+  }, en ? "Action" : "동작")))), /*#__PURE__*/React.createElement("tbody", null, rows.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.c.id,
+    style: {
+      borderTop: "1px solid #EEF1F4"
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 20px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, r.c.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, [r.c.type, r.c.tin || (en ? "No TIN" : "TIN 미등록")].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 12px"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
       ...S.statusBadge,
-      background: STATUS[status].bg,
-      color: STATUS[status].fg
+      background: STATUS[r.status].bg,
+      color: STATUS[r.status].fg
     }
-  }, en ? STATUS[status].en : STATUS[status].ko), /*#__PURE__*/React.createElement("button", {
+  }, en ? STATUS[r.status].en : STATUS[r.status].ko)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 12px",
+      color: r.status === "empty" ? PALETTE.inkSoft : PALETTE.ink
+    }
+  }, r.status === "filed" ? filedText(r) : en ? `${r.stepsDone} / 4 steps` : `${r.stepsDone} / 4단계`), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 12px",
+      textAlign: "right",
+      fontWeight: r.calc ? 600 : 400,
+      color: r.calc ? PALETTE.ink : PALETTE.inkSoft
+    }
+  }, r.calc ? fmt(r.calc.totalDue) : "—"), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 12px",
+      color: r.issues.length ? PALETTE.brassText : PALETTE.inkSoft,
+      fontWeight: r.issues.length ? 600 : 400
+    },
+    title: r.issues.map(i => i.msg).join("\n")
+  }, attentionText(r)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "10px 20px",
+      textAlign: "right"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    style: status === "filed" ? S.buttonGhost : S.buttonPrimary,
-    onClick: () => onOpenClient(c.id)
-  }, STATUS[status].action))))));
+    style: {
+      ...actionStyle(r.status),
+      whiteSpace: "nowrap"
+    },
+    onClick: () => onOpenClient(r.c.id)
+  }, STATUS[r.status].action))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderTop: `1px solid ${PALETTE.line}`,
+      background: "#FAFBFC"
+    }
+  }, /*#__PURE__*/React.createElement("td", {
+    colSpan: 3,
+    style: {
+      padding: "14px 20px",
+      fontWeight: 600
+    }
+  }, en ? `Total for ${selectedMonth}/${selectedYear}` : `${selectedMonth}월분 합계`), /*#__PURE__*/React.createElement("td", {
+    style: {
+      padding: "14px 12px",
+      textAlign: "right",
+      fontWeight: 700
+    }
+  }, fmt(sumDue)), /*#__PURE__*/React.createElement("td", {
+    colSpan: 2
+  }))))))), (!guideHidden || data.clients.length === 0) && guide);
 }
 
 /* ---------------- Clients ---------------- */
 
+// 헷갈리는 글자(0/O, 1/l/I)를 뺀 8자리 비밀번호
+function makeClientPassword() {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(8);
+  try {
+    crypto.getRandomValues(buf);
+  } catch (e) {
+    for (let i = 0; i < 8; i++) buf[i] = Math.floor(Math.random() * 1e9);
+  }
+  return Array.from(buf, n => chars[n % chars.length]).join("");
+}
+function PasswordInput({
+  id,
+  value,
+  onChange,
+  label,
+  placeholder,
+  onEnter
+}) {
+  const lang = useLang();
+  const [show, setShow] = useState(true);
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 6,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    id: id,
+    "aria-label": label,
+    style: {
+      ...S.input,
+      flex: 1,
+      minWidth: 0
+    },
+    type: show ? "text" : "password",
+    autoComplete: "new-password",
+    placeholder: placeholder,
+    value: value,
+    onChange: e => onChange(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter" && onEnter) onEnter();
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhostSmall2,
+      flexShrink: 0
+    },
+    onClick: () => setShow(!show)
+  }, show ? lang === "en" ? "Hide" : "숨기기" : lang === "en" ? "Show" : "보기"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhostSmall2,
+      flexShrink: 0
+    },
+    onClick: () => {
+      onChange(makeClientPassword());
+      setShow(true);
+    }
+  }, lang === "en" ? "Generate" : "자동 생성"));
+}
 function ClientsView({
   clients,
   filings,
   capitalGains,
   onAdd,
-  onRemove
+  onRemove,
+  access = {},
+  onSetPassword,
+  serverConnected
 }) {
   const [name, setName] = useState("");
   // 삭제는 되돌릴 수 없고 모든 기기에 반영되므로, 상호명을 직접 입력해야 확정된다
@@ -3228,54 +3974,174 @@ function ClientsView({
   const [deleteTyped, setDeleteTyped] = useState("");
   const [tin, setTin] = useState("");
   const [type, setType] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState(null); // { kind: "ok" | "error", text }
+  const [pwEditId, setPwEditId] = useState(null);
+  const [pwDraft, setPwDraft] = useState("");
+  const [pwMsg, setPwMsg] = useState(null);
   const lang = useLang();
-  const submit = () => {
-    if (!name.trim()) return;
-    onAdd({
+  const en = lang === "en";
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    if (serverConnected && password.trim().length < 6) {
+      setNotice({
+        kind: "error",
+        text: en ? "Set a client password of at least 6 characters (or press Generate)." : "고객사 비밀번호를 6자 이상으로 정해 주세요 ([자동 생성]을 눌러도 돼요)."
+      });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    const pw = serverConnected ? password.trim() : "";
+    const r = await onAdd({
       name: name.trim(),
       tin: tin.trim(),
-      type: type.trim()
+      type: type.trim(),
+      password: pw
     });
+    setBusy(false);
+    if (r && r.ok === false) {
+      setNotice({
+        kind: "error",
+        text: en ? "Could not save the client. Check the connection and try again." : "고객사를 저장하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+      });
+      return;
+    }
+    if (r && r.passwordError) {
+      setNotice({
+        kind: "error",
+        text: (en ? "Client added, but the password was not set: " : "고객사는 등록했지만 비밀번호를 정하지 못했어요: ") + r.passwordError + (en ? " Set it from the list below." : " 아래 목록에서 다시 지정해 주세요.")
+      });
+    } else {
+      setNotice({
+        kind: "ok",
+        text: pw ? en ? `Added “${name.trim()}”. Give the client this password: ${pw}` : `“${name.trim()}”을(를) 등록했어요. 고객사에 이 비밀번호를 전달하세요: ${pw}` : en ? `Added “${name.trim()}”.` : `“${name.trim()}”을(를) 등록했어요.`
+      });
+    }
     setName("");
     setTin("");
     setType("");
+    setPassword("");
+  };
+  const savePassword = async (clientId, value) => {
+    setPwMsg(null);
+    const r = await onSetPassword(clientId, value);
+    if (!r.ok) {
+      setPwMsg({
+        id: clientId,
+        kind: "error",
+        text: r.error
+      });
+      return;
+    }
+    setPwMsg({
+      id: clientId,
+      kind: "ok",
+      text: value ? en ? `Saved. New password: ${value}` : `저장했어요. 새 비밀번호: ${value}` : en ? "Client login removed." : "고객사 로그인을 막았어요."
+    });
+    setPwEditId(null);
+    setPwDraft("");
   };
   const handleKeyDown = e => {
     if (e.key === "Enter") submit();
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
-    eyebrow: lang === "en" ? "02 — Clients" : "02 — 고객사",
-    title: lang === "en" ? "Client Management" : "고객사 관리",
-    sub: lang === "en" ? "Register and manage business information" : "사업자 정보를 등록하고 관리합니다"
-  }), /*#__PURE__*/React.createElement("div", {
-    style: S.formRow,
-    className: "form-row"
-  }, /*#__PURE__*/React.createElement("input", {
-    "aria-label": lang === "en" ? "Company name" : "상호명",
+    title: en ? "Clients" : "고객사 관리",
+    sub: en ? "Register client companies. Each client gets its own password and can see and edit only its own company." : "고객사를 등록합니다. 고객사마다 비밀번호를 정해 주면, 그 비밀번호로는 자기 회사 자료만 보고 입력할 수 있어요."
+  }), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 17,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Add a client" : "새 고객사 등록"), /*#__PURE__*/React.createElement("div", {
+    className: "form-grid-2",
+    style: S.formGrid2
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Company name" : "상호명"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Company name" : "상호명",
     style: S.input,
-    placeholder: lang === "en" ? "Company name" : "상호명",
+    placeholder: en ? "Company name" : "상호명",
     value: name,
     onChange: e => setName(e.target.value),
     onKeyDown: handleKeyDown
-  }), /*#__PURE__*/React.createElement("input", {
-    "aria-label": lang === "en" ? "TIN (Tax ID)" : "TIN (사업자등록번호)",
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "TIN (Tax ID)" : "TIN (사업자등록번호)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "TIN (Tax ID)" : "TIN (사업자등록번호)",
     style: S.input,
-    placeholder: lang === "en" ? "TIN (Tax ID)" : "TIN (사업자등록번호)",
+    placeholder: "K000-000000000",
     value: tin,
     onChange: e => setTin(e.target.value),
     onKeyDown: handleKeyDown
-  }), /*#__PURE__*/React.createElement("input", {
-    "aria-label": lang === "en" ? "Business type" : "업종",
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Business type" : "업종"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Business type" : "업종",
     style: S.input,
-    placeholder: lang === "en" ? "Business type" : "업종",
+    placeholder: en ? "e.g. F&B, Trading" : "예: F&B, 무역",
     value: type,
     onChange: e => setType(e.target.value),
     onKeyDown: handleKeyDown
-  }), /*#__PURE__*/React.createElement("button", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "new-client-pw"
+  }, en ? "Client password (6+ characters)" : "고객사 비밀번호 (6자 이상)"), serverConnected ? /*#__PURE__*/React.createElement(PasswordInput, {
+    id: "new-client-pw",
+    value: password,
+    onChange: setPassword,
+    onEnter: submit,
+    label: en ? "Client password" : "고객사 비밀번호",
+    placeholder: en ? "Password for this client" : "이 고객사가 쓸 비밀번호"
+  }) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 400,
+      color: PALETTE.brassText,
+      lineHeight: 1.6
+    }
+  }, en ? "Available when connected to the shared server (not in review mode)." : "공유 서버에 연결된 상태에서만 지정할 수 있어요 (검토 모드에서는 불가)."))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    style: S.buttonPrimary,
+    style: {
+      ...S.buttonPrimary,
+      ...(busy ? S.buttonDisabled : {})
+    },
+    disabled: busy,
     onClick: submit
-  }, lang === "en" ? "Add" : "추가")), /*#__PURE__*/React.createElement("div", {
+  }, busy ? en ? "Saving…" : "저장 중…" : en ? "Add" : "추가"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "The client signs in with this password instead of the office passphrase." : "고객사는 사무소 암호(관리자) 대신 이 비밀번호로 로그인해요.")), notice && /*#__PURE__*/React.createElement("div", {
+    role: notice.kind === "error" ? "alert" : "status",
+    style: {
+      fontSize: 14,
+      lineHeight: 1.6,
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: notice.kind === "error" ? "#FBEDEA" : PALETTE.tealTint,
+      color: notice.kind === "error" ? PALETTE.red : PALETTE.tealDeep
+    }
+  }, notice.text)), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 28
     }
@@ -3284,18 +4150,94 @@ function ClientsView({
   }), clients.map(c => /*#__PURE__*/React.createElement("div", {
     key: c.id,
     style: S.listRow
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0,
+      flex: "1 1 220px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: S.cardTitle
   }, c.name), /*#__PURE__*/React.createElement("div", {
     style: S.cardMeta
-  }, c.tin || (lang === "en" ? "TIN not registered" : "TIN 미등록"), " · ", c.type || (lang === "en" ? "Type not set" : "업종 미지정"))), pendingDeleteId !== c.id && /*#__PURE__*/React.createElement("button", {
+  }, c.tin || (lang === "en" ? "TIN not registered" : "TIN 미등록"), " · ", c.type || (lang === "en" ? "Type not set" : "업종 미지정")), serverConnected && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      background: access[c.id] ? PALETTE.tealTint : "#FFF7E6",
+      color: access[c.id] ? PALETTE.tealDeep : PALETTE.brassText
+    }
+  }, access[c.id] ? en ? "Client login on" : "고객사 로그인 가능" : en ? "No password — client can't sign in" : "비밀번호 없음 — 고객사 로그인 불가"))), pendingDeleteId !== c.id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, serverConnected && pwEditId !== c.id && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => {
+      setPwEditId(c.id);
+      setPwDraft("");
+      setPwMsg(null);
+    }
+  }, access[c.id] ? en ? "Change password" : "비밀번호 변경" : en ? "Set password" : "비밀번호 지정"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonGhost,
     onClick: () => {
       setPendingDeleteId(c.id);
       setDeleteTyped("");
     }
-  }, lang === "en" ? "Delete" : "삭제"), pendingDeleteId === c.id && (() => {
+  }, lang === "en" ? "Delete" : "삭제")), pwEditId === c.id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: "1 1 100%",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      paddingTop: 4
+    }
+  }, /*#__PURE__*/React.createElement(PasswordInput, {
+    id: `pw-${c.id}`,
+    value: pwDraft,
+    onChange: setPwDraft,
+    onEnter: () => savePassword(c.id, pwDraft.trim()),
+    label: en ? `New password for ${c.name}` : `${c.name} 새 비밀번호`,
+    placeholder: en ? "New password (6+ characters)" : "새 비밀번호 (6자 이상)"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    onClick: () => savePassword(c.id, pwDraft.trim()),
+    disabled: pwDraft.trim().length < 6
+  }, en ? "Save password" : "비밀번호 저장"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => {
+      setPwEditId(null);
+      setPwMsg(null);
+    }
+  }, en ? "Cancel" : "취소"), access[c.id] && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhost,
+      color: PALETTE.red
+    },
+    onClick: () => savePassword(c.id, "")
+  }, en ? "Block client login" : "고객사 로그인 막기"))), pwMsg && pwMsg.id === c.id && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      flex: "1 1 100%",
+      fontSize: 13.5,
+      color: pwMsg.kind === "error" ? PALETTE.red : PALETTE.tealDeep
+    }
+  }, pwMsg.text), pendingDeleteId === c.id && (() => {
     const nFilings = Object.keys((filings || {})[c.id] || {}).length;
     const nCg = ((capitalGains || {})[c.id] || []).length;
     const match = deleteTyped.trim() === String(c.name || "").trim();
@@ -3380,9 +4322,14 @@ function MonthlyView({
   onSave,
   settings,
   onUpdateSettings,
-  onDirtyChange
+  onDirtyChange,
+  initialStep,
+  onGo,
+  canManageClients = true
 }) {
   const [local, setLocal] = useState(filing);
+  const [changing, setChanging] = useState(false); // 고객사·월 바꾸기 열림 (휴대폰)
+  const [rateOpen, setRateOpen] = useState(false);
   const [saveState, setSaveState] = useState(""); // "" | "typing" | "saved"
   const [lastSavedAt, setLastSavedAt] = useState(null);
   // 고객사·월을 바꾸면 이전 화면의 "저장됨" 표시는 지운다
@@ -3393,9 +4340,15 @@ function MonthlyView({
   const lang = useLang();
   const prevFilingRef = React.useRef(filing);
   const [externalChange, setExternalChange] = useState(false);
-  const [step, setStep] = useState(1); // 단계별 입력: 1 매출·매입 → 2 급여 → 3 증빙·원천세 → 4 확인·제출
+  const [step, setStep] = useState(initialStep || 1); // 단계별 입력: 1 매출·매입 → 2 급여 → 3 증빙·원천세 → 4 확인·제출
+  const firstStepRun = useRef(true);
   useEffect(() => {
+    if (firstStepRun.current) {
+      firstStepRun.current = false;
+      return;
+    } // 처음 열 때는 홈에서 고른 단계 유지
     setStep(1);
+    setChanging(false);
   }, [mKey, selectedClientId]);
   const goStep = n => {
     setStep(n);
@@ -3547,32 +4500,110 @@ function MonthlyView({
     n: 1,
     ko: "매출·매입",
     en: "Sales & purchases",
+    shortKo: "매출·매입",
+    shortEn: "Sales",
     done: Number(local.revenue) > 0 || Number(local.purchase) > 0 || Number(local.expenses) > 0
   }, {
     n: 2,
     ko: "급여",
     en: "Payroll",
+    shortKo: "급여",
+    shortEn: "Payroll",
     done: (local.employees || []).length > 0
   }, {
     n: 3,
     ko: "증빙·원천세",
     en: "Receipts & WHT",
+    shortKo: "증빙",
+    shortEn: "Receipts",
     done: (local.evidence || []).length + (local.withholding || []).length > 0
   }, {
     n: 4,
     ko: "확인·제출",
     en: "Review & file",
+    shortKo: "제출",
+    shortEn: "File",
     done: !!local.filed
   }];
   const attention = issues.filter(i => i.level === "error" || i.level === "warning").length;
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
-    title: lang === "en" ? "Monthly filing" : "월별 신고",
-    sub: lang === "en" ? "Pick the client and month, then go through the 4 steps. Press Save to keep your entries." : "고객사와 신고월을 고른 뒤 4단계로 입력하세요. [저장]을 눌러야 기록됩니다."
-  }), /*#__PURE__*/React.createElement("div", {
-    style: S.selectorRow,
-    className: "selector-row"
+  const en = lang === "en";
+  const due = dueDatesFor(selectedYear, selectedMonth);
+  const errorCount = issues.filter(i => i.level === "error").length;
+  const fileBlocked = errorCount > 0 && !local.filed;
+  const toggleFiled = async () => {
+    const next = {
+      ...local,
+      filed: !local.filed,
+      filedAt: new Date().toISOString()
+    };
+    setLocal(next);
+    setSaveState("saving");
+    const ok = await onSave(next); // 제출완료 표시는 확정 행위이므로 화면의 내용과 함께 즉시 저장한다
+    if (ok === false) {
+      setSaveState("failed");
+      return;
+    }
+    setSaveState("saved");
+    setLastSavedAt(new Date());
+  };
+  const saveStatusText = saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" ? en ? "Save failed — entries kept. Press Save again." : "저장 실패 — 입력 내용은 남아 있어요. [저장]을 다시 눌러 주세요." : isDirty ? en ? "Unsaved changes" : "저장하지 않은 변경 있음" : saveState === "saved" && lastSavedAt ? en ? `Saved · ${lastSavedAt.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  })}` : `저장됨 · ${lastSavedAt.toLocaleTimeString("ko-KR", {
+    hour: "numeric",
+    minute: "2-digit"
+  })}` : "";
+  const usd = n => `$${fmtUsd(n)}`;
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("section", {
+    style: S.ctxHeader,
+    className: "ctx-header"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("h1", {
+    className: "h1-title",
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, selectedClient?.name || (en ? "Monthly filing" : "월별 신고")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft,
+      marginTop: 2
+    }
+  }, en ? `${selectedMonth}/${selectedYear} · due ${fmtMonthDay(due.gdt, lang)}` : `${selectedYear}년 ${selectedMonth}월분 · 마감 ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일`, " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 700,
+      color: local.filed ? PALETTE.teal : due.days <= 5 ? PALETTE.red : PALETTE.tealDeep
+    }
+  }, "(", local.filed ? en ? "filed" : "제출 완료" : deadlineText(due.days, lang), ")"))), local.filed && /*#__PURE__*/React.createElement(Seal, null), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "ctx-change-btn",
+    style: S.buttonGhostSmall2,
+    "aria-expanded": changing,
+    onClick: () => setChanging(!changing)
+  }, changing ? en ? "Close" : "닫기" : en ? "Change" : "변경")), /*#__PURE__*/React.createElement("div", {
+    className: "ctx-selectors" + (changing ? " open" : ""),
+    style: {
+      ...S.selectorRow,
+      marginBottom: 0
+    }
   }, /*#__PURE__*/React.createElement("select", {
-    "aria-label": lang === "en" ? "Client" : "고객사",
+    "aria-label": en ? "Client" : "고객사",
     style: S.select,
     value: selectedClientId || "",
     onChange: e => {
@@ -3582,7 +4613,7 @@ function MonthlyView({
     key: c.id,
     value: c.id
   }, c.name))), /*#__PURE__*/React.createElement("select", {
-    "aria-label": lang === "en" ? "Month" : "월",
+    "aria-label": en ? "Month" : "월",
     style: S.select,
     value: selectedMonth,
     onChange: e => {
@@ -3593,8 +4624,8 @@ function MonthlyView({
   }, (_, i) => i + 1).map(m => /*#__PURE__*/React.createElement("option", {
     key: m,
     value: m
-  }, lang === "en" ? `Month ${m}` : `${m}월`))), /*#__PURE__*/React.createElement("select", {
-    "aria-label": lang === "en" ? "Year" : "연도",
+  }, en ? `Month ${m}` : `${m}월`))), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Year" : "연도",
     style: S.select,
     value: selectedYear,
     onChange: e => {
@@ -3603,28 +4634,68 @@ function MonthlyView({
   }, yearOptions(selectedYear).map(y => /*#__PURE__*/React.createElement("option", {
     key: y,
     value: y
-  }, lang === "en" ? y : `${y}년`))), isDirty && /*#__PURE__*/React.createElement("button", {
-    style: S.buttonGhost,
-    onClick: handleRevert
-  }, lang === "en" ? "Discard changes" : "변경 취소"), /*#__PURE__*/React.createElement("span", {
+  }, en ? y : `${y}년`)))), /*#__PURE__*/React.createElement("ol", {
+    style: S.stepBar,
+    "aria-label": en ? "Steps" : "입력 단계"
+  }, stepsDef.map(st => {
+    const current = st.n === step;
+    return /*#__PURE__*/React.createElement("li", {
+      key: st.n,
+      style: {
+        listStyle: "none",
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      "aria-current": current ? "step" : undefined,
+      "aria-label": `${st.n}${en ? ". " : "단계 "}${en ? st.en : st.ko}${st.done ? en ? " (done)" : " (입력함)" : ""}`,
+      onClick: () => goStep(st.n),
+      style: S.stepBarBtn
+    }, /*#__PURE__*/React.createElement("span", {
+      "aria-hidden": "true",
+      style: {
+        height: 4,
+        borderRadius: 2,
+        background: current ? PALETTE.teal : st.done ? "#8DBFB1" : "#DDE3E8"
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      "aria-hidden": "true",
+      className: "step-label",
+      style: {
+        fontSize: 13,
+        fontWeight: current ? 700 : 500,
+        color: current ? PALETTE.teal : PALETTE.inkSoft,
+        lineHeight: 1.35,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, "①②③④"[st.n - 1], " ", en ? st.shortEn : st.shortKo)));
+  })), (isDirty || saveStatusText) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      marginTop: -2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
     role: "status",
     "aria-live": "polite",
     style: {
-      ...S.autosaveTag,
+      fontSize: 13.5,
+      fontWeight: 600,
       color: isDirty || saveState === "failed" ? PALETTE.red : PALETTE.teal
     }
-  }, saveState === "saving" ? lang === "en" ? "Saving…" : "저장 중…" : saveState === "failed" ? lang === "en" ? "Save failed — your entries are kept. Press Save again." : "저장 실패 — 입력 내용은 남아 있습니다. [저장]을 다시 눌러 주세요." : isDirty ? lang === "en" ? "Unsaved changes" : "저장하지 않은 변경사항 있음" : saveState === "saved" && lastSavedAt ? lang === "en" ? `Saved · ${lastSavedAt.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit"
-  })}` : `저장됨 · ${lastSavedAt.toLocaleTimeString("ko-KR", {
-    hour: "numeric",
-    minute: "2-digit"
-  })}` : ""), local.filed && /*#__PURE__*/React.createElement(Seal, null)), /*#__PURE__*/React.createElement(FilingDeadline, {
-    year: selectedYear,
-    month: selectedMonth,
-    filed: !!local.filed,
-    lang: lang
-  }), externalChange && /*#__PURE__*/React.createElement("div", {
+  }, saveStatusText), isDirty && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      padding: "4px 2px",
+      fontSize: 13.5
+    },
+    onClick: handleRevert
+  }, en ? "Discard changes" : "변경 취소"))), externalChange && /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.validationPanel,
       background: "#FFF7E6",
@@ -3638,52 +4709,53 @@ function MonthlyView({
       color: PALETTE.ink,
       lineHeight: 1.7
     }
-  }, lang === "en" ? "Someone else saved this filing while you were editing. Your edits are kept on screen and have not been overwritten. Saving now will replace their version — check with them first, or discard your changes to load theirs." : "편집하시는 동안 다른 사람이 이 신고서를 저장했습니다. 화면의 내 편집 내용은 그대로 보존되어 있습니다. 지금 저장하면 상대방이 저장한 내용을 덮어쓰게 되니, 먼저 확인하시거나 [변경 취소]로 상대방 버전을 불러오세요.")), /*#__PURE__*/React.createElement("ol", {
-    style: S.stepper,
-    "aria-label": lang === "en" ? "Steps" : "입력 단계"
-  }, stepsDef.map(st => {
-    const current = st.n === step;
-    return /*#__PURE__*/React.createElement("li", {
-      key: st.n,
-      style: {
-        flex: 1,
-        listStyle: "none"
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      "aria-current": current ? "step" : undefined,
-      onClick: () => goStep(st.n),
-      style: {
-        ...S.stepBtn,
-        ...(current ? S.stepBtnCurrent : {})
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        ...S.stepNum,
-        ...(current ? S.stepNumCurrent : st.done ? S.stepNumDone : {})
-      }
-    }, st.n), /*#__PURE__*/React.createElement("span", {
-      className: "stepper-label"
-    }, lang === "en" ? st.en : st.ko)));
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "phone-only",
-    style: {
-      fontSize: 15,
-      fontWeight: 700,
-      color: PALETTE.ink,
-      margin: "-6px 0 14px"
-    }
-  }, lang === "en" ? `Step ${step} of 4 · ${stepsDef[step - 1].en}` : `${step}단계 / 4 · ${stepsDef[step - 1].ko}`), step !== 4 && attention > 0 && /*#__PURE__*/React.createElement("button", {
+  }, lang === "en" ? "Someone else saved this filing while you were editing. Your edits are kept on screen and have not been overwritten. Saving now will replace their version — check with them first, or discard your changes to load theirs." : "편집하시는 동안 다른 사람이 이 신고서를 저장했습니다. 화면의 내 편집 내용은 그대로 보존되어 있습니다. 지금 저장하면 상대방이 저장한 내용을 덮어쓰게 되니, 먼저 확인하시거나 [변경 취소]로 상대방 버전을 불러오세요.")), step !== 4 && attention > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => goStep(4),
     style: S.attentionChip
   }, lang === "en" ? `${attention} item(s) to check — see step 4` : `확인할 항목 ${attention}건 — 4단계에서 보기`), step === 1 && /*#__PURE__*/React.createElement("section", {
-    style: S.panel
-  }, /*#__PURE__*/React.createElement("div", {
-    style: S.panelTitle
-  }, lang === "en" ? "Sales and purchases" : "매출과 매입"), /*#__PURE__*/React.createElement("p", {
-    style: S.stepIntro
-  }, lang === "en" ? "Enter this month's amounts in USD, before VAT. VAT and the riel amount are calculated for you." : "이번 달 금액을 USD, VAT 제외 금액으로 입력하세요. VAT와 리엘 환산은 자동으로 계산됩니다."), /*#__PURE__*/React.createElement(ExchangeRatePanel, {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "This month's sales and purchases" : "이번 달 매출과 매입"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.stepIntro,
+      margin: "4px 0 0"
+    }
+  }, en ? "Enter USD amounts before VAT. VAT and riel are calculated for you." : "VAT를 빼고 USD로 입력하세요. VAT와 리엘은 자동 계산돼요.")), /*#__PURE__*/React.createElement("div", {
+    style: S.ratePill
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Exchange rate" : "적용 환율"), " ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      fontWeight: 600
+    }
+  }, "1 USD = ", fmt(calc.rate), " KHR")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      textDecoration: "none",
+      padding: "6px 4px"
+    },
+    "aria-expanded": rateOpen,
+    onClick: () => setRateOpen(!rateOpen)
+  }, rateOpen ? en ? "Close" : "닫기" : en ? "Change" : "바꾸기")), rateOpen && /*#__PURE__*/React.createElement(ExchangeRatePanel, {
     rate: local.exchangeRate,
     onChangeRate: v => setLocal({
       ...local,
@@ -3691,48 +4763,39 @@ function MonthlyView({
     }),
     settings: settings,
     onUpdateSettings: onUpdateSettings
-  }), /*#__PURE__*/React.createElement(FieldRow, {
-    label: lang === "en" ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)"
-  }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
-    type: "number",
-    inputMode: "decimal",
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-revenue",
+    label: en ? "Sales" : "매출액",
+    ariaLabel: en ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)",
     value: local.revenue,
-    onChange: e => setLocal({
+    onChange: v => setLocal({
       ...local,
-      revenue: e.target.value
+      revenue: v
     }),
-    placeholder: "0"
-  })), /*#__PURE__*/React.createElement(VatBreakdownRow, {
-    bd: calc.revenue
-  }), /*#__PURE__*/React.createElement(FieldRow, {
-    label: lang === "en" ? "Purchases without an uploaded invoice (USD, before VAT)" : "매입액 — 증빙을 올리지 않은 분 (USD, VAT 제외)"
-  }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
-    type: "number",
-    inputMode: "decimal",
+    helper: Number(local.revenue) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Incl. VAT 10% ", usd(calc.revenue.vatUSD), ": total ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "VAT 10% ", usd(calc.revenue.vatUSD), " 포함 총액 ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR"))
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-purchase",
+    label: en ? "Purchases" : "매입액",
+    sub: en ? "— only those without an uploaded invoice" : "— 증빙을 안 올린 분만",
+    ariaLabel: en ? "Purchases without an uploaded invoice (USD, before VAT)" : "매입액 — 증빙을 올리지 않은 분 (USD, VAT 제외)",
     value: local.purchase,
-    onChange: e => setLocal({
+    onChange: v => setLocal({
       ...local,
-      purchase: e.target.value
+      purchase: v
     }),
-    placeholder: "0"
-  })), /*#__PURE__*/React.createElement(VatBreakdownRow, {
-    bd: calc.purchase
-  }), /*#__PURE__*/React.createElement(FieldRow, {
-    label: lang === "en" ? "Other expenses without receipts (USD)" : "기타 경비 — 증빙 없는 분 (USD)",
-    hint: `≈ ${fmt((Number(local.expenses) || 0) * calc.rate)} KHR`
-  }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
-    type: "number",
-    inputMode: "decimal",
+    helper: Number(local.purchase) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Input VAT credit ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "매입세액 공제 ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR"))
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-expenses",
+    label: en ? "Other expenses" : "기타 경비",
+    sub: en ? "— without receipts" : "— 증빙 없는 분",
+    ariaLabel: en ? "Other expenses without receipts (USD)" : "기타 경비 — 증빙 없는 분 (USD)",
     value: local.expenses,
-    onChange: e => setLocal({
+    onChange: v => setLocal({
       ...local,
-      expenses: e.target.value
+      expenses: v
     }),
-    placeholder: "0"
-  })), /*#__PURE__*/React.createElement("details", {
+    helper: Number(local.expenses) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt((Number(local.expenses) || 0) * calc.rate), " KHR")
+  }), /*#__PURE__*/React.createElement("details", {
     style: S.details,
     open: Number(local.alcoholTobaccoRevenue) > 0 || undefined
   }, /*#__PURE__*/React.createElement("summary", {
@@ -3912,191 +4975,350 @@ function MonthlyView({
       ...local,
       withholding: (local.withholding || []).filter(w => w.id !== id)
     })
-  })), step === 4 && /*#__PURE__*/React.createElement(React.Fragment, null, issues.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: S.validationPanel
-  }, /*#__PURE__*/React.createElement("div", {
-    style: S.panelTitle
-  }, lang === "en" ? "Internal Validation" : "내부검증"), issues.map((iss, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
+  })), step === 4 && /*#__PURE__*/React.createElement("div", {
     style: {
-      ...S.issueRow,
-      color: ISSUE_COLOR[iss.level]
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: S.issueDot
-  }, ISSUE_ICON[iss.level]), iss.msg))), /*#__PURE__*/React.createElement("section", {
+  }, /*#__PURE__*/React.createElement("section", {
     style: S.panel
   }, /*#__PURE__*/React.createElement("div", {
-    style: S.panelTitle
-  }, lang === "en" ? "Tax for this month" : "이번 달 세금"), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Revenue (KHR equivalent)" : "매출액 (KHR 환산)",
-    value: calc.revenueKHR
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Output VAT (10%)" : "매출 VAT (10%)",
-    value: calc.outputVAT
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Purchases (KHR equivalent)" : "매입액 (KHR 환산)",
-    value: calc.purchase.supplyKHR
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Input VAT credit (auto from purchases + receipts)" : "매입세액 공제 (매입액 자동계산 + 증빙 자동반영)",
-    value: -calc.inputVAT
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "This month's total expenses (purchases + manual + receipts, for annual ToI)" : "이번 달 경비 총액 (매입액+수동+증빙, 연간 ToI용)",
-    value: calc.totalExpenses
-  }), /*#__PURE__*/React.createElement("div", {
-    style: S.divider
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "VAT payable" : "VAT 납부세액",
-    value: calc.vatPayable,
-    bold: true
-  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 12
+      fontSize: 14,
+      color: PALETTE.inkSoft
     }
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Prepayment Profit Tax (1% of revenue)" : "선납이윤세 (매출 1%)",
-    value: calc.ppt,
-    bold: true
-  }), /*#__PURE__*/React.createElement("div", {
+  }, en ? `Tax due to the GDT for ${selectedMonth}/${selectedYear}` : `${selectedMonth}월분 국세청 납부세액`), /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 12
+      fontSize: 30,
+      fontWeight: 700,
+      color: PALETTE.ink,
+      letterSpacing: -0.5,
+      marginTop: 2
     }
-  }), (local.alcoholTobaccoRevenue || calc.plt > 0) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Public Lighting Tax (5%, alcohol/tobacco)" : "공공조명세 (주류·담배 5%)",
-    value: calc.plt,
-    bold: true
-  }), /*#__PURE__*/React.createElement("div", {
+  }, fmt(calc.totalDue), " ", /*#__PURE__*/React.createElement("span", {
     style: {
-      height: 12
+      fontSize: 16,
+      fontWeight: 600,
+      color: PALETTE.inkSoft
     }
-  })), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Total salary tax" : "급여세 합계",
-    value: calc.salaryTaxTotal,
-    bold: true
-  }), /*#__PURE__*/React.createElement("div", {
+  }, "KHR")), /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 12
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
     }
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Total withholding tax (ToW)" : "원천세 합계 (ToW)",
-    value: calc.withholdingTaxTotal,
-    bold: true
-  }), /*#__PURE__*/React.createElement("div", {
-    style: S.divider
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Total tax due this month (GDT)" : "이번 달 총 납부세액 (국세청)",
-    value: calc.totalDue,
-    big: true
-  }), /*#__PURE__*/React.createElement("div", {
+  }, en ? `≈ ${usd(calc.totalDue / calc.rate)} · by ${fmtMonthDay(due.gdt, lang)}` : `약 ${usd(calc.totalDue / calc.rate)} · ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일까지`), /*#__PURE__*/React.createElement("div", {
     style: {
-      height: 12
+      height: 1,
+      background: "#EEF1F4",
+      margin: "14px 0 6px"
     }
-  }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "NSSF contribution (separate from GDT, due by the 15th)" : "NSSF 사회보장분담금 (국세청 별도, 익월 15일까지)",
-    value: calc.nssfGrandTotal,
-    bold: true
-  }), (() => {
-    const errorCount = issues.filter(i => i.level === "error").length;
-    const blocked = errorCount > 0 && !local.filed;
-    const filedDate = local.filed && local.filedAt ? new Date(local.filedAt).toLocaleDateString(lang === "en" ? "en-US" : "ko-KR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric"
-    }) : "";
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 24
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-        flexWrap: "wrap"
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      style: {
-        ...S.buttonPrimary,
-        ...(blocked ? S.buttonDisabled : {})
-      },
-      disabled: blocked,
-      "aria-describedby": "filed-help",
-      onClick: async () => {
-        const next = {
-          ...local,
-          filed: !local.filed,
-          filedAt: new Date().toISOString()
-        };
-        setLocal(next);
-        setSaveState("saving");
-        const ok = await onSave(next); // 제출완료 표시는 확정 행위이므로 화면의 내용과 함께 즉시 저장한다
-        if (ok === false) {
-          setSaveState("failed");
-          return;
-        }
-        setSaveState("saved");
-        setLastSavedAt(new Date());
-      }
-    }, local.filed ? lang === "en" ? "Undo filed status" : "제출완료 취소" : lang === "en" ? "Mark as filed" : "제출완료로 표시"), filedDate && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 12.5,
-        color: PALETTE.teal,
-        fontWeight: 600
-      }
-    }, lang === "en" ? `Filed · ${filedDate}` : `제출완료 · ${filedDate}`)), /*#__PURE__*/React.createElement("div", {
-      id: "filed-help",
-      style: {
-        fontSize: 12,
-        marginTop: 8,
-        lineHeight: 1.6,
-        color: blocked ? PALETTE.red : PALETTE.inkSoft
-      }
-    }, blocked ? lang === "en" ? `Resolve ${errorCount} error(s) in the validation panel above before marking as filed.` : `위 내부검증의 오류 ${errorCount}건을 해결해야 제출완료로 표시할 수 있습니다.` : lang === "en" ? "Figures recalculate as you type. Changes are stored only when you press Save." : "숫자는 입력하는 즉시 다시 계산됩니다. 변경 내용은 [저장]을 눌러야 기록됩니다."));
-  })())), /*#__PURE__*/React.createElement("div", {
+  }), [[en ? "VAT payable" : "부가가치세 (VAT)", calc.vatPayable], [en ? "Prepayment Profit Tax (1% of sales)" : "선납이윤세 (매출 1%)", calc.ppt], ...(calc.plt > 0 || Number(local.alcoholTobaccoRevenue) > 0 ? [[en ? "Public Lighting Tax (5%)" : "공공조명세 (주류·담배 5%)", calc.plt]] : []), [en ? `Salary tax (${(local.employees || []).length} staff)` : `급여세 (직원 ${(local.employees || []).length}명)`, calc.salaryTaxTotal], [en ? "Withholding tax (ToW)" : "원천세 (ToW)", calc.withholdingTaxTotal]].map(([label, v]) => /*#__PURE__*/React.createElement("div", {
+    key: label,
     style: {
       display: "flex",
       justifyContent: "space-between",
-      gap: 10,
-      marginTop: 18
+      gap: 12,
+      padding: "7px 0",
+      fontSize: 14.5,
+      color: v ? PALETTE.ink : PALETTE.inkSoft
     }
-  }, step > 1 ? /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: v ? 600 : 400
+    }
+  }, fmt(v)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 12,
+      padding: "10px 12px",
+      marginTop: 8,
+      borderRadius: 10,
+      background: PALETTE.paper,
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? `NSSF (separate, by ${fmtMonthDay(due.nssf, lang)})` : `NSSF (별도, ${due.nssf.getMonth() + 1}월 15일까지)`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: calc.nssfGrandTotal ? 600 : 400,
+      color: calc.nssfGrandTotal ? PALETTE.ink : PALETTE.inkSoft
+    }
+  }, calc.nssfGrandTotal ? `${fmt(calc.nssfGrandTotal)} KHR` : en ? "None" : "해당 없음")), /*#__PURE__*/React.createElement("details", {
+    style: {
+      ...S.details,
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("summary", {
+    style: S.detailsSummary
+  }, en ? "Show the full calculation" : "자세한 계산 보기"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Revenue (KHR equivalent)" : "매출액 (KHR 환산)",
+    value: calc.revenueKHR
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Output VAT (10%)" : "매출 VAT (10%)",
+    value: calc.outputVAT
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Purchases (KHR equivalent)" : "매입액 (KHR 환산)",
+    value: calc.purchase.supplyKHR
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Input VAT credit (purchases + receipts)" : "매입세액 공제 (매입액 + 증빙)",
+    value: -calc.inputVAT
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Total expenses this month (for annual ToI)" : "이번 달 경비 총액 (연간 ToI용)",
+    value: calc.totalExpenses
+  })))), /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Check before filing" : "제출 전 확인",
+    style: {
+      ...S.panel,
+      padding: "6px 16px"
+    }
+  }, [{
+    ok: stepsDef[0].done,
+    text: stepsDef[0].done ? en ? "Sales & purchases entered" : "매출·매입 입력 완료" : en ? "No sales or purchases entered" : "매출·매입 입력 없음",
+    go: 1
+  }, {
+    ok: true,
+    text: en ? `Payroll ${(local.employees || []).length} · receipts ${(local.evidence || []).length} · withholding ${(local.withholding || []).length}` : `급여 ${(local.employees || []).length}명 · 증빙 ${(local.evidence || []).length}건 · 원천세 ${(local.withholding || []).length}건`
+  }].concat(issues.filter(i => i.level !== "info").map(i => ({
+    issue: i
+  }))).map((row, idx) => {
+    const lvl = row.issue ? row.issue.level : row.ok ? "ok" : "todo";
+    const dot = lvl === "ok" ? {
+      bg: PALETTE.tealTint,
+      fg: PALETTE.tealDeep
+    } : lvl === "error" ? {
+      bg: "#FBEDEA",
+      fg: PALETTE.red
+    } : lvl === "warning" ? {
+      bg: "#FFF1D6",
+      fg: PALETTE.brassText
+    } : {
+      bg: "#EEF2F6",
+      fg: PALETTE.inkSoft
+    };
+    const isTin = row.issue && /TIN/.test(row.issue.msg);
+    return /*#__PURE__*/React.createElement("div", {
+      key: idx,
+      style: {
+        ...S.checkRow,
+        borderTop: idx ? "1px solid #EEF1F4" : "none"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      "aria-hidden": "true",
+      style: {
+        ...S.checkDot,
+        background: dot.bg,
+        color: dot.fg
+      }
+    }, lvl === "ok" ? /*#__PURE__*/React.createElement(Icon, {
+      name: "check",
+      size: 15,
+      stroke: 2.6
+    }) : lvl === "error" ? "✕" : lvl === "warning" ? "!" : "–"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        color: lvl === "error" ? PALETTE.red : PALETTE.ink,
+        lineHeight: 1.5
+      }
+    }, row.issue ? row.issue.msg : row.text), isTin && onGo && canManageClients && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: {
+        ...S.linkButton,
+        textDecoration: "none"
+      },
+      onClick: () => onGo("clients")
+    }, en ? "Add" : "입력하기"), !row.issue && !row.ok && row.go && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: {
+        ...S.linkButton,
+        textDecoration: "none"
+      },
+      onClick: () => goStep(row.go)
+    }, en ? "Enter" : "입력하기"));
+  })), onGo && /*#__PURE__*/React.createElement("button", {
     type: "button",
-    style: S.buttonGhost,
-    onClick: () => goStep(step - 1)
-  }, lang === "en" ? "← Previous" : "← 이전 단계") : /*#__PURE__*/React.createElement("span", null), step < 4 && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhost,
-    onClick: () => goStep(step + 1)
-  }, lang === "en" ? `Next: ${stepsDef[step].en} →` : `다음: ${stepsDef[step].ko} →`)), /*#__PURE__*/React.createElement("div", {
+    style: S.linkCard,
+    onClick: () => onGo("draft")
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "doc",
+    size: 20
+  }), en ? "View the filing draft (P101)" : "신고서 작성안 보기 (P101)"), /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronRight",
+    size: 18,
+    color: PALETTE.inkSoft
+  })), /*#__PURE__*/React.createElement("div", {
+    id: "filed-help",
+    style: {
+      fontSize: 13.5,
+      lineHeight: 1.6,
+      color: fileBlocked ? PALETTE.red : PALETTE.inkSoft,
+      padding: "0 2px"
+    }
+  }, local.filed && local.filedAt ? en ? `Marked as filed · ${new Date(local.filedAt).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  })}` : `제출 완료로 표시됨 · ${new Date(local.filedAt).toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  })}` : fileBlocked ? en ? `Fix the ${errorCount} error(s) above before marking as filed.` : `위 오류 ${errorCount}건을 고쳐야 제출 완료로 표시할 수 있어요.` : en ? "Press the button below after filing on GDT e-Filing." : "국세청 e-Filing에서 제출한 뒤 아래 버튼을 눌러 주세요.")), /*#__PURE__*/React.createElement("div", {
     className: "mobile-total-bar",
-    style: S.mobileTotalBar
+    style: S.actionBar
   }, /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: saveState === "failed" ? PALETTE.red : PALETTE.inkSoft,
       minWidth: 0
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, saveState === "failed" ? en ? "Save failed — entries kept" : "저장 실패 — 입력 내용 보존됨" : en ? "Tax due this month" : "이번 달 납부할 세금"), /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 12.5,
-      color: saveState === "failed" ? "#F8C9C1" : "#CFE3DC"
-    }
-  }, saveState === "failed" ? lang === "en" ? "Save failed — entries kept" : "저장 실패 — 입력 내용 보존됨" : lang === "en" ? "Total tax due this month" : "이번 달 총 납부세액"), /*#__PURE__*/React.createElement("div", {
-    style: {
+      fontSize: 20,
       fontWeight: 700,
-      fontSize: 19,
-      color: "#fff",
+      color: PALETTE.ink,
       whiteSpace: "nowrap"
     }
-  }, fmt(calc.totalDue), " KHR")), /*#__PURE__*/React.createElement("button", {
+  }, fmt(calc.totalDue), " ", /*#__PURE__*/React.createElement("span", {
     style: {
-      ...S.buttonPrimary,
-      minWidth: 104,
-      background: isDirty ? saveState === "failed" ? PALETTE.red : "#fff" : "transparent",
-      color: isDirty ? saveState === "failed" ? "#fff" : PALETTE.tealDeep : "#CFE3DC",
-      border: isDirty ? "none" : "1px solid rgba(255,255,255,.4)"
+      fontSize: 14,
+      fontWeight: 600,
+      color: PALETTE.inkSoft
+    }
+  }, "KHR"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: step > 1 ? "48px minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1fr) minmax(0, 1.4fr)",
+      gap: 8
+    }
+  }, step > 1 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-label": en ? "Previous step" : "이전 단계",
+    style: {
+      ...S.barBtn,
+      padding: 0
+    },
+    onClick: () => goStep(step - 1)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevronLeft",
+    size: 22
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.barBtn,
+      ...(saveState === "failed" && isDirty ? {
+        borderColor: PALETTE.red,
+        color: PALETTE.red
+      } : {}),
+      ...(!isDirty ? {
+        color: PALETTE.inkSoft
+      } : {})
     },
     onClick: handleSave,
     disabled: !isDirty || saveState === "saving"
-  }, saveState === "saving" ? lang === "en" ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? lang === "en" ? "Retry save" : "다시 저장" : isDirty ? lang === "en" ? "Save" : "저장" : lang === "en" ? "Saved" : "저장됨")));
+  }, saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? en ? "Retry save" : "다시 저장" : isDirty ? en ? "Save" : "저장" : en ? "Saved" : "저장됨"), step < 4 ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.barBtnPrimary,
+    onClick: () => goStep(step + 1)
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      overflow: "hidden",
+      textOverflow: "ellipsis"
+    }
+  }, en ? `Next: ${stepsDef[step].en}` : `다음: ${stepsDef[step].ko}`), /*#__PURE__*/React.createElement(Icon, {
+    name: "arrowRight",
+    size: 18
+  })) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.barBtnPrimary,
+      ...(local.filed ? {
+        background: "#fff",
+        color: PALETTE.ink,
+        border: "1px solid #CDD3DA"
+      } : {}),
+      ...(fileBlocked ? S.buttonDisabled : {})
+    },
+    disabled: fileBlocked || saveState === "saving",
+    "aria-describedby": "filed-help",
+    onClick: toggleFiled
+  }, local.filed ? en ? "Undo filed status" : "제출 완료 취소" : isDirty ? en ? "Save & mark as filed" : "저장하고 제출 완료로 표시" : en ? "Mark as filed" : "제출 완료로 표시"))));
+}
+function MoneyField({
+  id,
+  label,
+  sub,
+  ariaLabel,
+  value,
+  onChange,
+  helper
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: id,
+    style: {
+      fontSize: 14.5,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, label, sub && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, " ", sub)), /*#__PURE__*/React.createElement("div", {
+    className: "money-field",
+    style: S.moneyField
+  }, /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      fontSize: 18,
+      color: PALETTE.inkSoft
+    }
+  }, "$"), /*#__PURE__*/React.createElement("input", {
+    id: id,
+    "aria-label": ariaLabel,
+    type: "number",
+    inputMode: "decimal",
+    placeholder: "0.00",
+    value: value ?? "",
+    onChange: e => onChange(e.target.value),
+    style: S.moneyInput
+  }), /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, "USD")), helper ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.6
+    }
+  }, helper) : null);
 }
 
 /* ---------------- Exchange rate (GDT official rate) ---------------- */
@@ -4163,7 +5385,7 @@ function ExchangeRatePanel({
     type: "button",
     style: S.buttonGhostSmall2,
     onClick: pullDefault
-  }, lang === "en" ? "Use default" : "기본값 적용"), /*#__PURE__*/React.createElement("button", {
+  }, lang === "en" ? "Use default" : "기본값 적용"), onUpdateSettings && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonGhostSmall2,
     onClick: saveAsDefault
@@ -4299,6 +5521,8 @@ function EvidencePanel({
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = React.useRef(null);
+  const cameraInputRef = React.useRef(null);
+  const [manualOpen, setManualOpen] = useState(false); // 사진 없이 직접 입력
   const dragCounter = React.useRef(0);
   const lang = useLang();
   const {
@@ -4326,6 +5550,7 @@ function EvidencePanel({
     setWhtTouched(false);
     setWhtCategory(suggestedWhtCategory(category));
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
 
   // 원천세 대상이면 증빙과 함께 원천세 항목도 생성한다
@@ -4419,6 +5644,7 @@ function EvidencePanel({
       createdAt: new Date().toISOString()
     }, buildWithholding(evidenceId, vendor.trim(), khr));
     resetForm();
+    setManualOpen(false);
   };
 
   // 이미지에서 거래일자·금액만 인식 — 못 읽은 항목은 화면에서 수동 입력하도록 안내한다
@@ -4452,62 +5678,116 @@ function EvidencePanel({
       setUploading(false);
     }
   };
+  const showForm = !!pendingPreview || manualOpen;
+  const typeSeg = (value, onChange) => /*#__PURE__*/React.createElement("div", {
+    role: "group",
+    "aria-label": lang === "en" ? "Receipt type" : "증빙 유형",
+    style: S.segmented
+  }, ["vat", "general"].map(t => /*#__PURE__*/React.createElement("button", {
+    key: t,
+    type: "button",
+    "aria-pressed": value === t,
+    onClick: () => onChange(t),
+    style: {
+      ...S.segBtn,
+      ...(value === t ? S.segBtnActive : {})
+    }
+  }, t === "vat" ? lang === "en" ? "Tax invoice (VAT)" : "세금계산서" : lang === "en" ? "General receipt" : "일반 영수증")));
   return /*#__PURE__*/React.createElement("div", {
-    style: S.panel
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
   }, /*#__PURE__*/React.createElement("div", {
-    style: S.panelTitle
-  }, lang === "en" ? "Upload Expense Receipts (Auto-classify)" : "경비 증빙 업로드 (자동분류)"), /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceUploadRow
-  }, /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceTypeToggle
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: {
-      ...S.typeToggleBtn,
-      ...(evidenceType === "vat" ? S.typeToggleBtnActive : {})
-    },
-    onClick: () => setEvidenceType("vat")
-  }, lang === "en" ? "Tax Invoice (VAT-creditable)" : "세금계산서 (매입세액 공제)"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: {
-      ...S.typeToggleBtn,
-      ...(evidenceType === "general" ? S.typeToggleBtnActive : {})
-    },
-    onClick: () => setEvidenceType("general")
-  }, lang === "en" ? "General Expense Receipt" : "일반 경비증빙")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.dropZone,
-      ...(isDragging ? S.dropZoneActive : {})
-    },
     onDragEnter: handleDragEnter,
     onDragOver: handleDragOver,
     onDragLeave: handleDragLeave,
     onDrop: handleDrop,
-    onClick: () => fileInputRef.current?.click()
+    style: {
+      ...S.captureZone,
+      ...(isDragging ? S.dropZoneActive : {})
+    }
   }, /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    ref: cameraInputRef,
+    onChange: handleFileSelect,
+    style: S.hiddenFileInput,
+    tabIndex: -1,
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("input", {
     type: "file",
     accept: "image/*",
     ref: fileInputRef,
     onChange: handleFileSelect,
-    style: S.hiddenFileInput
+    style: S.hiddenFileInput,
+    tabIndex: -1,
+    "aria-hidden": "true"
   }), /*#__PURE__*/React.createElement("div", {
-    style: S.dropZoneText
-  }, isDragging ? lang === "en" ? "Drop the image here" : "여기에 이미지를 놓으세요" : lang === "en" ? "Drag & drop a receipt image here, or click to choose a file" : "증빙 이미지를 여기로 드래그하거나 클릭해서 선택하세요")), /*#__PURE__*/React.createElement("input", {
-    "aria-label": lang === "en" ? "Additional note (optional — e.g., August office internet bill)" : "추가 설명 (선택 — 예: 8월 사무실 인터넷 요금)",
-    style: S.input,
-    placeholder: lang === "en" ? "Additional note (optional — e.g., August office internet bill)" : "추가 설명 (선택 — 예: 8월 사무실 인터넷 요금)",
-    value: description,
-    onChange: e => setDescription(e.target.value)
-  }), pendingPreview && /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      gap: 12,
-      alignItems: "flex-start",
-      flexWrap: "wrap"
+      display: "grid",
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gap: 8
     }
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    style: S.thumbButton,
+    style: S.captureBtnPrimary,
+    onClick: () => cameraInputRef.current?.click()
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "camera",
+    size: 20
+  }), lang === "en" ? "Take photo" : "영수증 촬영"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.captureBtn,
+    onClick: () => fileInputRef.current?.click()
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "gallery",
+    size: 20
+  }), lang === "en" ? "Choose photo" : "사진 고르기")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center",
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "desktop-only",
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, isDragging ? lang === "en" ? "Drop the image here" : "여기에 이미지를 놓으세요" : lang === "en" ? "or drag a receipt image here" : "또는 영수증 이미지를 이 영역에 끌어다 놓으세요"), !showForm && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      marginLeft: "auto"
+    },
+    onClick: () => setManualOpen(true)
+  }, lang === "en" ? "Enter without a photo" : "사진 없이 직접 입력"))), error && !showForm && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      color: PALETTE.red,
+      fontSize: 13.5
+    }
+  }, error), showForm && /*#__PURE__*/React.createElement("section", {
+    "aria-label": lang === "en" ? "Receipt to register" : "등록할 영수증",
+    style: S.receiptCard
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-start"
+    }
+  }, pendingPreview && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.thumbButton,
+      flexShrink: 0
+    },
     onClick: () => setViewing({
       src: pendingHiRes || pendingPreview,
       caption: lang === "en" ? "Uploaded photo" : "올린 사진"
@@ -4516,21 +5796,31 @@ function EvidencePanel({
   }, /*#__PURE__*/React.createElement("img", {
     src: pendingPreview,
     alt: "",
-    style: S.thumb
+    style: {
+      ...S.thumb,
+      width: 76,
+      height: 96
+    }
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
-      minWidth: 200
+      minWidth: 0
     }
-  }, uploading && /*#__PURE__*/React.createElement("div", {
+  }, !pendingPreview && /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
+      fontSize: 14,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, lang === "en" ? "Enter receipt details" : "증빙 내용을 직접 입력하세요"), uploading && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
       color: PALETTE.brassText
     }
   }, lang === "en" ? "Reading date and amount from the image…" : "이미지에서 날짜와 금액을 읽는 중…"), !uploading && readResult && /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12.5,
-      lineHeight: 1.7
+      fontSize: 13.5,
+      lineHeight: 1.6
     },
     role: "status",
     "aria-live": "polite"
@@ -4538,12 +5828,18 @@ function EvidencePanel({
     style: {
       color: PALETTE.red
     }
-  }, lang === "en" ? "Could not read the image. " : "이미지를 읽지 못했습니다. ", readResult.message, lang === "en" ? " You can also enter the date and amount manually." : " 날짜와 금액은 직접 입력할 수도 있습니다.") : /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Could not read the image. " : "이미지를 읽지 못했습니다. ", readResult.message, lang === "en" ? " Enter the date and amount below." : " 아래에 날짜와 금액을 직접 입력하세요.") : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gap: 4
     }
-  }, [{
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: PALETTE.teal
+    }
+  }, lang === "en" ? "Read automatically — please check" : "자동으로 읽었어요 — 확인해 주세요"), [{
     key: "date",
     label: lang === "en" ? "Date" : "날짜",
     ok: readResult.date,
@@ -4560,98 +5856,91 @@ function EvidencePanel({
     src: readResult.amountText,
     flag: readResult.flags?.amount
   }].map(f => /*#__PURE__*/React.createElement("div", {
-    key: f.key,
+    key: f.key
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
+      justifyContent: "space-between",
       gap: 8,
-      flexWrap: "wrap",
       alignItems: "baseline"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 600,
-      minWidth: 74,
-      color: !f.ok ? PALETTE.red : f.flag ? PALETTE.brassText : PALETTE.teal
+      color: !f.ok ? PALETTE.red : f.flag ? PALETTE.brassText : PALETTE.inkSoft
     }
   }, !f.ok ? "✕ " : f.flag ? "! " : "✓ ", f.label), /*#__PURE__*/React.createElement("span", {
     style: {
-      color: PALETTE.ink
+      fontSize: 15,
+      fontWeight: 600,
+      color: f.ok ? PALETTE.ink : PALETTE.red,
+      textAlign: "right"
     }
-  }, f.ok ? f.value : lang === "en" ? "not found — enter manually" : "인식 못함 — 직접 입력", f.ok && f.flag && /*#__PURE__*/React.createElement("span", {
+  }, f.ok ? f.value : lang === "en" ? "not found" : "인식 못함")), f.ok && f.flag && /*#__PURE__*/React.createElement("div", {
     style: {
+      fontSize: 12.5,
       color: PALETTE.brassText
     }
-  }, " · ", lang === "en" ? "check: " : "확인 필요: ", receiptFlagText(f.flag, lang))), f.ok && f.src && /*#__PURE__*/React.createElement("span", {
+  }, lang === "en" ? "Check: " : "확인 필요: ", receiptFlagText(f.flag, lang)), f.ok && f.src && /*#__PURE__*/React.createElement("div", {
     style: {
-      color: PALETTE.inkSoft,
-      fontFamily: FONT.mono,
-      fontSize: 12
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
     }
-  }, lang === "en" ? "printed: " : "영수증 표기: ", "“", f.src, "”"))), readResult.alt && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+  }, lang === "en" ? "Printed: " : "영수증 표기 ", "“", f.src, "”"))), readResult.alt && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonGhostSmall2,
     onClick: () => {
       setAmount(String(readResult.alt.amount));
       setCurrency(readResult.alt.currency);
     }
-  }, lang === "en" ? `Use the ${readResult.alt.currency} total instead (${readResult.alt.currency === "USD" ? "$" + Number(readResult.alt.amount).toFixed(2) : fmt(readResult.alt.amount) + " KHR"})` : `${readResult.alt.currency} 합계로 바꾸기 (${readResult.alt.currency === "USD" ? "$" + Number(readResult.alt.amount).toFixed(2) : fmt(readResult.alt.amount) + " KHR"})`))), /*#__PURE__*/React.createElement("button", {
+  }, lang === "en" ? `Use the ${readResult.alt.currency} total instead (${readResult.alt.currency === "USD" ? "$" + Number(readResult.alt.amount).toFixed(2) : fmt(readResult.alt.amount) + " KHR"})` : `${readResult.alt.currency} 합계로 바꾸기 (${readResult.alt.currency === "USD" ? "$" + Number(readResult.alt.amount).toFixed(2) : fmt(readResult.alt.amount) + " KHR"})`)), /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
-      ...S.buttonGhostSmall2,
-      marginTop: 6
+      ...S.linkButton,
+      marginTop: 4,
+      padding: "6px 0"
     },
     onClick: () => autoRead(pendingHiRes || pendingPreview)
-  }, lang === "en" ? "Retry" : "다시 인식")))), /*#__PURE__*/React.createElement("div", {
-    className: "form-row",
-    style: S.formRow
-  }, /*#__PURE__*/React.createElement("input", {
+  }, lang === "en" ? "Read again" : "다시 인식")))), typeSeg(evidenceType, setEvidenceType), /*#__PURE__*/React.createElement("div", {
+    className: "form-grid-2",
+    style: S.formGrid2
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Date" : "날짜"), /*#__PURE__*/React.createElement("input", {
     style: {
       ...S.input,
-      width: 150,
       ...(readResult?.flags?.date || readResult && !readResult.date ? S.inputNeedsCheck : {})
     },
     type: "date",
     "aria-label": lang === "en" ? "Transaction date" : "거래일자",
     value: txDate,
-    onChange: e => setTxDate(e.target.value),
-    title: lang === "en" ? "Transaction date" : "거래일자"
-  }), /*#__PURE__*/React.createElement("select", {
-    "aria-label": lang === "en" ? "Payment type" : "지급 유형",
+    onChange: e => setTxDate(e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Amount" : "금액"), /*#__PURE__*/React.createElement("span", {
     style: {
-      ...S.select,
-      minWidth: 190
-    },
-    value: category,
-    onChange: e => changeCategory(e.target.value)
-  }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
-    key: c.id,
-    value: c.id
-  }, categoryLabel(c.id, lang)))), /*#__PURE__*/React.createElement("input", {
-    "aria-label": lang === "en" ? "Vendor / payee" : "거래처 (지급처)",
-    style: {
-      ...S.input,
-      flex: 1,
-      minWidth: 120
-    },
-    placeholder: lang === "en" ? "Vendor / payee" : "거래처 (지급처)",
-    value: vendor,
-    onChange: e => setVendor(e.target.value)
-  }), /*#__PURE__*/React.createElement("input", {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
     "aria-label": lang === "en" ? "Amount" : "금액",
     style: {
       ...S.input,
-      width: 110,
+      flex: 1,
+      minWidth: 0,
       ...(readResult?.flags?.amount || readResult && !readResult.amount ? S.inputNeedsCheck : {})
     },
     type: "number",
-    placeholder: lang === "en" ? "Amount" : "금액",
+    inputMode: "decimal",
+    placeholder: "0",
     value: amount,
     onChange: e => setAmount(e.target.value)
   }), /*#__PURE__*/React.createElement("select", {
     "aria-label": lang === "en" ? "Currency" : "통화",
     style: {
       ...S.select,
-      width: 80
+      width: 84,
+      flexShrink: 0
     },
     value: currency,
     onChange: e => setCurrency(e.target.value)
@@ -4659,21 +5948,29 @@ function EvidencePanel({
     value: "USD"
   }, "USD"), /*#__PURE__*/React.createElement("option", {
     value: "KHR"
-  }, "KHR"))), /*#__PURE__*/React.createElement("div", {
-    className: "form-row",
-    style: S.formRow
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 12,
-      color: PALETTE.brassMuted,
-      alignSelf: "center"
-    }
-  }, lang === "en" ? "Withholding tax" : "원천세"), /*#__PURE__*/React.createElement("select", {
+  }, "KHR")))), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Vendor" : "거래처"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": lang === "en" ? "Vendor / payee" : "거래처 (지급처)",
+    style: S.input,
+    placeholder: lang === "en" ? "Shop or company name" : "가게·회사 이름",
+    value: vendor,
+    onChange: e => setVendor(e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "What was it for?" : "무슨 비용인가요?"), /*#__PURE__*/React.createElement("select", {
+    "aria-label": lang === "en" ? "Payment type" : "지급 유형",
+    style: S.select,
+    value: category,
+    onChange: e => changeCategory(e.target.value)
+  }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, categoryLabel(c.id, lang))))), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Withholding tax" : "원천세"), /*#__PURE__*/React.createElement("select", {
     "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
-    style: {
-      ...S.select,
-      minWidth: 240
-    },
+    style: S.select,
     value: whtCategory,
     onChange: e => {
       setWhtCategory(e.target.value);
@@ -4684,41 +5981,86 @@ function EvidencePanel({
   }, lang === "en" ? "Not applicable" : "해당 없음"), WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
     key: c.id,
     value: c.id
-  }, withholdingLabel(c.id, lang), " (", (c.rate * 100).toFixed(0), "%)"))), /*#__PURE__*/React.createElement("button", {
-    style: S.buttonPrimary,
-    onClick: handleRegister
-  }, lang === "en" ? "+ Register" : "+ 등록")), amount && Number(amount) > 0 && /*#__PURE__*/React.createElement("div", {
+  }, withholdingLabel(c.id, lang), " (", (c.rate * 100).toFixed(0), "%)")))), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Note (optional)" : "메모 (선택)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": lang === "en" ? "Additional note (optional — e.g., August office internet bill)" : "추가 설명 (선택 — 예: 8월 사무실 인터넷 요금)",
+    style: S.input,
+    placeholder: lang === "en" ? "e.g. office internet" : "예: 사무실 인터넷",
+    value: description,
+    onChange: e => setDescription(e.target.value)
+  }))), amount && Number(amount) > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
-      color: PALETTE.brassMuted,
-      fontFamily: FONT.mono,
-      lineHeight: 1.8
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.7
     }
   }, lang === "en" ? "Expense" : "경비", " ", fmt(amountKHRPreview), " KHR", evidenceType === "vat" && ` · ${lang === "en" ? "input VAT" : "매입세액"} ${fmt(Math.round(amountKHRPreview * 10 / 110))} KHR`, whtCategory && /*#__PURE__*/React.createElement("span", {
     style: {
       color: PALETTE.brassText
     }
-  }, ` · ${lang === "en" ? "withholding" : "원천세"} ${(whtRate * 100).toFixed(0)}% = ${fmt(whtTaxPreview)} KHR ${lang === "en" ? "(added automatically)" : "(자동 생성됨)"}`)), error && /*#__PURE__*/React.createElement("div", {
+  }, ` · ${lang === "en" ? "withholding" : "원천세"} ${(whtRate * 100).toFixed(0)}% = ${fmt(whtTaxPreview)} KHR ${lang === "en" ? "(added automatically)" : "(자동 생성됨)"}`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block"
+    }
+  }, lang === "en" ? `Rate 1 USD = ${fmt(exchangeRate || DEFAULT_EXCHANGE_RATE)} KHR` : `적용 환율 1 USD = ${fmt(exchangeRate || DEFAULT_EXCHANGE_RATE)} KHR`)), error && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
     style: {
       color: PALETTE.red,
-      fontSize: 12
+      fontSize: 13.5
     }
   }, error), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
-      color: PALETTE.brassMuted,
-      fontFamily: FONT.mono
+      display: "grid",
+      gridTemplateColumns: "auto minmax(0, 1fr)",
+      gap: 8
     }
-  }, lang === "en" ? `Using this month's exchange rate above: 1 USD = ${fmt(exchangeRate || DEFAULT_EXCHANGE_RATE)} KHR` : `상단의 이번 달 환율 적용 중: 1 USD = ${fmt(exchangeRate || DEFAULT_EXCHANGE_RATE)} KHR`)), evidence.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
     style: {
-      marginTop: 18
+      ...S.buttonGhost,
+      minHeight: 48
+    },
+    onClick: () => {
+      resetForm();
+      setManualOpen(false);
+      setError("");
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Cancel" : "취소"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
     style: {
-      ...S.panelTitle,
-      fontSize: 12
+      ...S.buttonPrimary,
+      minHeight: 48,
+      fontSize: 15
+    },
+    onClick: handleRegister
+  }, lang === "en" ? "Register this receipt" : "이 영수증 등록"))), evidence.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8,
+      padding: "4px 2px 8px",
+      flexWrap: "wrap"
     }
-  }, lang === "en" ? `Uploaded receipts (${evidence.length})` : `업로드된 증빙 (${evidence.length}건)`), evidence.map(e => {
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, lang === "en" ? `Registered receipts (${evidence.length})` : `등록한 증빙 ${evidence.length}건`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, lang === "en" ? "Total" : "합계", " ", fmt(totalExpenseKHR), " KHR")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.panel,
+      padding: "4px 14px"
+    }
+  }, evidence.map(e => {
     const caption = [e.txDate, e.vendor, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`].filter(Boolean).join(" · ");
     if (editingId === e.id && draft) {
       const set = patch => setDraft({
@@ -4755,21 +6097,11 @@ function EvidencePanel({
       })), /*#__PURE__*/React.createElement("div", {
         style: {
           flex: 1,
-          minWidth: 220
+          minWidth: 200
         }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: S.evidenceTypeToggle
-      }, ["vat", "general"].map(t => /*#__PURE__*/React.createElement("button", {
-        key: t,
-        type: "button",
-        style: {
-          ...S.typeToggleBtn,
-          ...(draft.evidenceType === t ? S.typeToggleBtnActive : {})
-        },
-        onClick: () => set({
-          evidenceType: t
-        })
-      }, t === "vat" ? lang === "en" ? "Tax invoice (VAT)" : "세금계산서 (매입세액 공제)" : lang === "en" ? "General receipt" : "일반 경비증빙"))))), /*#__PURE__*/React.createElement("div", {
+      }, typeSeg(draft.evidenceType, t => set({
+        evidenceType: t
+      })))), /*#__PURE__*/React.createElement("div", {
         className: "form-row",
         style: {
           ...S.formRow,
@@ -4932,18 +6264,16 @@ function EvidencePanel({
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 14.5,
+        fontSize: 15,
         fontWeight: 600,
-        color: PALETTE.ink
+        color: PALETTE.ink,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
       }
-    }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력"), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontWeight: 400,
-        color: PALETTE.inkSoft
-      }
-    }, " · ", categoryLabel(e.category, lang))), /*#__PURE__*/React.createElement("div", {
+    }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력")), /*#__PURE__*/React.createElement("div", {
       style: S.evidenceMeta
-    }, e.txDate ? `${e.txDate} · ` : "", e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`, e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 증빙", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.description && /*#__PURE__*/React.createElement("div", {
+    }, e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.description && /*#__PURE__*/React.createElement("div", {
       style: S.evidenceDesc
     }, e.description), (() => {
       const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
@@ -4951,8 +6281,13 @@ function EvidencePanel({
         style: S.evidenceSummary
       }, shown) : null;
     })()), /*#__PURE__*/React.createElement("span", {
-      style: S.miniMono
-    }, fmt(e.amountKHR), " KHR"), /*#__PURE__*/React.createElement("button", {
+      style: {
+        fontSize: 14.5,
+        fontWeight: 600,
+        color: PALETTE.ink,
+        whiteSpace: "nowrap"
+      }
+    }, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`), /*#__PURE__*/React.createElement("button", {
       type: "button",
       style: S.buttonGhostSmall2,
       onClick: () => {
@@ -4984,7 +6319,7 @@ function EvidencePanel({
     label: lang === "en" ? "Total input VAT from receipts" : "증빙 기반 매입세액 합계",
     value: totalVatKHR,
     bold: true
-  })), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+  }))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
     onClose: () => setViewing(null)
@@ -5140,6 +6475,8 @@ function WithholdingPanel({
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = React.useRef(null);
+  const cameraInputRef = React.useRef(null);
+  const [manualOpen, setManualOpen] = useState(false); // 사진 없이 직접 입력
   const dragCounter = React.useRef(0);
   const lang = useLang();
   const {
@@ -5216,6 +6553,7 @@ function WithholdingPanel({
     setPendingHiRes(null);
     setDescription("");
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
   const runClassification = async () => {
     if (!pendingPreview) return;
@@ -6744,7 +8082,7 @@ function UnlockScreen({
     try {
       await onUnlock(value, remember);
     } catch (e) {
-      setError(e.message === "AUTH_REQUIRED" ? lang === "en" ? "Incorrect passphrase. Tap \"Show\" to check what you typed — mobile keyboards often capitalise the first letter." : "암호가 올바르지 않습니다. [보기]를 눌러 입력값을 확인해 보세요 — 모바일 키보드가 첫 글자를 대문자로 바꾸는 경우가 많습니다." : e.message || String(e));
+      setError(e.message === "AUTH_REQUIRED" ? lang === "en" ? "Incorrect password. Tap \"Show\" to check what you typed — mobile keyboards often capitalise the first letter." : "비밀번호가 올바르지 않습니다. [보기]를 눌러 입력값을 확인해 보세요 — 모바일 키보드가 첫 글자를 대문자로 바꾸는 경우가 많습니다." : e.message || String(e));
       setBusy(false);
     }
   };
@@ -6808,7 +8146,7 @@ function UnlockScreen({
       marginTop: 12,
       marginBottom: 18
     }
-  }, lang === "en" ? "Enter the shared office passphrase to open this workspace." : "사무실 공용 암호를 입력하면 워크스페이스가 열립니다."), isEmbedded() && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Office staff: enter the office passphrase. Clients: enter the password Kohr & Co. gave you — you will see only your own company." : "사무소 직원은 관리자 암호를, 고객사는 사무소에서 받은 비밀번호를 입력하세요. 고객사 비밀번호로는 자기 회사 자료만 보입니다."), isEmbedded() && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#FFF7E6",
       border: `1px solid ${PALETTE.brass}`,
@@ -6820,7 +8158,7 @@ function UnlockScreen({
       lineHeight: 1.7
     }
   }, lang === "en" ? "⚠️ This page is running inside a preview frame, where external connections are blocked. Download this file and open it directly (the address bar should start with file:///)." : "⚠️ 지금 미리보기 창 안에서 실행 중이라 외부 연결이 차단됩니다. 이 파일을 내려받아 직접 열어주세요 (주소창이 file:/// 로 시작해야 합니다)."), /*#__PURE__*/React.createElement(FieldRow, {
-    label: lang === "en" ? "Passphrase" : "공용 암호"
+    label: lang === "en" ? "Password" : "비밀번호"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -7139,9 +8477,15 @@ function LoginScreen({
 const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프레드시트 백엔드 ──
 // 이 코드를 Apps Script 편집기에 통째로 붙여넣으세요.
 
-const PASSPHRASE = '사무실공용암호';   // ← 앱에 입력할 암호와 똑같이 바꾸세요
+const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
-const SCRIPT_VERSION = 'v4-classify';   // 배포 확인용 — 수정하지 마세요
+const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
+const SCRIPT_VERSION = 'v5-clients';   // 배포 확인용 — 수정하지 마세요
+
+/* ── 권한 ──────────────────────────────────────────────
+   · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
+   · 고객사: 관리자가 지정한 고객사별 비밀번호 — 자기 회사 자료만 받고, 자기 회사 신고 자료만 저장
+   고객사 비밀번호는 원문을 저장하지 않고 '소금값 + SHA-256' 결과만 ClientAccess 시트에 둔다. */
 
 function doPost(e) {
   try {
@@ -7150,23 +8494,25 @@ function doPost(e) {
     }
     var req = JSON.parse(e.postData.contents);
     var got = String(req.passphrase || '');
-    if (got !== PASSPHRASE) {
-      // 진단 정보: 암호 자체는 노출하지 않고 길이·문자코드만 알려준다
-      return out({
-        error: 'UNAUTHORIZED',
-        receivedLength: got.length,
-        expectedLength: String(PASSPHRASE || '').length,
-        receivedCodes: got.split('').map(function (ch) { return ch.charCodeAt(0); }).join(','),
-        version: SCRIPT_VERSION
-      });
+    var auth = resolveAuth(got);
+    if (!auth) {
+      Utilities.sleep(1000); // 무작위 대입을 느리게
+      // 진단 정보는 받은 길이만 — 정답 길이·문자는 알려주지 않는다
+      return out({ error: 'UNAUTHORIZED', receivedLength: got.length, version: SCRIPT_VERSION });
     }
     const sheet = getSheet();
     const wsId = String(req.workspaceId || 'default');
     const row = findRow(sheet, wsId);
 
     if (req.action === 'load') {
-      if (!row) return out({ data: null });
-      return out(readData(sheet, row));
+      var loaded = row ? readData(sheet, row) : { data: null, updatedAt: null };
+      if (auth.role === 'client') {
+        return out({ data: clientView(loaded.data, auth.clientId), updatedAt: loaded.updatedAt, role: 'client', clientId: auth.clientId, version: SCRIPT_VERSION });
+      }
+      loaded.role = 'admin';
+      loaded.access = accessSummary();
+      loaded.version = SCRIPT_VERSION;
+      return out(loaded);
     }
 
     // 마지막 저장 시각만 돌려준다 — 앱이 바뀐 게 있을 때만 전체 데이터를 다시 받도록
@@ -7176,23 +8522,43 @@ function doPost(e) {
     }
 
     if (req.action === 'save') {
-      var payload = JSON.stringify(req.data);
       var now = new Date().toISOString();
-      // 두 기기가 동시에 저장해도 데이터가 섞이지 않도록 잠금
+      var merged, stale = false;
+      // 여러 사람이 동시에 저장해도 서로의 내용을 덮어쓰지 않도록 잠근 뒤,
+      // 최신 저장본에 '바뀐 부분(patch)'만 반영한다
       var lock = LockService.getScriptLock();
       lock.waitLock(20000);
       try {
-        writeData(sheet, findRow(sheet, wsId), wsId, payload, now);
+        var r2 = findRow(sheet, wsId);
+        var current = r2 ? readData(sheet, r2) : { data: null, updatedAt: null };
+        stale = !!(req.baseUpdatedAt && current.updatedAt && req.baseUpdatedAt !== current.updatedAt);
+        var base = current.data || { clients: [], filings: {}, capitalGains: {}, settings: {} };
+        if (auth.role === 'client') {
+          merged = applyPatch(base, req.patch || [], auth.clientId);
+        } else if (req.patch) {
+          merged = applyPatch(base, req.patch, null);
+        } else {
+          merged = req.data; // 예전 앱 호환 — 전체 저장
+        }
+        writeData(sheet, r2, wsId, JSON.stringify(merged), now);
+        if (auth.role === 'admin') pruneAccess(merged);
       } finally {
         lock.releaseLock();
       }
       // 사람이 읽을 수 있는 월별요약 시트를 함께 갱신 (실패해도 저장은 유지)
       try {
-        rebuildSummary(SpreadsheetApp.getActiveSpreadsheet(), req.data);
+        rebuildSummary(SpreadsheetApp.getActiveSpreadsheet(), merged);
       } catch (e2) {
         // 요약 생성 실패는 무시 — 원본 데이터 저장이 우선
       }
-      return out({ ok: true, updatedAt: now });
+      return out({ ok: true, updatedAt: now, stale: stale });
+    }
+
+    // 관리자만: 고객사 비밀번호 지정·변경·삭제 (password 가 빈 값이면 삭제)
+    if (req.action === 'setClientPassword') {
+      if (auth.role !== 'admin') return out({ error: 'FORBIDDEN' });
+      var d = req.data || {};
+      return out(setClientPassword(String(d.clientId || ''), String(d.password || '')));
     }
 
     if (req.action === 'classify') {
@@ -7201,8 +8567,131 @@ function doPost(e) {
 
     return out({ error: 'UNKNOWN_ACTION' });
   } catch (err) {
+    if (err && err.message === 'FORBIDDEN') return out({ error: 'FORBIDDEN' });
     return out({ error: String(err) });
   }
+}
+
+function resolveAuth(pass) {
+  if (!pass) return null;
+  if (pass === PASSPHRASE) return { role: 'admin' };
+  var rows = accessRows();
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].hash && hashPw(rows[i].salt, pass) === rows[i].hash) return { role: 'client', clientId: rows[i].clientId };
+  }
+  return null;
+}
+
+function hashPw(salt, pass) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, salt + ':' + pass, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
+}
+
+function getAccessSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ACCESS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(ACCESS_SHEET);
+    sh.appendRow(['client_id', 'salt', 'hash', 'updated_at']);
+  }
+  return sh;
+}
+
+function accessRows() {
+  var sh = getAccessSheet();
+  var n = sh.getLastRow();
+  if (n < 2) return [];
+  var v = sh.getRange(2, 1, n - 1, 3).getValues();
+  var outRows = [];
+  for (var i = 0; i < v.length; i++) {
+    if (v[i][0]) outRows.push({ row: i + 2, clientId: String(v[i][0]), salt: String(v[i][1]), hash: String(v[i][2]) });
+  }
+  return outRows;
+}
+
+// 관리자 화면용: 어떤 고객사에 비밀번호가 있는지만 (값은 보내지 않음)
+function accessSummary() {
+  var map = {};
+  accessRows().forEach(function (r) { if (r.hash) map[r.clientId] = true; });
+  return map;
+}
+
+function setClientPassword(clientId, password) {
+  if (!clientId) return { error: 'NO_CLIENT' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = getAccessSheet();
+    var rows = accessRows();
+    var mine = null;
+    for (var i = 0; i < rows.length; i++) if (rows[i].clientId === clientId) mine = rows[i];
+    if (!password) {
+      if (mine) sh.getRange(mine.row, 1, 1, 4).setValues([['', '', '', '']]);
+      return { ok: true, removed: true };
+    }
+    if (password.length < 6) return { error: 'PASSWORD_TOO_SHORT' };
+    if (password === PASSPHRASE) return { error: 'PASSWORD_IS_ADMIN' };
+    for (var j = 0; j < rows.length; j++) {
+      if (rows[j].clientId !== clientId && rows[j].hash && hashPw(rows[j].salt, password) === rows[j].hash) {
+        return { error: 'PASSWORD_DUPLICATE' };
+      }
+    }
+    var salt = Utilities.getUuid();
+    var values = [[clientId, salt, hashPw(salt, password), new Date().toISOString()]];
+    if (mine) sh.getRange(mine.row, 1, 1, 4).setValues(values);
+    else sh.appendRow(values[0]);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// 삭제된 고객사의 비밀번호는 지운다
+function pruneAccess(data) {
+  var ids = {};
+  ((data && data.clients) || []).forEach(function (c) { ids[c.id] = true; });
+  var sh = getAccessSheet();
+  accessRows().forEach(function (r) {
+    if (!ids[r.clientId]) sh.getRange(r.row, 1, 1, 4).setValues([['', '', '', '']]);
+  });
+}
+
+// 고객사에게 보낼 자료 — 자기 회사 것만
+function clientView(data, clientId) {
+  data = data || {};
+  var own = (data.clients || []).filter(function (c) { return c.id === clientId; });
+  var filings = {}, gains = {};
+  if (data.filings && data.filings[clientId]) filings[clientId] = data.filings[clientId];
+  if (data.capitalGains && data.capitalGains[clientId]) gains[clientId] = data.capitalGains[clientId];
+  return { clients: own, filings: filings, capitalGains: gains, settings: data.settings || {} };
+}
+
+// patch = [{ path: ['filings', 'c1', '2026-10'], value: {...} }, ...] — value 가 없으면 삭제
+// onlyClient 가 있으면(고객사 로그인) 그 회사의 filings·capitalGains 외에는 모두 거부
+function applyPatch(base, patch, onlyClient) {
+  var data = JSON.parse(JSON.stringify(base || {}));
+  for (var i = 0; i < patch.length; i++) {
+    var p = patch[i] || {};
+    var path = p.path || [];
+    if (!path.length) {
+      if (onlyClient) throw new Error('FORBIDDEN');
+      data = p.value;
+      continue;
+    }
+    if (onlyClient) {
+      var okPath = (path[0] === 'filings' || path[0] === 'capitalGains') && path[1] === onlyClient;
+      if (!okPath) throw new Error('FORBIDDEN');
+    }
+    var node = data;
+    for (var k = 0; k < path.length - 1; k++) {
+      if (node[path[k]] === undefined || node[path[k]] === null || typeof node[path[k]] !== 'object') node[path[k]] = {};
+      node = node[path[k]];
+    }
+    var last = path[path.length - 1];
+    if (p.value === undefined || p.value === null) delete node[last];
+    else node[last] = p.value;
+  }
+  return data;
 }
 
 function getSheet() {
@@ -7337,7 +8826,6 @@ function doGet() {
   return out({
     ok: true,
     version: SCRIPT_VERSION,
-    passphraseLength: String(PASSPHRASE || '').length,
     message: 'Backend is running.'
   });
 }
@@ -8388,6 +9876,14 @@ img, video, canvas { max-width: 100%; }
 .app-root { width: 100%; overflow-x: clip; }
 .main-content { min-width: 0; }
 .mobile-only, .phone-only { display: none; }
+.ctx-change-btn { display: none; }
+.money-field:focus-within { border-color: ${PALETTE.teal} !important; box-shadow: 0 0 0 3px ${PALETTE.tealTint}; }
+.money-field input:focus, .money-field input:focus-visible { box-shadow: none !important; outline: none !important; }
+.money-field input::-webkit-outer-spin-button, .money-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.lang-toggle-compact {
+  display: none; align-items: center; height: 36px; padding: 0 12px; border-radius: 18px; flex-shrink: 0;
+  border: 1px solid #CDD3DA; background: #fff; font-size: 13px; font-weight: 600; color: ${PALETTE.ink}; cursor: pointer; white-space: nowrap;
+}
 .bottom-tabs { display: none; }
 .mobile-total-bar { display: flex; position: sticky; bottom: 16px; }
 
@@ -8428,7 +9924,11 @@ img, video, canvas { max-width: 100%; }
     font-size: 13.5px; font-weight: 500; color: ${PALETTE.inkSoft}; cursor: pointer;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px;
   }
-  .bottom-tabs button.active { background: ${PALETTE.tealTint}; color: ${PALETTE.tealDeep}; font-weight: 700; }
+  .bottom-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px !important; }
+  .bottom-tabs button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .bottom-tabs button.active { color: ${PALETTE.teal}; font-weight: 700; }
+  .sidebar-lang-row { display: none !important; }
+  .lang-toggle-compact { display: inline-flex !important; }
   .mobile-total-bar { bottom: calc(70px + env(safe-area-inset-bottom)) !important; }
   .main-content {
     padding: 20px 20px 150px !important; width: 100%; max-width: 880px !important; margin: 0 auto;
@@ -8439,6 +9939,8 @@ img, video, canvas { max-width: 100%; }
   .main-content .form-row { max-width: 100%; }
   .mobile-only { display: block !important; }
   .desktop-only { display: none !important; }
+  .ctx-change-btn { display: inline-flex !important; }
+  .ctx-selectors:not(.open) { display: none !important; }
 }
 
 /* 휴대폰 폭: 한 줄에 한 칸씩 */
@@ -8457,7 +9959,7 @@ img, video, canvas { max-width: 100%; }
   .employee-row { flex-wrap: wrap !important; }
   .employee-row .employee-name { flex: 1 1 100% !important; }
   .employee-row .employee-amount { flex: 1 1 120px !important; width: auto !important; }
-  .stepper-label { display: none; }
+  .form-grid-2 { grid-template-columns: minmax(0, 1fr) !important; }
   .phone-only { display: block !important; }
 }
 
@@ -8479,9 +9981,10 @@ img, video, canvas { max-width: 100%; }
 @media (max-width: 359px) {
   .main-content { padding: 14px 10px 150px !important; }
   .bottom-tabs { padding-left: 2px !important; padding-right: 2px !important; }
-  .bottom-tabs button { font-size: 12.5px !important; padding: 0 2px; }
+  .bottom-tabs button { font-size: 11.5px !important; padding: 0 2px; }
   .sidebar { padding: 8px 10px !important; }
   .h1-title { font-size: 19px !important; }
+  .step-label { font-size: 11.5px !important; }
 }
 `;
 const S = {
@@ -8582,9 +10085,9 @@ const S = {
     background: "transparent",
     border: "none",
     color: PALETTE.inkSoft,
-    padding: "10px 12px",
-    borderRadius: 8,
-    fontSize: 14.5,
+    padding: "11px 12px",
+    borderRadius: 10,
+    fontSize: 15,
     fontFamily: FONT.body,
     cursor: "pointer",
     marginBottom: 2,
@@ -8876,8 +10379,314 @@ const S = {
   panel: {
     background: PALETTE.panel,
     border: `1px solid ${PALETTE.line}`,
+    borderRadius: 16,
+    padding: 20
+  },
+  /* ── 새 디자인 (Claude Design 시안) ── */
+  stepBar: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 6,
+    padding: 0,
+    margin: 0
+  },
+  stepBarBtn: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    alignItems: "stretch",
+    textAlign: "left",
+    background: "transparent",
+    border: "none",
+    padding: "4px 0",
+    cursor: "pointer",
+    fontFamily: FONT.body,
+    minHeight: 44
+  },
+  ratePill: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
+    background: PALETTE.paper,
     borderRadius: 12,
-    padding: 22
+    padding: "6px 6px 6px 14px"
+  },
+  linkCard: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "14px 16px",
+    width: "100%",
+    background: "#fff",
+    border: `1px solid ${PALETTE.line}`,
+    borderRadius: 16,
+    color: PALETTE.ink,
+    cursor: "pointer",
+    fontFamily: FONT.body,
+    fontSize: 15,
+    fontWeight: 600,
+    textAlign: "left"
+  },
+  barBtn: {
+    minHeight: 48,
+    borderRadius: 12,
+    border: "1px solid #CDD3DA",
+    background: "#fff",
+    color: PALETTE.ink,
+    fontFamily: FONT.body,
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 8px"
+  },
+  barBtnPrimary: {
+    minHeight: 48,
+    borderRadius: 12,
+    border: "none",
+    background: PALETTE.teal,
+    color: "#fff",
+    fontFamily: FONT.body,
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: "0 10px",
+    whiteSpace: "nowrap",
+    minWidth: 0
+  },
+  segmented: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 4,
+    background: "#F1F3F5",
+    borderRadius: 10,
+    padding: 4
+  },
+  segBtn: {
+    minHeight: 40,
+    borderRadius: 8,
+    border: "none",
+    background: "transparent",
+    fontFamily: FONT.body,
+    fontSize: 14,
+    color: PALETTE.inkSoft,
+    cursor: "pointer",
+    padding: "0 6px"
+  },
+  segBtnActive: {
+    background: "#fff",
+    boxShadow: "0 1px 2px rgba(23,33,43,.14)",
+    fontWeight: 700,
+    color: PALETTE.ink
+  },
+  captureZone: {
+    position: "relative",
+    borderRadius: 16,
+    border: "2px dashed transparent",
+    margin: -2
+  },
+  captureBtnPrimary: {
+    minHeight: 56,
+    borderRadius: 14,
+    border: "none",
+    background: PALETTE.teal,
+    color: "#fff",
+    fontFamily: FONT.body,
+    fontSize: 15.5,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    cursor: "pointer",
+    padding: "0 8px"
+  },
+  captureBtn: {
+    minHeight: 56,
+    borderRadius: 14,
+    border: "1px solid #CDD3DA",
+    background: "#fff",
+    color: PALETTE.ink,
+    fontFamily: FONT.body,
+    fontSize: 15.5,
+    fontWeight: 600,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    cursor: "pointer",
+    padding: "0 8px"
+  },
+  buttonOutline: {
+    fontFamily: FONT.body,
+    fontSize: 14.5,
+    fontWeight: 600,
+    padding: "0 14px",
+    minHeight: 42,
+    borderRadius: 10,
+    border: `1px solid ${PALETTE.teal}`,
+    background: "#fff",
+    color: PALETTE.teal,
+    cursor: "pointer"
+  },
+  receiptShortcut: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    marginTop: 14,
+    padding: "14px 16px",
+    cursor: "pointer",
+    background: "#fff",
+    border: "1px dashed #B9C9C2",
+    borderRadius: 16,
+    fontFamily: FONT.body
+  },
+  receiptCard: {
+    background: "#fff",
+    border: `2px solid ${PALETTE.teal}`,
+    borderRadius: 16,
+    padding: 14,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+  formGrid2: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12
+  },
+  stackLabel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    fontSize: 13.5,
+    fontWeight: 600,
+    color: PALETTE.ink,
+    minWidth: 0
+  },
+  linkButton: {
+    background: "transparent",
+    border: "none",
+    padding: "8px 2px",
+    fontFamily: FONT.body,
+    fontSize: 14,
+    fontWeight: 600,
+    color: PALETTE.teal,
+    cursor: "pointer",
+    textDecoration: "underline",
+    textUnderlineOffset: 3
+  },
+  ctxHeader: {
+    background: "#fff",
+    border: `1px solid ${PALETTE.line}`,
+    borderRadius: 16,
+    padding: "12px 14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    marginBottom: 14
+  },
+  heroCard: {
+    background: PALETTE.teal,
+    color: "#fff",
+    borderRadius: 18,
+    padding: "18px 18px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+  heroNavBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,.4)",
+    background: "transparent",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    padding: 0
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: 15,
+    flexShrink: 0
+  },
+  deskTile: {
+    background: "#fff",
+    border: `1px solid ${PALETTE.line}`,
+    borderRadius: 14,
+    padding: "16px 18px"
+  },
+  moneyField: {
+    display: "flex",
+    alignItems: "center",
+    minHeight: 54,
+    border: "1px solid #CDD3DA",
+    borderRadius: 12,
+    padding: "0 14px",
+    background: "#fff",
+    gap: 6
+  },
+  moneyInput: {
+    flex: 1,
+    minWidth: 0,
+    border: "none",
+    outline: "none",
+    fontFamily: FONT.body,
+    fontSize: 20,
+    fontWeight: 600,
+    color: PALETTE.ink,
+    background: "transparent",
+    padding: "10px 0",
+    boxShadow: "none"
+  },
+  checkRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "11px 0",
+    fontSize: 14.5
+  },
+  checkDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    fontWeight: 700,
+    fontSize: 15
+  },
+  actionBar: {
+    zIndex: 9,
+    marginTop: 20,
+    flexDirection: "column",
+    gap: 10,
+    background: "#fff",
+    border: `1px solid ${PALETTE.line}`,
+    padding: "12px 14px 14px",
+    borderRadius: 16,
+    boxShadow: "0 6px 24px rgba(23,33,43,0.12)"
   },
   panelTitle: {
     fontFamily: FONT.display,
@@ -9317,7 +11126,7 @@ const S = {
     border: `1px solid ${PALETTE.line}`
   },
   thumbSmall: {
-    width: 56,
+    width: 44,
     height: 56,
     objectFit: "cover",
     borderRadius: 8,
@@ -9390,8 +11199,8 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "10px 0",
-    borderBottom: `1px dotted ${PALETTE.line}`
+    padding: "12px 0",
+    borderBottom: `1px solid #EEF1F4`
   },
   selectSmall: {
     fontFamily: FONT.body,

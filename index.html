@@ -440,10 +440,9 @@ const {
 // 방법 A — Google 스프레드시트
 const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyQ8VLoyS6ewqaNbOW4BYxLOM_DBoALK4UObnshIYNpuVFI-BMEqezgNKeKcfa6ajdY/exec";
 const GAS_PASSPHRASE = ""; // 비워두면 실행할 때마다 암호를 입력받습니다 (권장)
-// ★ 검토용 임시 설정: true면 잠금 화면에 "암호 없이 열기" 버튼이 생겨 암호 없이 들어갈 수 있습니다.
-//   이때는 공유 스프레드시트와 연동되지 않고 이 기기(브라우저)에만 저장됩니다.
-//   ▶ 실제 배포 전에 반드시 false 로 바꾸세요.
-const ALLOW_SKIP_LOGIN = true;
+// "암호 없이 열기"(이 기기에만 저장하는 검토 모드)는 배포본(웹·아이폰·APK)에서는 숨긴다.
+//   PC에서 파일을 직접 열었을 때(file://)만 개발·점검용으로 보인다.
+const ALLOW_SKIP_LOGIN = typeof location !== "undefined" && location.protocol === "file:";
 
 // ── 앱 버전 확인 ──
 // APK를 만들 때 GitHub Actions가 아래 "__APK_BUILD__" 자리에 빌드 번호(v1.0.N의 N)를 써 넣는다.
@@ -460,10 +459,22 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.4";
+const APP_RELEASE = "2026.11.04.7";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.04.7",
+  ko: ["국세청 마감일을 두 가지로 함께 표시 — 서면 신고 20일 · e-Filing 25일"],
+  en: ["GDT deadlines now show both — paper filing the 20th · e-Filing the 25th"]
+}, {
+  version: "2026.11.04.6",
+  ko: ["세금 납부 기록 — 신고가 끝난 달 4단계에서 납부일·금액과 납부 영수증 사진을 올려요", "VAT 인보이스에 공급자 VATTIN 칸 추가 (사진에서 자동으로 읽음) — 없으면 경고", "이번 달 준비 서류 체크리스트 (고객사마다 목록을 정할 수 있어요)", "홈에 연간 일정 — 연간 법인세·Patent tax(3월 31일) 등"],
+  en: ["Record tax payments — date, amount and a photo of the payment receipt in step 4 of filed months", "Supplier VATTIN on VAT invoices (read from the photo) — warns if missing", "Monthly document checklist (each client can have its own list)", "Annual deadlines on Home — annual ToI, patent tax (31 March) and more"]
+}, {
+  version: "2026.11.04.5",
+  ko: ["사무소 연락이 텔레그램으로 — 4단계 [사무소에 연락]에서 쓰면 텔레그램이 열리고 내용이 채워져요 (이메일도 가능)", "검토 요청 뒤 [텔레그램으로 보내기]로 사무소에 바로 알릴 수 있어요"],
+  en: ["Contact Kohr & Co. on Telegram — write in step 4 and Telegram opens with the message filled in (email also works)", "After requesting review, tap Send on Telegram to let the office know"]
+}, {
   version: "2026.11.04.4",
   ko: ["검토 요청 — 다 입력하면 4단계에서 [입력 완료 · 검토 요청]을 눌러 주세요", "사무소 메시지 — 달마다 Kohr & Co.와 메시지를 주고받고, 보완 요청이 오면 홈에 표시돼요", "신고가 끝난 달은 잠겨서 실수로 바뀌지 않아요", "급여: 부양가족 공제(1인 15만 리엘), 비거주자 20%, 현물급여세 20% 반영"],
   en: ["Request review — when everything is entered, press Done · Request review in step 4", "Messages — talk with Kohr & Co. for each month; change requests show on Home", "Filed months are locked so they can’t be changed by mistake", "Payroll: dependent allowance (KHR 150,000 each), non-resident 20%, fringe-benefit tax 20%"]
@@ -606,7 +617,7 @@ function yearOptions(current) {
   return list;
 }
 
-// 월별 신고·납부 마감 — GDT 세목은 익월 20일, NSSF는 익월 15일
+// 월별 신고·납부 마감 — GDT 세목은 익월 20일(서면)·25일(e-Filing), NSSF는 익월 15일
 function FilingDeadline({
   year,
   month,
@@ -619,7 +630,7 @@ function FilingDeadline({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days = Math.round((gdtDue - today) / 86400000);
-  const label = filed ? lang === "en" ? "Filed" : "제출완료" : days > 0 ? `D-${days}` : days === 0 ? lang === "en" ? "Due today" : "오늘 마감" : lang === "en" ? `${-days} days overdue` : `${-days}일 지남`;
+  const label = filed ? lang === "en" ? "Filed" : "신고 완료" : days > 0 ? `D-${days}` : days === 0 ? lang === "en" ? "Due today" : "오늘 마감" : lang === "en" ? `${-days} days overdue` : `${-days}일 지남`;
   const urgent = !filed && days <= 5;
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -631,7 +642,7 @@ function FilingDeadline({
       color: PALETTE.inkSoft,
       margin: "-10px 0 18px"
     }
-  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? `GDT filing & payment due ${dueYear}-${String(dueMonth).padStart(2, "0")}-20 · NSSF by the 15th` : `국세청 신고·납부 마감 ${dueYear}. ${dueMonth}. 20. · NSSF는 15일까지`), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? `GDT filing & payment due ${dueYear}-${String(dueMonth).padStart(2, "0")}-20 (paper) / -25 (e-Filing) · NSSF by the 15th` : `국세청 신고·납부 마감 ${dueYear}. ${dueMonth}. 20. (서면) / 25. (e-Filing) · NSSF는 15일까지`), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 600,
       padding: "2px 8px",
@@ -642,20 +653,38 @@ function FilingDeadline({
   }, label));
 }
 
-// 신고월 기준 마감일 — 국세청 다음 달 20일, NSSF 다음 달 15일
+// 신고월 기준 마감일 — 국세청: 서면 신고 다음 달 20일, e-Filing 다음 달 25일 (MEF Instruction 003, 2020.2.27) / NSSF 다음 달 15일
+// 주말·공휴일이면 다음 영업일. 앱의 D-day는 더 이른 서면 마감(20일) 기준으로 센다.
 function dueDatesFor(year, month) {
   const dueYear = month === 12 ? year + 1 : year;
   const dueMonth = month === 12 ? 1 : month + 1;
   const gdt = new Date(dueYear, dueMonth - 1, 20);
+  const gdtE = new Date(dueYear, dueMonth - 1, 25);
   const nssf = new Date(dueYear, dueMonth - 1, 15);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return {
     gdt,
+    gdtE,
     nssf,
     dueMonth,
-    days: Math.round((gdt - today) / 86400000)
+    days: Math.round((gdt - today) / 86400000),
+    daysE: Math.round((gdtE - today) / 86400000)
   };
+}
+// "서면 11월 20일 · e-Filing 11월 25일" (short: "서면 20일 · e-Filing 25일")
+function gdtDueText(due, lang, short) {
+  const md = d => short ? lang === "en" ? `${d.toLocaleDateString("en-US", {
+    month: "short"
+  })} ${d.getDate()}` : `${d.getMonth() + 1}월 ${d.getDate()}일` : fmtMonthDay(d, lang);
+  return lang === "en" ? `paper ${md(due.gdt)} · e-Filing ${md(due.gdtE)}` : `서면 ${md(due.gdt)} · e-Filing ${md(due.gdtE)}`;
+}
+// 홈 제목 — 두 마감을 함께 ("서면 D-16 · e-Filing D-21")
+function dueHeadline(due, lang) {
+  const en = lang === "en";
+  const dd = n => n > 0 ? `D-${n}` : n === 0 ? en ? "today" : "오늘" : en ? `${-n}d late` : `${-n}일 지남`;
+  if (due.daysE < 0) return en ? `${-due.daysE} days overdue` : `마감이 ${-due.daysE}일 지났어요`;
+  return en ? `Paper ${dd(due.days)} · e-Filing ${dd(due.daysE)}` : `서면 ${dd(due.days)} · e-Filing ${dd(due.daysE)}`;
 }
 function fmtMonthDay(d, lang) {
   return lang === "en" ? d.toLocaleDateString("en-US", {
@@ -762,6 +791,13 @@ async function gasRequest(cfg, action, data, extra) {
         action,
         workspaceId: cfg.workspaceId,
         passphrase: cfg.passphrase || "",
+        actor: (() => {
+          try {
+            return localStorage.getItem("ctt:actor") || "";
+          } catch (e) {
+            return "";
+          }
+        })(),
         data,
         ...(extra || {})
       })
@@ -1634,6 +1670,129 @@ function carryForwardEmployees(filingsForClient, year, month) {
   }
   return [];
 }
+
+// 캄보디아 TIN/VATTIN — 영문 1자 + 숫자 3자리 + 숫자 9자리 (예: K001-901234567)
+function normalizeKhTin(v) {
+  const t = String(v || "").toUpperCase().replace(/\s+/g, "").replace(/[–—]/g, "-");
+  const m = t.match(/^([A-Z])(\d{3})-?(\d{9})$/);
+  return m ? `${m[1]}${m[2]}-${m[3]}` : t;
+}
+function isValidKhTin(v) {
+  return /^[A-Z]\d{3}-\d{9}$/.test(normalizeKhTin(v));
+}
+
+// ── 연간 일정 (12월 결산 법인 기준) — 출처: KPMG Cambodia 2026 연간 컴플라이언스 안내, PwC Tax Summaries ──
+const ANNUAL_ITEMS = [{
+  id: "toi",
+  m: 3,
+  d: 31,
+  ko: "연간 법인세(ToI) 신고·납부",
+  en: "Annual Tax on Income return & payment",
+  noteKo: "지난해 결산 기준, 결산일로부터 3개월 이내",
+  noteEn: "For last year, within 3 months of year-end"
+}, {
+  id: "patent",
+  m: 3,
+  d: 31,
+  ko: "사업자 등록세(Patent tax) 갱신",
+  en: "Patent tax renewal",
+  noteKo: "매년 3월 31일까지",
+  noteEn: "By 31 March every year"
+}, {
+  id: "workpermit",
+  m: 3,
+  d: 31,
+  ko: "외국인 근로허가 갱신 (노동부)",
+  en: "Foreign work permit renewal (MLVT)",
+  noteKo: "외국인 직원이 있는 경우",
+  noteEn: "If you employ foreigners"
+}, {
+  id: "acar",
+  m: 4,
+  d: 15,
+  ko: "재무제표 제출 (ACAR)",
+  en: "Financial statements to ACAR",
+  noteKo: "감사 대상이 아니면 4월 15일, 감사 대상이면 7월 15일",
+  noteEn: "Unaudited by 15 Apr; audited by 15 Jul"
+}, {
+  id: "labor1",
+  m: 6,
+  d: 30,
+  ko: "노동 자가점검 신고 (상반기)",
+  en: "Self-declared labor inspection (H1)",
+  noteKo: "노동부 온라인 신고",
+  noteEn: "Online with MLVT"
+}, {
+  id: "labor2",
+  m: 12,
+  d: 31,
+  ko: "노동 자가점검 신고 (하반기)",
+  en: "Self-declared labor inspection (H2)",
+  noteKo: "노동부 온라인 신고",
+  noteEn: "Online with MLVT"
+}];
+// 고객사별 매달 준비 서류 (고객사 관리 › 정보 수정에서 바꿀 수 있음)
+const DEFAULT_DOCS = ["매출 인보이스 사본 (Sales invoices)", "매입 VAT 인보이스 (Purchase VAT invoices)", "급여대장·근무일수 (Payroll sheet)", "은행 거래내역서 (Bank statement)", "임차료·용역비 청구서 (Rent & service bills)"];
+function docsFor(client) {
+  const list = client && Array.isArray(client.docChecklist) && client.docChecklist.length ? client.docChecklist : DEFAULT_DOCS;
+  return list.map(x => String(x).trim()).filter(Boolean);
+}
+const PAY_METHODS = [{
+  id: "bank",
+  ko: "은행 e-Payment (ABA·ACLEDA 등)",
+  en: "Bank e-Payment (ABA, ACLEDA…)"
+}, {
+  id: "counter",
+  ko: "국세청·은행 창구",
+  en: "GDT / bank counter"
+}, {
+  id: "office",
+  ko: "Kohr & Co. 대납",
+  en: "Paid by Kohr & Co."
+}, {
+  id: "other",
+  ko: "기타",
+  en: "Other"
+}];
+
+// ── 연락 채널: 텔레그램(우선) → 이메일 ──
+const OFFICE_CONTACT = {
+  name: "김용윤 세무사",
+  telegram: "kohrkyy",
+  email: "kohrkyy@gmail.com",
+  phone: "089 313 834"
+};
+// "@name", "t.me/name", "https://t.me/name" → "name" / 전화번호(+855…) → "+855…"
+function normalizeTelegram(v) {
+  let t = String(v || "").trim();
+  if (!t) return "";
+  t = t.replace(/^https?:\/\//i, "").replace(/^(www\.)?(t|telegram)\.me\//i, "").replace(/^@/, "").replace(/[/?#].*$/, "");
+  if (/^\+?[\d\s-]{7,}$/.test(t)) return "+" + t.replace(/\D/g, "");
+  return t;
+}
+function isValidTelegram(v) {
+  const t = normalizeTelegram(v);
+  return !t || /^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(t) || /^\+\d{8,15}$/.test(t);
+}
+function isValidEmail(v) {
+  const e = String(v || "").trim();
+  return !e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+// 상대 채팅창을 열고 메시지를 미리 채운다 (보내기는 텔레그램에서 한 번 더 누름)
+function telegramLabel(v) {
+  const t = normalizeTelegram(v);
+  return t ? t.startsWith("+") ? t : "@" + t : "";
+}
+function telegramLink(handle, text) {
+  const t = normalizeTelegram(handle);
+  if (!t) return "";
+  return `https://t.me/${t}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}
+function mailLink(email, subject, body) {
+  const e = String(email || "").trim();
+  if (!e) return "";
+  return `mailto:${e}?subject=${encodeURIComponent(subject || "")}&body=${encodeURIComponent(body || "")}`;
+}
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -1833,7 +1992,8 @@ Cambodian receipt conventions:
 - Dates are usually DAY/MONTH/YEAR (e.g. 05/11/2026 = 5 November 2026). Some POS slips print YYYY-MM-DD or "05-Nov-26".
 - Many receipts show the total in BOTH USD ($) and Khmer riel (KHR, ៛, "Riel", "R"), often with an exchange rate line (about 4,000–4,200 KHR per USD).
 - Total labels: "Grand Total", "Total", "Total Amount", "Amount Due", "Net Amount", "សរុប", "សរុបរួម", "ប្រាក់ត្រូវបង់". Tax invoices show "VAT 10%" and a total including VAT.
-- IGNORE: subtotal before VAT, item prices, quantities, "Cash", "Cash received/Tendered", "Change", "Balance returned", discounts lines, phone numbers, invoice numbers, TIN/VATTIN numbers, table numbers, times.
+- For the total, IGNORE: subtotal before VAT, item prices, quantities, "Cash", "Cash received/Tendered", "Change", "Balance returned", discounts lines, phone numbers, invoice numbers, TIN/VATTIN numbers, table numbers, times.
+- Separately, read the SELLER's (supplier's) VAT TIN if printed — labels "VATTIN", "VAT TIN", "TIN", "លេខអត្តសញ្ញាណកម្មសារពើពន្ធ". Format is usually one letter + 3 digits + 9 digits, e.g. K001-901234567. Do NOT return the buyer's/customer's TIN.
 - Digits may be Khmer numerals (០១២៣៤៥៦៧៨៩) — convert to 0-9.
 - Riel amounts have no decimals and use thousands separators (e.g. 51,200). USD amounts usually have 2 decimals (e.g. 12.50).
 
@@ -1846,6 +2006,7 @@ Return ONLY raw JSON, no markdown, no extra text, with exactly these keys:
   "total_text": "the total line exactly as printed, e.g. 'Grand Total: $12.50', or null",
   "other_total": number or null  // the same total shown in the OTHER currency, if printed
   "other_currency": "USD" or "KHR" or null,
+  "supplier_vattin": "seller's VATTIN exactly as printed, or null",
   "confidence": "high" | "medium" | "low"
 }
 If the image is not a receipt/invoice or is too blurry, return nulls with "confidence": "low".`;
@@ -1928,6 +2089,7 @@ function checkReceiptReading(parsed, exchangeRate, today = new Date()) {
     alt,
     dateText: typeof parsed?.date_text === "string" ? parsed.date_text : null,
     amountText: typeof parsed?.total_text === "string" ? parsed.total_text : null,
+    vattin: typeof parsed?.supplier_vattin === "string" && parsed.supplier_vattin.trim() ? normalizeKhTin(parsed.supplier_vattin) : null,
     confidence,
     flags
   };
@@ -2060,6 +2222,13 @@ function validateFiling(filing, client, prevFiling, lang) {
       msg: t(`원천세 항목 ${i + 1}번의 지급액이 입력되지 않았습니다.`, `Withholding item ${i + 1}'s payment amount has not been entered.`)
     });
   });
+  const vatNoTin = (filing?.evidence || []).filter(e => e.isVatInvoice && !isValidKhTin(e.supplierTin));
+  if (vatNoTin.length) {
+    issues.push({
+      level: "warning",
+      msg: t(`VAT 인보이스 ${vatNoTin.length}건에 공급자 VATTIN이 없거나 형식이 맞지 않아요 — 매입세액공제가 거부될 수 있어요. (${vatNoTin.slice(0, 3).map(e => e.vendor || e.txDate || "?").join(", ")})`, `${vatNoTin.length} VAT invoice(s) have no valid supplier VATTIN — the input VAT credit may be refused. (${vatNoTin.slice(0, 3).map(e => e.vendor || e.txDate || "?").join(", ")})`)
+    });
+  }
   if (prevFiling) {
     const prevRevenue = Number(prevFiling.revenue) || 0;
     if (prevRevenue > 0 && revenue > 0) {
@@ -2076,7 +2245,7 @@ function validateFiling(filing, client, prevFiling, lang) {
   if (filing?.filed && issues.some(i => i.level === "error")) {
     issues.push({
       level: "error",
-      msg: t("제출완료로 표시되어 있으나 아직 해결되지 않은 오류가 있습니다.", "Marked as filed, but there are still unresolved errors.")
+      msg: t("신고 완료로 표시되어 있으나 아직 해결되지 않은 오류가 있습니다.", "Marked as filed, but there are still unresolved errors.")
     });
   }
   return issues;
@@ -2114,7 +2283,7 @@ const NAV = [{
   en: "Settings",
   hintKo: "세율·서버·앱 정보",
   hintEn: "Rates, server, app info",
-  children: ["rates", "backend", "about"]
+  children: ["rates", "activity", "backend", "about"]
 }];
 const SUBVIEW_LABELS = {
   draft: {
@@ -2137,6 +2306,10 @@ const SUBVIEW_LABELS = {
     ko: "세율 참고",
     en: "Tax rates"
   },
+  activity: {
+    ko: "변경 기록·백업",
+    en: "Activity & backup"
+  },
   backend: {
     ko: "서버 연결",
     en: "Server connection"
@@ -2157,6 +2330,7 @@ const ICON_PATHS = {
   reports: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M8 13h8M8 17h5"],
   clients: ["M3 21h18", "M5 21V7l7-4 7 4v14", "M9 21v-6h6v6"],
   settings: ["M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"],
+  send: ["M22 2L11 13", "M22 2l-7 20-4-9-9-4z"],
   camera: ["M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z", "M12 9a4 4 0 1 0 0 8a4 4 0 1 0 0-8z"],
   gallery: ["M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M8.5 7a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3z", "M21 15l-5-5L5 21"],
   check: ["M20 6L9 17l-5-5"],
@@ -2216,11 +2390,11 @@ function CambodiaTaxApp() {
   // 고객사 계정에는 [고객사] 메뉴와 [서버 연결] 화면을 보여주지 않는다
   const navItems = isClient ? NAV.filter(n => n.id !== "clients").map(n => n.children ? {
     ...n,
-    children: n.children.filter(c => c !== "backend")
+    children: n.children.filter(c => c !== "backend" && c !== "activity")
   } : n) : NAV;
   const groupOf = v => navItems.find(n => n.id === v || (n.children || []).includes(v)) || navItems[0];
   const [selectedClientId, setSelectedClientId] = useState(null);
-  // 기본 신고월은 "지난달" — 매달 20일까지 전월분을 신고하므로
+  // 기본 신고월은 "지난달" — 매달 20일(서면)·25일(e-Filing)까지 전월분을 신고하므로
   const [selectedYear, setSelectedYear] = useState(() => {
     const d = new Date();
     return d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear();
@@ -2346,6 +2520,7 @@ function CambodiaTaxApp() {
     clients: parsed.clients || [],
     filings: parsed.filings || {},
     capitalGains: parsed.capitalGains || {},
+    annual: parsed.annual || {},
     settings: parsed.settings || {
       rate: DEFAULT_EXCHANGE_RATE,
       asOf: ""
@@ -2867,6 +3042,21 @@ function CambodiaTaxApp() {
       ok: true
     };
   };
+  const updateClient = async (id, patch) => {
+    const next = {
+      ...data,
+      clients: data.clients.map(c => c.id === id ? {
+        ...c,
+        ...patch
+      } : c)
+    };
+    const ok = await persist(next, {
+      paths: [["clients"]]
+    });
+    return {
+      ok: ok !== false
+    };
+  };
   const removeClient = id => {
     const nextFilings = {
       ...data.filings
@@ -2948,6 +3138,55 @@ function CambodiaTaxApp() {
   };
 
   // 관리자: 고객사 비밀번호 지정·변경 (빈 값이면 삭제). 서버에는 암호화된 값만 저장된다
+  // ── 서버 부가 기능: Drive 사진 보관 · 변경 기록 · 백업 · 연간 일정 ──
+  const serverOn = backend.enabled && backend.mode === "gsheet" && !backend.reviewMode;
+  const uploadImage = async (clientId, month, kind, dataUrl, name) => {
+    const cfg = backendRef.current;
+    if (!cfg.enabled || cfg.mode !== "gsheet" || !dataUrl) return null;
+    try {
+      const r = await gasRequest(cfg, "uploadImage", {
+        clientId,
+        month,
+        kind,
+        dataUrl,
+        name
+      });
+      return r && r.url ? r : null;
+    } catch (e) {
+      return null; // 예전 서버이거나 Drive 권한 전 — 사진은 앱(작은 사진)에만 남는다
+    }
+  };
+  const fetchAudit = async clientName => {
+    const r = await gasRequest(backendRef.current, "audit", {
+      limit: 300,
+      clientId: clientName || ""
+    });
+    return r.rows || [];
+  };
+  const backupNow = async () => gasRequest(backendRef.current, "backupNow", {});
+  const setAnnual = (clientId, year, itemId, value) => {
+    const cur = {
+      ...((data.annual || {})[clientId] || {})
+    };
+    const y = {
+      ...(cur[year] || {})
+    };
+    if (value) y[itemId] = {
+      s: value,
+      at: new Date().toISOString()
+    };else delete y[itemId];
+    cur[year] = y;
+    const next = {
+      ...data,
+      annual: {
+        ...(data.annual || {}),
+        [clientId]: cur
+      }
+    };
+    persist(next, {
+      paths: [["annual", clientId]]
+    });
+  };
   const setClientPassword = async (clientId, password) => {
     const cfg = backendRef.current;
     if (!cfg.enabled || cfg.mode !== "gsheet") {
@@ -3370,12 +3609,14 @@ function CambodiaTaxApp() {
       setMonthlyStartStep(step || 1);
       goView("monthly");
     },
-    onGo: goView
+    onGo: goView,
+    onSetAnnual: setAnnual
   }), view === "clients" && !isClient && /*#__PURE__*/React.createElement(ClientsView, {
     clients: data.clients,
     filings: data.filings,
     capitalGains: data.capitalGains,
     onAdd: addClient,
+    onUpdate: updateClient,
     onRemove: removeClient,
     access: auth.access,
     onSetPassword: setClientPassword,
@@ -3399,7 +3640,8 @@ function CambodiaTaxApp() {
     onDirtyChange: handleDirtyChange,
     initialStep: monthlyStartStep,
     onGo: goView,
-    canManageClients: !isClient
+    canManageClients: !isClient,
+    onUploadImage: serverOn ? (dataUrl, name, kind) => uploadImage(selectedClientId, mKey, kind || "evidence", dataUrl, name) : null
   }), view === "annual" && /*#__PURE__*/React.createElement(AnnualView, {
     clients: data.clients,
     selectedClient: selectedClient,
@@ -3442,6 +3684,11 @@ function CambodiaTaxApp() {
       setUpdateInfo(info);
       setUpdateDismissed(false);
     }
+  }), view === "activity" && !isClient && /*#__PURE__*/React.createElement(ActivityView, {
+    serverOn: serverOn,
+    clients: data.clients,
+    fetchAudit: fetchAudit,
+    backupNow: backupNow
   }), view === "backend" && !isClient && /*#__PURE__*/React.createElement(BackendView, {
     backend: backend,
     backendError: backendError,
@@ -3459,7 +3706,8 @@ function Dashboard({
   setSelectedYear,
   setSelectedMonth,
   onOpenClient,
-  onGo
+  onGo,
+  onSetAnnual
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -3498,13 +3746,19 @@ function Dashboard({
     const status = filing?.filed ? "filed" : filing?.reviewStatus === "submitted" ? "submitted" : filing?.reviewStatus === "changes" ? "changes" : hasData ? "draft" : "empty";
     const stepsDone = filing ? [Number(filing.revenue) > 0 || Number(filing.purchase) > 0 || Number(filing.expenses) > 0, (filing.employees || []).length > 0, (filing.evidence || []).length + (filing.withholding || []).length > 0].filter(Boolean).length : 0;
     const issues = validateFiling(filing || {}, c, (data.filings[c.id] || {})[prevKey], lang).filter(i => i.level !== "info");
+    const docsList = docsFor(c);
+    const docsDone = docsList.filter(d => filing?.docs?.[d]).length;
+    const paid = !!filing?.payment?.paid;
     return {
       c,
       filing,
       status,
       stepsDone,
       issues,
-      calc: hasData ? calcMonthly(filing) : null
+      calc: hasData ? calcMonthly(filing) : null,
+      paid,
+      docsTotal: docsList.length,
+      docsDone
     };
   });
   // 사무소는 검토 요청 먼저, 고객사는 보완 요청 먼저
@@ -3522,7 +3776,9 @@ function Dashboard({
     filed: 4
   };
   const [remindOpen, setRemindOpen] = useState(false);
-  rows.sort((x, y) => order[x.status] - order[y.status] || y.issues.length - x.issues.length);
+  // 신고 완료 중에서는 미납이 먼저
+  const rank = r => order[r.status] + (r.status === "filed" && r.paid ? 0.5 : 0);
+  rows.sort((x, y) => rank(x) - rank(y) || y.issues.length - x.issues.length);
   const count = st => rows.filter(r => r.status === st).length;
   const total = rows.length;
   const allFiled = total > 0 && count("filed") === total;
@@ -3566,7 +3822,7 @@ function Dashboard({
     }
   };
   const actionStyle = st => st === "empty" || st === "submitted" && !isClient || st === "changes" && isClient ? S.buttonPrimary : st === "draft" ? S.buttonOutline : S.buttonGhost;
-  const headline = allFiled ? en ? "All filed" : "모두 신고했어요" : due.days > 0 ? en ? `${due.days} days to the deadline` : `마감까지 ${due.days}일` : due.days === 0 ? en ? "Due today" : "오늘 마감이에요" : en ? `${-due.days} days overdue` : `마감이 ${-due.days}일 지났어요`;
+  const headline = allFiled ? en ? "All filed" : "모두 신고했어요" : dueHeadline(due, lang);
   const monthLabel = en ? `Filings for ${selectedMonth}/${selectedYear}` : `${selectedYear}년 ${selectedMonth}월분 신고`;
   const filedText = r => {
     if (!r.filing?.filedAt) return en ? "Filed" : "신고 완료";
@@ -3576,9 +3832,11 @@ function Dashboard({
       day: "numeric"
     })}` : `${d.getMonth() + 1}월 ${d.getDate()}일 신고`;
   };
+  const payText = r => r.paid ? r.filing?.payment?.confirmedAt ? en ? "paid ✓" : "납부 확인" : en ? "paid" : "납부 완료" : en ? "not paid" : "미납";
   const statusLine = r => {
     if (r.status === "empty") return en ? "Not started yet" : "입력 전 · 아직 시작 안 함";
-    if (r.status === "draft") return `${en ? "In progress" : "입력 중"} · ${en ? `${r.stepsDone}/4 steps` : `${r.stepsDone}/4단계`} · ${fmt(r.calc.totalDue)} KHR`;
+    if (r.status === "draft") return `${en ? "In progress" : "입력 중"} · ${en ? `docs ${r.docsDone}/${r.docsTotal}` : `서류 ${r.docsDone}/${r.docsTotal}`} · ${fmt(r.calc.totalDue)} KHR`;
+    if (r.status === "filed") return `${filedText(r)} · ${payText(r)} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
     if (r.status === "submitted") return `${en ? "Review requested" : "검토 요청"} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
     if (r.status === "changes") return en ? "Changes requested — see messages" : "보완 요청 · 메시지 확인";
     return `${filedText(r)} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
@@ -3590,7 +3848,8 @@ function Dashboard({
   };
   // 영수증 바로 찍기 — 아직 제출하지 않은 첫 고객사의 증빙 단계로
   const receiptTarget = rows.find(r => r.status !== "filed") || rows[0];
-  const notReady = rows.filter(r => r.status === "empty" || r.status === "draft" || r.status === "changes");
+  const notReady = rows.filter(r => r.status === "empty" || r.status === "draft" || r.status === "changes" || r.status === "filed" && !r.paid);
+  const paidCount = rows.filter(r => r.paid).length;
   const remindButton = !isClient && notReady.length > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
@@ -3669,14 +3928,14 @@ function Dashboard({
     style: {
       marginTop: 10
     }
-  }), data.clients.length === 0 && !isClient && /*#__PURE__*/React.createElement("button", {
+  }), data.clients.length === 0 && !isClient && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonPrimary,
       marginTop: 14
     },
     onClick: () => onGo("clients")
-  }, en ? "Add the first client" : "첫 고객사 추가하기"));
+  }, en ? "Add the first client" : "첫 고객사 추가하기")));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "mobile-only"
   }, /*#__PURE__*/React.createElement("section", {
@@ -3705,13 +3964,21 @@ function Dashboard({
       fontWeight: 700,
       color: "#fff"
     }
-  }, headline), /*#__PURE__*/React.createElement("div", {
+  }, headline.split(" · ").map((t, i, arr) => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: i
+  }, i ? " " : "", /*#__PURE__*/React.createElement("span", {
+    style: {
+      whiteSpace: "nowrap"
+    }
+  }, t, i < arr.length - 1 ? " ·" : "")))), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "#CFE6DE",
       marginTop: 2
     }
-  }, en ? `GDT ${fmtMonthDay(due.gdt, lang)} · NSSF ${fmtMonthDay(due.nssf, lang)}` : `국세청 ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일 · NSSF ${due.nssf.getMonth() + 1}월 ${due.nssf.getDate()}일`)), /*#__PURE__*/React.createElement("div", {
+  }, en ? `GDT ${gdtDueText(due, lang, true)} · NSSF ${due.nssf.toLocaleDateString("en-US", {
+    month: "short"
+  })} ${due.nssf.getDate()}` : `국세청 ${gdtDueText(due, lang, true)} · NSSF ${due.nssf.getMonth() + 1}월 ${due.nssf.getDate()}일`)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -3804,7 +4071,7 @@ function Dashboard({
     style: {
       fontSize: 13,
       marginTop: 1,
-      color: r.status === "empty" ? PALETTE.brassText : r.status === "changes" ? PALETTE.red : r.status === "submitted" ? "#1F4E8C" : r.status === "filed" ? PALETTE.tealDeep : PALETTE.inkSoft,
+      color: r.status === "empty" || r.status === "filed" && !r.paid ? PALETTE.brassText : r.status === "changes" ? PALETTE.red : r.status === "submitted" ? "#1F4E8C" : r.status === "filed" ? PALETTE.tealDeep : PALETTE.inkSoft,
       fontWeight: r.status === "empty" || r.status === "changes" || r.status === "submitted" ? 600 : 400
     }
   }, statusLine(r))), /*#__PURE__*/React.createElement("button", {
@@ -3879,7 +4146,7 @@ function Dashboard({
       letterSpacing: -0.4,
       color: PALETTE.ink
     }
-  }, allFiled ? headline : due.days > 0 ? en ? `${due.days} days left to file` : `마감까지 ${due.days}일 남았어요` : headline)), /*#__PURE__*/React.createElement("div", {
+  }, headline)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -3929,12 +4196,13 @@ function Dashboard({
     }
   }, en ? "GDT filing & payment" : "국세청 신고·납부"), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 20,
+      fontSize: 17,
       fontWeight: 700,
       marginTop: 4,
-      color: PALETTE.ink
+      color: PALETTE.ink,
+      lineHeight: 1.45
     }
-  }, fmtMonthDay(due.gdt, lang))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null, en ? "Paper" : "서면", " ", fmtMonthDay(due.gdt, lang)), /*#__PURE__*/React.createElement("div", null, "e-Filing ", fmtMonthDay(due.gdtE, lang)))), /*#__PURE__*/React.createElement("div", {
     style: S.deskTile
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3955,7 +4223,7 @@ function Dashboard({
       fontSize: 14,
       color: PALETTE.inkSoft
     }
-  }, en ? "Filed" : "신고 완료", count("submitted") ? en ? ` · ${count("submitted")} awaiting review` : ` · 검토 대기 ${count("submitted")}곳` : ""), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Filed" : "신고 완료", count("submitted") ? en ? ` · ${count("submitted")} awaiting review` : ` · 검토 대기 ${count("submitted")}곳` : "", en ? ` · paid ${paidCount}` : ` · 납부 ${paidCount}곳`), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -4101,12 +4369,19 @@ function Dashboard({
       background: STATUS[r.status].bg,
       color: STATUS[r.status].fg
     }
-  }, en ? STATUS[r.status].en : STATUS[r.status].ko)), /*#__PURE__*/React.createElement("td", {
+  }, en ? STATUS[r.status].en : STATUS[r.status].ko), r.status === "filed" && /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      marginLeft: 6,
+      background: r.paid ? PALETTE.tealTint : "#FFF7E6",
+      color: r.paid ? PALETTE.tealDeep : PALETTE.brassText
+    }
+  }, payText(r))), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "14px 12px",
       color: r.status === "empty" ? PALETTE.inkSoft : PALETTE.ink
     }
-  }, r.status === "filed" ? filedText(r) + (r.filing?.filedRef ? ` · ${r.filing.filedRef}` : "") : en ? `${r.stepsDone} / 4 steps` : `${r.stepsDone} / 4단계`), /*#__PURE__*/React.createElement("td", {
+  }, r.status === "filed" ? filedText(r) + (r.filing?.filedRef ? ` · ${r.filing.filedRef}` : "") : en ? `${r.stepsDone}/4 steps · docs ${r.docsDone}/${r.docsTotal}` : `${r.stepsDone}/4단계 · 서류 ${r.docsDone}/${r.docsTotal}`), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "14px 12px",
       textAlign: "right",
@@ -4151,13 +4426,410 @@ function Dashboard({
     }
   }, fmt(sumDue)), /*#__PURE__*/React.createElement("td", {
     colSpan: 2
-  }))))))), (!guideHidden || data.clients.length === 0) && guide, remindOpen && /*#__PURE__*/React.createElement(ReminderModal, {
+  }))))))), data.clients.length > 0 && /*#__PURE__*/React.createElement(AnnualPanel, {
+    clients: rows.map(r => r.c),
+    annual: data.annual || {},
+    isClient: isClient,
+    onSet: onSetAnnual
+  }), (!guideHidden || data.clients.length === 0) && guide, remindOpen && /*#__PURE__*/React.createElement(ReminderModal, {
     rows: notReady,
     year: selectedYear,
     month: selectedMonth,
     due: due,
     onClose: () => setRemindOpen(false)
   }));
+}
+
+// 설정 › 변경 기록·백업 (사무소 전용)
+function ActivityView({
+  serverOn,
+  clients,
+  fetchAudit,
+  backupNow
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [actor, setActor] = useState(() => {
+    try {
+      return localStorage.getItem("ctt:actor") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [rows, setRows] = useState(null);
+  const [filter, setFilter] = useState("");
+  const [err, setErr] = useState("");
+  const [backup, setBackup] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    if (!serverOn) return;
+    setLoading(true);
+    setErr("");
+    try {
+      setRows(await fetchAudit(filter));
+    } catch (e) {
+      setErr(/UNKNOWN_ACTION/.test(e.message) ? en ? "Update the Apps Script server code (v7) to see the activity log." : "변경 기록을 보려면 Apps Script 서버 코드를 새 버전(v7)으로 바꿔 주세요." : e.message);
+    }
+    setLoading(false);
+  };
+  useEffect(() => {
+    load();
+  }, [filter, serverOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveActor = v => {
+    setActor(v);
+    try {
+      localStorage.setItem("ctt:actor", v.trim());
+    } catch (e) {/* 무시 */}
+  };
+  const doBackup = async () => {
+    setBackup({
+      busy: true
+    });
+    try {
+      const r = await backupNow();
+      if (r.error) throw new Error(r.error);
+      setBackup({
+        ok: true,
+        name: r.name,
+        url: r.url
+      });
+    } catch (e) {
+      setBackup({
+        error: /UNKNOWN_ACTION/.test(e.message) ? en ? "Update the server code to v7 first." : "서버 코드를 새 버전(v7)으로 먼저 바꿔 주세요." : /DriveApp|permission|권한|authorization/i.test(e.message) ? en ? "Drive permission needed: run setupDrive once in the Apps Script editor." : "Drive 권한이 필요해요: Apps Script 편집기에서 setupDrive를 한 번 실행해 주세요." : e.message
+      });
+    }
+  };
+  const fmtAt = at => {
+    try {
+      return new Date(at).toLocaleString(en ? "en-US" : "ko-KR", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    } catch (e) {
+      return at;
+    }
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: en ? "Activity & backup" : "변경 기록·백업",
+    sub: en ? "Who changed what and when. Data is also backed up to Google Drive once a day." : "누가 언제 무엇을 바꿨는지 볼 수 있어요. 자료는 하루 한 번 Google Drive에 자동 백업돼요."
+  }), !serverOn && /*#__PURE__*/React.createElement("div", {
+    style: S.noticeTeal
+  }, en ? "Available when connected to the shared server." : "공유 서버에 연결된 상태에서만 쓸 수 있어요."), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "My name (recorded with my changes)" : "내 이름 (내가 바꾼 기록에 남아요)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "My name" : "내 이름",
+    style: {
+      ...S.input,
+      maxWidth: 320
+    },
+    value: actor,
+    onChange: e => saveActor(e.target.value),
+    placeholder: en ? "e.g. Ashton" : "예: 김용윤, 소피아"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Saved on this device only. Office staff share the admin password, so this tells you who did what." : "이 기기에만 저장돼요. 사무소 직원은 같은 관리자 암호를 쓰니, 이름을 넣어 두면 누가 했는지 구분돼요.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: !serverOn || backup && backup.busy,
+    onClick: doBackup
+  }, backup && backup.busy ? en ? "Backing up…" : "백업 중…" : en ? "Back up now" : "지금 백업"), backup && backup.ok && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.tealDeep
+    }
+  }, en ? "Saved: " : "저장됨: ", /*#__PURE__*/React.createElement("a", {
+    href: backup.url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: PALETTE.teal
+    }
+  }, backup.name)), backup && backup.error && /*#__PURE__*/React.createElement("span", {
+    role: "alert",
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.red
+    }
+  }, backup.error))), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      marginTop: 14,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 10,
+      padding: "14px 16px",
+      borderBottom: `1px solid ${PALETTE.line}`,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 17,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Change log" : "변경 기록"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Filter by client" : "고객사로 보기",
+    style: {
+      ...S.select,
+      minWidth: 160
+    },
+    value: filter,
+    onChange: e => setFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, en ? "All clients" : "모든 고객사"), clients.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.name
+  }, c.name))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: !serverOn || loading,
+    onClick: load
+  }, en ? "Refresh" : "새로고침"))), err && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      padding: "12px 16px",
+      color: PALETTE.red,
+      fontSize: 14
+    }
+  }, err), rows && rows.length === 0 && !err && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "16px",
+      color: PALETTE.inkSoft,
+      fontSize: 14
+    }
+  }, en ? "No changes recorded yet." : "아직 기록이 없어요."), rows && rows.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      padding: "10px 16px",
+      borderTop: i ? "1px solid #EEF1F4" : "none",
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "baseline"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      width: 110,
+      flexShrink: 0
+    }
+  }, fmtAt(r.at)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: r.role === "고객사" ? "#1F4E8C" : PALETTE.tealDeep,
+      minWidth: 90
+    }
+  }, r.actor), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: "1 1 260px",
+      minWidth: 0,
+      fontSize: 14,
+      color: PALETTE.ink
+    }
+  }, [r.client, r.target].filter(Boolean).join(" · "), r.client || r.target ? " — " : "", r.what)))));
+}
+
+// 연간 일정 — 올해 마감 항목과 고객사별 처리 상태 (사무소만 체크, 고객사는 보기만)
+function AnnualPanel({
+  clients,
+  annual,
+  isClient,
+  onSet
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const thisYear = today.getFullYear();
+  const [openId, setOpenId] = useState(null);
+  const stateOf = (cid, y, id) => (((annual[cid] || {})[y] || {})[id] || {}).s || "";
+  const cycle = {
+    "": "done",
+    done: "na",
+    na: ""
+  };
+  const LABEL = {
+    "": en ? "To do" : "할 일",
+    done: en ? "Done" : "완료",
+    na: en ? "N/A" : "해당 없음"
+  };
+  // 마감이 30일 넘게 지난 항목은 다음 해 마감으로 넘긴다 (그 해 상태는 마감 연도별로 따로 저장)
+  const items = ANNUAL_ITEMS.map(it => {
+    let year = thisYear;
+    let due = new Date(year, it.m - 1, it.d);
+    if ((due - today) / 86400000 < -30) {
+      year += 1;
+      due = new Date(year, it.m - 1, it.d);
+    }
+    const days = Math.round((due - today) / 86400000);
+    const states = clients.map(c => stateOf(c.id, year, it.id));
+    const open = states.filter(x => !x).length;
+    return {
+      ...it,
+      year,
+      due,
+      days,
+      states,
+      open
+    };
+  });
+  const shown = items.sort((a, b) => a.due - b.due);
+  if (!shown.length) return null;
+  const dday = d => d > 0 ? `D-${d}` : d === 0 ? en ? "Today" : "오늘" : en ? `${-d}d late` : `${-d}일 지남`;
+  return /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      marginTop: 16
+    },
+    "aria-label": en ? "Annual deadlines" : "연간 일정"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 17,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Annual deadlines" : "연간 일정"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "For a December year-end" : "12월 결산 법인 기준")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      marginTop: 8
+    }
+  }, shown.map((it, i) => {
+    const mine = isClient ? it.states[0] : null;
+    const done = isClient ? !!mine : it.open === 0;
+    const late = !done && it.days < 0;
+    return /*#__PURE__*/React.createElement("div", {
+      key: it.id,
+      style: {
+        borderTop: i ? "1px solid #EEF1F4" : "none",
+        padding: "10px 0"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13.5,
+        fontWeight: 700,
+        width: 66,
+        color: late ? PALETTE.red : PALETTE.ink,
+        lineHeight: 1.3
+      }
+    }, fmtMonthDay(it.due, lang).replace(/ \(.\)$/, "").replace(/^\w{3}, /, ""), it.year !== thisYear && /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 12,
+        fontWeight: 400,
+        color: PALETTE.inkSoft
+      }
+    }, it.year)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: "1 1 200px",
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 15,
+        fontWeight: 600,
+        color: PALETTE.ink
+      }
+    }, en ? it.en : it.ko), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 12.5,
+        color: PALETTE.inkSoft
+      }
+    }, en ? it.noteEn : it.noteKo)), isClient ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...S.statusBadge,
+        background: done ? PALETTE.tealTint : late ? "#FBEDEA" : "#FFF7E6",
+        color: done ? PALETTE.tealDeep : late ? PALETTE.red : PALETTE.brassText
+      }
+    }, mine ? LABEL[mine] : dday(it.days)) : /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      "aria-expanded": openId === it.id,
+      style: {
+        ...S.buttonGhostSmall2,
+        color: late ? PALETTE.red : done ? PALETTE.tealDeep : PALETTE.ink
+      },
+      onClick: () => setOpenId(openId === it.id ? null : it.id)
+    }, done ? en ? "All done" : "모두 완료" : `${dday(it.days)} · ${en ? `${it.open} left` : `남은 곳 ${it.open}`}`)), !isClient && openId === it.id && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        marginTop: 8,
+        paddingLeft: 76
+      },
+      className: "annual-chips"
+    }, clients.map((c, k) => {
+      const st = it.states[k];
+      return /*#__PURE__*/React.createElement("button", {
+        key: c.id,
+        type: "button",
+        title: en ? "Tap to change: To do → Done → N/A" : "누를 때마다: 할 일 → 완료 → 해당 없음",
+        style: {
+          ...S.buttonGhostSmall2,
+          background: st === "done" ? PALETTE.tealTint : st === "na" ? "#F1F3F5" : "#fff",
+          color: st === "done" ? PALETTE.tealDeep : st === "na" ? PALETTE.inkSoft : PALETTE.ink
+        },
+        onClick: () => onSet && onSet(c.id, it.year, it.id, cycle[st])
+      }, c.name, " · ", LABEL[st]);
+    })));
+  })));
 }
 
 // 사무소 전용: 입력 전·입력 중·보완 요청 고객사에 보낼 알림 문구 (복사 / 텔레그램 공유)
@@ -4167,7 +4839,10 @@ function reminderText(r, year, month, due, withDue, en) {
   const lines = [];
   if (en) {
     lines.push(`Hello ${r.c.name},`);
-    if (r.status === "changes") {
+    if (r.status === "filed") {
+      lines.push(`Your ${month}/${year} taxes have been filed. Amount due: ${fmt(r.calc ? r.calc.totalDue : 0)} KHR.`);
+      lines.push("Please pay by the deadline and upload the payment receipt in step 4 of the app (Tax payment).");
+    } else if (r.status === "changes") {
       lines.push(`For your ${month}/${year} filing, we need a few changes:`);
       if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
       lines.push("Please update the app and press [Request review] in step 4.");
@@ -4176,12 +4851,15 @@ function reminderText(r, year, month, due, withDue, en) {
     } else {
       lines.push(`Please enter your ${month}/${year} sales, payroll and receipts in the app, then press [Request review] in step 4.`);
     }
-    if (withDue) lines.push(`GDT filing deadline: ${fmtMonthDay(due.gdt, "en")} · NSSF: ${fmtMonthDay(due.nssf, "en")}`);
+    if (withDue) lines.push(`GDT filing deadline: ${gdtDueText(due, "en")} · NSSF: ${fmtMonthDay(due.nssf, "en")}`);
     lines.push(`App: ${APP_PUBLIC_URL}`);
     lines.push("Questions: Kim Yong-yun, Kohr & Co. · Telegram @kohrkyy · 089 313 834");
   } else {
     lines.push(`${r.c.name} 담당자님, 안녕하세요. Kohr & Co.입니다.`);
-    if (r.status === "changes") {
+    if (r.status === "filed") {
+      lines.push(`${year}년 ${month}월분 세금 신고를 마쳤어요. 납부할 세금: ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`);
+      lines.push("마감일까지 납부하신 뒤, 앱 4단계 [세금 납부]에 납부 영수증을 올려 주세요.");
+    } else if (r.status === "changes") {
       lines.push(`${year}년 ${month}월분 신고 자료에 보완이 필요해요.`);
       if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
       lines.push("앱에서 고친 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요.");
@@ -4190,7 +4868,7 @@ function reminderText(r, year, month, due, withDue, en) {
     } else {
       lines.push(`${year}년 ${month}월분 매출·급여·영수증을 앱에 입력하고 4단계에서 [검토 요청]을 눌러 주세요.`);
     }
-    if (withDue) lines.push(`국세청 신고 마감: ${fmtMonthDay(due.gdt, "ko")} · NSSF 납부: ${fmtMonthDay(due.nssf, "ko")}`);
+    if (withDue) lines.push(`국세청 신고 마감: ${gdtDueText(due, "ko")} · NSSF 납부: ${fmtMonthDay(due.nssf, "ko")}`);
     lines.push(`앱 주소: ${APP_PUBLIC_URL}`);
     lines.push("문의: 김용윤 세무사 · Telegram @kohrkyy · 089 313 834");
   }
@@ -4227,7 +4905,8 @@ function ReminderModal({
   const ST = {
     empty: en ? "Not started" : "입력 전",
     draft: en ? "In progress" : "입력 중",
-    changes: en ? "Changes requested" : "보완 요청"
+    changes: en ? "Changes requested" : "보완 요청",
+    filed: en ? "Filed · not paid" : "신고 완료 · 미납"
   };
   return /*#__PURE__*/React.createElement("div", {
     role: "dialog",
@@ -4331,7 +5010,13 @@ function ReminderModal({
         fontWeight: 700,
         color: PALETTE.ink
       }
-    }, r.c.name), /*#__PURE__*/React.createElement("span", {
+    }, r.c.name, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 400,
+        fontSize: 13,
+        color: PALETTE.inkSoft
+      }
+    }, r.c.telegram ? ` · ${telegramLabel(r.c.telegram)}` : r.c.email ? ` · ${r.c.email}` : en ? " · no contact saved" : " · 연락처 없음")), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 13,
         color: r.status === "changes" ? PALETTE.red : PALETTE.inkSoft
@@ -4356,17 +5041,25 @@ function ReminderModal({
       type: "button",
       style: S.buttonGhost,
       onClick: () => copy(r.c.id, text)
-    }, copied === r.c.id ? en ? "Copied ✓" : "복사됨 ✓" : en ? "Copy" : "복사"), /*#__PURE__*/React.createElement("a", {
+    }, copied === r.c.id ? en ? "Copied ✓" : "복사됨 ✓" : en ? "Copy" : "복사"), r.c.email && /*#__PURE__*/React.createElement("a", {
+      style: {
+        ...S.buttonGhost,
+        textDecoration: "none",
+        display: "inline-flex",
+        alignItems: "center"
+      },
+      href: mailLink(r.c.email, `[Kohr & Co.] ${r.c.name} ${month}/${year}`, text)
+    }, en ? "Email" : "이메일"), /*#__PURE__*/React.createElement("a", {
       style: {
         ...S.buttonPrimary,
         textDecoration: "none",
         display: "inline-flex",
         alignItems: "center"
       },
-      href: `https://t.me/share/url?url=${encodeURIComponent(APP_PUBLIC_URL)}&text=${encodeURIComponent(text)}`,
+      href: r.c.telegram ? telegramLink(r.c.telegram, text) : `https://t.me/share/url?url=${encodeURIComponent(APP_PUBLIC_URL)}&text=${encodeURIComponent(text)}`,
       target: "_blank",
       rel: "noopener noreferrer"
-    }, en ? "Telegram" : "텔레그램")));
+    }, r.c.telegram ? en ? "Telegram" : "텔레그램" : en ? "Telegram (pick chat)" : "텔레그램 (대화 선택)")));
   })));
 }
 
@@ -4439,11 +5132,18 @@ function ClientsView({
   filings,
   capitalGains,
   onAdd,
+  onUpdate,
   onRemove,
   access = {},
   onSetPassword,
   serverConnected
 }) {
+  const [contactName, setContactName] = useState("");
+  const [telegram, setTelegram] = useState("");
+  const [email, setEmail] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+  const [editMsg, setEditMsg] = useState(null);
   const [name, setName] = useState("");
   // 삭제는 되돌릴 수 없고 모든 기기에 반영되므로, 상호명을 직접 입력해야 확정된다
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
@@ -4460,6 +5160,13 @@ function ClientsView({
   const en = lang === "en";
   const submit = async () => {
     if (!name.trim() || busy) return;
+    if (!isValidTelegram(telegram) || !isValidEmail(email)) {
+      setNotice({
+        kind: "error",
+        text: en ? "Check the Telegram ID or email address." : "텔레그램 ID나 이메일 주소를 확인해 주세요."
+      });
+      return;
+    }
     if (serverConnected && password.trim().length < 6) {
       setNotice({
         kind: "error",
@@ -4474,6 +5181,9 @@ function ClientsView({
       name: name.trim(),
       tin: tin.trim(),
       type: type.trim(),
+      contactName: contactName.trim(),
+      telegram: normalizeTelegram(telegram),
+      email: email.trim(),
       password: pw
     });
     setBusy(false);
@@ -4498,8 +5208,107 @@ function ClientsView({
     setName("");
     setTin("");
     setType("");
+    setContactName("");
+    setTelegram("");
+    setEmail("");
     setPassword("");
   };
+  const startEdit = c => {
+    setEditId(c.id);
+    setEditMsg(null);
+    setEditDraft({
+      name: c.name || "",
+      tin: c.tin || "",
+      type: c.type || "",
+      contactName: c.contactName || "",
+      telegram: telegramLabel(c.telegram),
+      email: c.email || "",
+      docsText: docsFor(c).join("\n")
+    });
+  };
+  const saveEdit = async id => {
+    const d = editDraft;
+    if (!d.name.trim()) {
+      setEditMsg({
+        id,
+        kind: "error",
+        text: en ? "Company name is required." : "상호명은 비울 수 없어요."
+      });
+      return;
+    }
+    if (!isValidTelegram(d.telegram)) {
+      setEditMsg({
+        id,
+        kind: "error",
+        text: en ? "Telegram ID looks wrong (e.g. @kohrkyy or +85512345678)." : "텔레그램 ID 형식을 확인해 주세요 (예: @kohrkyy 또는 +85512345678)."
+      });
+      return;
+    }
+    if (!isValidEmail(d.email)) {
+      setEditMsg({
+        id,
+        kind: "error",
+        text: en ? "Email address looks wrong." : "이메일 주소 형식을 확인해 주세요."
+      });
+      return;
+    }
+    const docLines = String(d.docsText || "").split("\n").map(x => x.trim()).filter(Boolean);
+    const sameAsDefault = docLines.join("|") === DEFAULT_DOCS.join("|");
+    const r = await onUpdate(id, {
+      name: d.name.trim(),
+      tin: d.tin.trim() ? normalizeKhTin(d.tin) : "",
+      type: d.type.trim(),
+      contactName: d.contactName.trim(),
+      telegram: normalizeTelegram(d.telegram),
+      email: d.email.trim(),
+      docChecklist: sameAsDefault || !docLines.length ? undefined : docLines
+    });
+    if (!r.ok) {
+      setEditMsg({
+        id,
+        kind: "error",
+        text: en ? "Could not save. Check the connection and try again." : "저장하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+      });
+      return;
+    }
+    setEditId(null);
+    setEditMsg({
+      id,
+      kind: "ok",
+      text: en ? "Saved." : "저장했어요."
+    });
+  };
+  const contactFields = (vals, set, prefix) => /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Contact person" : "담당자"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Contact person" : "담당자",
+    style: S.input,
+    placeholder: en ? "e.g. Ms. Sokha (Accounting)" : "예: 소카 (회계 담당)",
+    value: vals.contactName,
+    onChange: e => set("contactName", e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Telegram ID or phone" : "텔레그램 ID 또는 전화번호"), /*#__PURE__*/React.createElement("input", {
+    id: `${prefix}-tg`,
+    "aria-label": en ? "Telegram ID" : "텔레그램 ID",
+    style: S.input,
+    placeholder: "@username / +855…",
+    value: vals.telegram,
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    onChange: e => set("telegram", e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Email" : "이메일"), /*#__PURE__*/React.createElement("input", {
+    id: `${prefix}-email`,
+    type: "email",
+    "aria-label": en ? "Email" : "이메일",
+    style: S.input,
+    placeholder: "name@company.com",
+    value: vals.email,
+    autoCapitalize: "none",
+    onChange: e => set("email", e.target.value)
+  })));
   const savePassword = async (clientId, value) => {
     setPwMsg(null);
     const r = await onSetPassword(clientId, value);
@@ -4569,7 +5378,15 @@ function ClientsView({
     value: type,
     onChange: e => setType(e.target.value),
     onKeyDown: handleKeyDown
-  })), /*#__PURE__*/React.createElement("div", {
+  })), contactFields({
+    contactName,
+    telegram,
+    email
+  }, (k, v) => ({
+    contactName: setContactName,
+    telegram: setTelegram,
+    email: setEmail
+  })[k](v), "new"), /*#__PURE__*/React.createElement("div", {
     style: S.stackLabel
   }, /*#__PURE__*/React.createElement("label", {
     htmlFor: "new-client-pw"
@@ -4635,7 +5452,12 @@ function ClientsView({
     style: S.cardTitle
   }, c.name), /*#__PURE__*/React.createElement("div", {
     style: S.cardMeta
-  }, c.tin || (lang === "en" ? "TIN not registered" : "TIN 미등록"), " · ", c.type || (lang === "en" ? "Type not set" : "업종 미지정")), serverConnected && /*#__PURE__*/React.createElement("div", {
+  }, c.tin || (lang === "en" ? "TIN not registered" : "TIN 미등록"), " · ", c.type || (lang === "en" ? "Type not set" : "업종 미지정")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.cardMeta,
+      marginTop: 2
+    }
+  }, [c.contactName, c.telegram ? `Telegram ${telegramLabel(c.telegram)}` : null, c.email].filter(Boolean).join(" · ") || (en ? "No Telegram or email yet — add it with Edit" : "텔레그램·이메일 없음 — [정보 수정]에서 넣어 주세요")), serverConnected && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 6
     }
@@ -4645,13 +5467,17 @@ function ClientsView({
       background: access[c.id] ? PALETTE.tealTint : "#FFF7E6",
       color: access[c.id] ? PALETTE.tealDeep : PALETTE.brassText
     }
-  }, access[c.id] ? en ? "Client login on" : "고객사 로그인 가능" : en ? "No password — client can't sign in" : "비밀번호 없음 — 고객사 로그인 불가"))), pendingDeleteId !== c.id && /*#__PURE__*/React.createElement("div", {
+  }, access[c.id] ? en ? "Client login on" : "고객사 로그인 가능" : en ? "No password — client can't sign in" : "비밀번호 없음 — 고객사 로그인 불가"))), pendingDeleteId !== c.id && editId !== c.id && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
       flexWrap: "wrap"
     }
-  }, serverConnected && pwEditId !== c.id && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => startEdit(c)
+  }, en ? "Edit info" : "정보 수정"), serverConnected && pwEditId !== c.id && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonGhost,
     onClick: () => {
@@ -4666,7 +5492,109 @@ function ClientsView({
       setPendingDeleteId(c.id);
       setDeleteTyped("");
     }
-  }, lang === "en" ? "Delete" : "삭제")), pwEditId === c.id && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Delete" : "삭제")), editId === c.id && editDraft && /*#__PURE__*/React.createElement("div", {
+    role: "group",
+    "aria-label": en ? `Edit ${c.name}` : `${c.name} 정보 수정`,
+    style: {
+      flex: "1 1 100%",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      paddingTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "form-grid-2",
+    style: S.formGrid2
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Company name" : "상호명"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Company name (edit)" : "상호명 수정",
+    style: S.input,
+    value: editDraft.name,
+    onChange: e => setEditDraft({
+      ...editDraft,
+      name: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "TIN (Tax ID)" : "TIN (사업자등록번호)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "TIN (edit)" : "TIN 수정",
+    style: {
+      ...S.input,
+      ...(editDraft.tin && !isValidKhTin(editDraft.tin) ? S.inputNeedsCheck : {})
+    },
+    value: editDraft.tin,
+    onChange: e => setEditDraft({
+      ...editDraft,
+      tin: e.target.value
+    }),
+    placeholder: "K001-901234567"
+  }), editDraft.tin && !isValidKhTin(editDraft.tin) && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: PALETTE.brassText
+    }
+  }, en ? "Format looks unusual (e.g. K001-901234567)." : "형식이 달라요 (예: K001-901234567).")), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Business type" : "업종"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Business type (edit)" : "업종 수정",
+    style: S.input,
+    value: editDraft.type,
+    onChange: e => setEditDraft({
+      ...editDraft,
+      type: e.target.value
+    })
+  })), contactFields(editDraft, (k, v) => setEditDraft(d => ({
+    ...d,
+    [k]: v
+  })), `edit-${c.id}`)), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Monthly documents to prepare (one per line)" : "매달 준비 서류 (한 줄에 하나)"), /*#__PURE__*/React.createElement("textarea", {
+    rows: 5,
+    "aria-label": en ? "Monthly documents" : "매달 준비 서류",
+    style: {
+      ...S.input,
+      resize: "vertical",
+      fontFamily: FONT.body,
+      lineHeight: 1.6
+    },
+    value: editDraft.docsText,
+    onChange: e => setEditDraft({
+      ...editDraft,
+      docsText: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Shown to the client as a checklist in step 4 every month." : "매달 4단계에 체크리스트로 보여요. 고객사마다 다르게 정할 수 있어요.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    onClick: () => saveEdit(c.id)
+  }, en ? "Save changes" : "수정 저장"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => {
+      setEditId(null);
+      setEditMsg(null);
+    }
+  }, en ? "Cancel" : "취소"))), editMsg && editMsg.id === c.id && /*#__PURE__*/React.createElement("div", {
+    role: editMsg.kind === "error" ? "alert" : "status",
+    style: {
+      flex: "1 1 100%",
+      fontSize: 13.5,
+      color: editMsg.kind === "error" ? PALETTE.red : PALETTE.tealDeep
+    }
+  }, editMsg.text), pwEditId === c.id && /*#__PURE__*/React.createElement("div", {
     style: {
       flex: "1 1 100%",
       display: "flex",
@@ -4801,7 +5729,8 @@ function MonthlyView({
   onDirtyChange,
   initialStep,
   onGo,
-  canManageClients = true
+  canManageClients = true,
+  onUploadImage = null
 }) {
   const [local, setLocal] = useState(filing);
   const [changing, setChanging] = useState(false); // 고객사·월 바꾸기 열림 (휴대폰)
@@ -5055,6 +5984,21 @@ function MonthlyView({
     ...local,
     messages: [...messages, newMsg(text)]
   });
+  const monthText = en ? `${selectedMonth}/${selectedYear}` : `${selectedYear}년 ${selectedMonth}월분`;
+  const clientName = selectedClient?.name || "";
+  const contactRecipient = isClientView ? {
+    telegram: OFFICE_CONTACT.telegram,
+    email: OFFICE_CONTACT.email,
+    label: en ? "Kim Yong-yun, Kohr & Co." : OFFICE_CONTACT.name
+  } : {
+    telegram: selectedClient?.telegram || "",
+    email: selectedClient?.email || "",
+    label: selectedClient?.contactName || clientName
+  };
+  const contactContext = {
+    header: isClientView ? `[${clientName} · ${monthText}]` : `[Kohr & Co. → ${clientName} · ${monthText}]`,
+    subject: isClientView ? `[${clientName}] ${monthText} ${en ? "tax filing" : "세무신고"}` : `[Kohr & Co.] ${clientName} ${monthText} ${en ? "tax filing" : "세무신고"}`
+  };
   const STATUS_LABEL = {
     submitted: {
       ko: "검토 요청됨",
@@ -5114,7 +6058,7 @@ function MonthlyView({
       color: PALETTE.inkSoft,
       marginTop: 2
     }
-  }, en ? `${selectedMonth}/${selectedYear} · due ${fmtMonthDay(due.gdt, lang)}` : `${selectedYear}년 ${selectedMonth}월분 · 마감 ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일`, " ", /*#__PURE__*/React.createElement("span", {
+  }, en ? `${selectedMonth}/${selectedYear} · due ${gdtDueText(due, lang, true)}` : `${selectedYear}년 ${selectedMonth}월분 · 마감 ${gdtDueText(due, lang, true)}`, " ", /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 700,
       color: local.filed ? PALETTE.teal : due.days <= 5 ? PALETTE.red : PALETTE.tealDeep
@@ -5570,6 +6514,15 @@ function MonthlyView({
         withholding: linked ? [...others, linked] : others
       });
     },
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null,
+    onAttachDrive: (id, info) => setLocal(prev => ({
+      ...prev,
+      evidence: (prev.evidence || []).map(e => e.id === id ? {
+        ...e,
+        ...info
+      } : e)
+    })),
+    showDrive: canManageClients,
     onRemove: id => setLocal({
       ...local,
       evidence: (local.evidence || []).filter(e => e.id !== id),
@@ -5604,7 +6557,15 @@ function MonthlyView({
       flexDirection: "column",
       gap: 12
     }
-  }, /*#__PURE__*/React.createElement("section", {
+  }, local.filed && /*#__PURE__*/React.createElement(PaymentPanel, {
+    key: `${selectedClientId}-${mKey}`,
+    local: local,
+    due: calc.totalDue,
+    isClientView: isClientView,
+    commit: commit,
+    onUploadImage: onUploadImage,
+    busy: saveState === "saving"
+  }), /*#__PURE__*/React.createElement("section", {
     style: S.panel
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5630,7 +6591,7 @@ function MonthlyView({
       fontSize: 13.5,
       color: PALETTE.inkSoft
     }
-  }, en ? `≈ ${usd(calc.totalDue / calc.rate)} · by ${fmtMonthDay(due.gdt, lang)}` : `약 ${usd(calc.totalDue / calc.rate)} · ${due.gdt.getMonth() + 1}월 ${due.gdt.getDate()}일까지`), /*#__PURE__*/React.createElement("div", {
+  }, en ? `≈ ${usd(calc.totalDue / calc.rate)} · due ${gdtDueText(due, lang, true)}` : `약 ${usd(calc.totalDue / calc.rate)} · ${gdtDueText(due, lang, true)}까지`), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 1,
       background: "#EEF1F4",
@@ -5780,20 +6741,50 @@ function MonthlyView({
     name: "chevronRight",
     size: 18,
     color: PALETTE.inkSoft
-  })), !isClientView && /*#__PURE__*/React.createElement(AdminReviewPanel, {
+  })), /*#__PURE__*/React.createElement(DocsChecklist, {
+    docs: docsFor(selectedClient),
+    checked: local.docs || {},
+    disabled: locked,
+    onToggle: d => setLocal({
+      ...local,
+      docs: {
+        ...(local.docs || {}),
+        [d]: !(local.docs || {})[d]
+      }
+    })
+  }), !isClientView && /*#__PURE__*/React.createElement(AdminReviewPanel, {
     local: local,
     onRef: v => setLocal({
       ...local,
       filedRef: v
     }),
     onRequestChanges: requestChanges,
-    busy: saveState === "saving"
+    busy: saveState === "saving",
+    recipient: contactRecipient,
+    context: contactContext
   }), /*#__PURE__*/React.createElement(MessagesPanel, {
     messages: messages,
     isClientView: isClientView,
     onSend: sendMessage,
-    busy: saveState === "saving"
-  }), /*#__PURE__*/React.createElement("div", {
+    busy: saveState === "saving",
+    recipient: contactRecipient,
+    context: contactContext
+  }), isClientView && reviewStatus === "submitted" && !isDirty && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.noticeTeal,
+      marginBottom: 0,
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 10,
+      alignItems: "center",
+      justifyContent: "space-between"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Review requested. Let Kohr & Co. know?" : "검토 요청을 했어요. 사무소에도 알릴까요?"), /*#__PURE__*/React.createElement(DeliveryButtons, {
+    small: true,
+    recipient: contactRecipient,
+    subject: contactContext.subject,
+    text: `${contactContext.header}\n${en ? "We’ve finished entering this month’s data — please review." : "이번 달 자료 입력을 마쳤어요. 검토 부탁드려요."}`
+  })), /*#__PURE__*/React.createElement("div", {
     id: "filed-help",
     style: {
       fontSize: 13.5,
@@ -5912,12 +6903,387 @@ function MonthlyView({
   }, local.filed ? en ? "Undo filed status" : "신고 완료 취소" : isDirty ? en ? "Save & mark as filed" : "저장하고 신고 완료로 표시" : en ? "Mark as filed" : "신고 완료로 표시"))));
 }
 
+// 이번 달 준비 서류 체크 (고객사별 목록)
+function DocsChecklist({
+  docs,
+  checked,
+  onToggle,
+  disabled
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const n = docs.filter(d => checked[d]).length;
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Documents this month" : "이번 달 준비 서류",
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Documents this month" : "이번 달 준비 서류"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: n === docs.length ? PALETTE.tealDeep : PALETTE.brassText
+    }
+  }, n, " / ", docs.length)), docs.map(d => /*#__PURE__*/React.createElement("label", {
+    key: d,
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      minHeight: 40,
+      fontSize: 14.5,
+      color: PALETTE.ink,
+      cursor: disabled ? "default" : "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !!checked[d],
+    disabled: disabled,
+    onChange: () => onToggle(d),
+    style: {
+      width: 20,
+      height: 20,
+      accentColor: PALETTE.teal,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textDecoration: checked[d] ? "line-through" : "none",
+      color: checked[d] ? PALETTE.inkSoft : PALETTE.ink
+    }
+  }, d))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Tick what you have sent or uploaded. Saved with Save or Request review." : "보냈거나 올린 서류에 체크하세요. [저장]이나 [검토 요청] 때 함께 저장돼요."));
+}
+
+// 신고 후 세금 납부 — 납부 영수증 사진, 납부일·금액·방법, 사무소 확인
+function PaymentPanel({
+  local,
+  due,
+  isClientView,
+  commit,
+  onUploadImage,
+  busy
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const pay = local.payment || {};
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [editing, setEditing] = useState(!pay.paid);
+  const [f, setF] = useState({
+    paidAt: pay.paidAt || todayStr,
+    amountKHR: pay.amountKHR || Math.round(due || 0),
+    method: pay.method || "bank",
+    ref: pay.ref || ""
+  });
+  const [thumb, setThumb] = useState(pay.proofThumb || "");
+  const [hiRes, setHiRes] = useState(null);
+  const [working, setWorking] = useState(false);
+  const [err, setErr] = useState("");
+  const [viewing, setViewing] = useState(false);
+  const fileRef = useRef(null);
+  const confirmed = !!pay.confirmedAt;
+  const pick = async file => {
+    if (!file) return;
+    setErr("");
+    try {
+      const [t, h] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
+      setThumb(t);
+      setHiRes(h);
+    } catch (e) {
+      setErr(en ? "Could not load the photo." : "사진을 불러오지 못했어요.");
+    }
+  };
+  const markPaid = async () => {
+    if (!(Number(f.amountKHR) > 0)) {
+      setErr(en ? "Enter the amount paid." : "납부 금액을 넣어 주세요.");
+      return;
+    }
+    setWorking(true);
+    let drive = {};
+    if (hiRes && onUploadImage) {
+      const info = await onUploadImage(hiRes, `tax-payment_${f.paidAt}`, "payment");
+      if (info && info.url) drive = {
+        proofDriveId: info.id,
+        proofDriveUrl: info.url
+      };
+    }
+    const ok = await commit({
+      ...local,
+      payment: {
+        ...pay,
+        paid: true,
+        paidAt: f.paidAt,
+        amountKHR: Math.round(Number(f.amountKHR)),
+        method: f.method,
+        ref: f.ref.trim(),
+        proofThumb: thumb || "",
+        ...(drive.proofDriveUrl ? drive : {}),
+        markedAt: new Date().toISOString()
+      }
+    });
+    setWorking(false);
+    if (ok) setEditing(false);
+  };
+  const setConfirm = on => commit({
+    ...local,
+    payment: {
+      ...pay,
+      confirmedAt: on ? new Date().toISOString() : undefined,
+      confirmedBy: on ? (() => {
+        try {
+          return localStorage.getItem("ctt:actor") || "Kohr & Co.";
+        } catch (e) {
+          return "Kohr & Co.";
+        }
+      })() : undefined
+    }
+  });
+  const diff = pay.paid ? Math.round((Number(pay.amountKHR) || 0) - (due || 0)) : 0;
+  const methodLabel = id => {
+    const m = PAY_METHODS.find(x => x.id === id);
+    return m ? en ? m.en : m.ko : id;
+  };
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Tax payment" : "세금 납부",
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      borderColor: pay.paid ? "#B9DCCF" : "#F0D9A8",
+      background: pay.paid ? "#F6FBF9" : "#FFFCF5"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Tax payment" : "세금 납부"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      background: pay.paid ? PALETTE.tealTint : "#FFF7E6",
+      color: pay.paid ? PALETTE.tealDeep : PALETTE.brassText
+    }
+  }, pay.paid ? confirmed ? en ? "Paid · confirmed by office" : "납부 완료 · 사무소 확인" : en ? "Paid" : "납부 완료" : en ? "Not paid yet" : "아직 미납")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14.5,
+      color: PALETTE.ink
+    }
+  }, en ? "Amount to pay" : "납부할 세금", " ", /*#__PURE__*/React.createElement("b", null, fmt(Math.round(due || 0)), " KHR")), pay.paid && !editing ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-start"
+    }
+  }, pay.proofThumb && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.thumbButton,
+    onClick: () => setViewing(true),
+    "aria-label": en ? "View payment receipt" : "납부 영수증 크게 보기"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: pay.proofThumb,
+    alt: "",
+    style: S.thumbSmall
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      lineHeight: 1.7,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("div", null, pay.paidAt, " · ", /*#__PURE__*/React.createElement("b", null, fmt(pay.amountKHR), " KHR"), diff !== 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PALETTE.brassText
+    }
+  }, " (", en ? "difference" : "차이", " ", diff > 0 ? "+" : "", fmt(diff), ")")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: PALETTE.inkSoft
+    }
+  }, methodLabel(pay.method), pay.ref ? ` · ${en ? "Ref" : "참조번호"} ${pay.ref}` : ""), !pay.proofThumb && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: PALETTE.brassText
+    }
+  }, en ? "No receipt photo yet" : "납부 영수증 사진이 아직 없어요"), !isClientView && pay.proofDriveUrl && /*#__PURE__*/React.createElement("a", {
+    href: pay.proofDriveUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      fontSize: 13,
+      color: PALETTE.teal
+    }
+  }, en ? "Original on Drive" : "Drive 원본 보기"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, !confirmed && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: busy,
+    onClick: () => setEditing(true)
+  }, en ? "Edit payment" : "납부 정보 수정"), !isClientView && (confirmed ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: busy,
+    onClick: () => setConfirm(false)
+  }, en ? "Undo confirmation" : "확인 취소") : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: busy,
+    onClick: () => setConfirm(true)
+  }, en ? "Confirm payment" : "납부 확인")))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "form-grid-2",
+    style: S.formGrid2
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Date paid" : "납부일"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    "aria-label": en ? "Date paid" : "납부일",
+    style: S.input,
+    value: f.paidAt,
+    onChange: e => setF({
+      ...f,
+      paidAt: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Amount paid (KHR)" : "납부 금액 (KHR)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "numeric",
+    "aria-label": en ? "Amount paid (KHR)" : "납부 금액 (KHR)",
+    style: S.input,
+    value: f.amountKHR,
+    onChange: e => setF({
+      ...f,
+      amountKHR: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "How" : "납부 방법"), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Payment method" : "납부 방법",
+    style: S.select,
+    value: f.method,
+    onChange: e => setF({
+      ...f,
+      method: e.target.value
+    })
+  }, PAY_METHODS.map(m => /*#__PURE__*/React.createElement("option", {
+    key: m.id,
+    value: m.id
+  }, en ? m.en : m.ko)))), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Reference no. (optional)" : "참조·거래번호 (선택)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Payment reference" : "납부 참조번호",
+    style: S.input,
+    value: f.ref,
+    onChange: e => setF({
+      ...f,
+      ref: e.target.value
+    }),
+    placeholder: en ? "Bank transaction no." : "은행 거래번호 등"
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, thumb && /*#__PURE__*/React.createElement("img", {
+    src: thumb,
+    alt: en ? "Payment receipt" : "납부 영수증",
+    style: S.thumbSmall
+  }), /*#__PURE__*/React.createElement("input", {
+    ref: fileRef,
+    type: "file",
+    accept: "image/*",
+    style: {
+      display: "none"
+    },
+    onChange: e => pick(e.target.files?.[0]),
+    "aria-label": en ? "Payment receipt photo" : "납부 영수증 사진"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => fileRef.current && fileRef.current.click()
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "camera",
+    size: 16,
+    style: {
+      marginRight: 6,
+      verticalAlign: -3
+    }
+  }), thumb ? en ? "Change receipt photo" : "영수증 사진 바꾸기" : en ? "Add payment receipt photo" : "납부 영수증 사진 올리기")), err && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.red
+    }
+  }, err), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: busy || working,
+    onClick: markPaid
+  }, working ? en ? "Saving…" : "저장 중…" : en ? "Mark as paid" : "납부 완료로 표시"), pay.paid && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => setEditing(false)
+  }, en ? "Cancel" : "취소")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Pay the GDT by the deadline (bank e-Payment or counter), then record it here with the receipt photo." : "마감일까지 국세청에 납부(은행 e-Payment 또는 창구)한 뒤, 영수증 사진과 함께 여기에 기록해 주세요.")), viewing && pay.proofThumb && /*#__PURE__*/React.createElement(ImageViewer, {
+    src: pay.proofThumb,
+    caption: en ? "Payment receipt" : "납부 영수증",
+    onClose: () => setViewing(false)
+  }));
+}
+
 // 사무소 전용: 국세청 접수번호, 보완 요청 보내기
 function AdminReviewPanel({
   local,
   onRef,
   onRequestChanges,
-  busy
+  busy,
+  recipient,
+  context
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -5982,26 +7348,105 @@ function AdminReviewPanel({
     value: note,
     onChange: e => setNote(e.target.value),
     placeholder: en ? "e.g. Please upload the October bank statement." : "예: 10월 은행 입출금 내역을 올려 주세요."
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
-    type: "button",
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
-      ...S.buttonGhost,
-      color: PALETTE.red,
-      borderColor: PALETTE.red
-    },
-    disabled: !note.trim() || busy,
-    onClick: async () => {
-      if (await onRequestChanges(note)) setNote("");
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "center"
     }
-  }, en ? "Send change request" : "보완 요청 보내기"))));
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: PALETTE.red
+    }
+  }, en ? "Send change request:" : "보완 요청 보내기:"), /*#__PURE__*/React.createElement(DeliveryButtons, {
+    recipient: recipient,
+    subject: context.subject,
+    disabled: !note.trim() || busy,
+    text: note.trim() ? `${context.header}\n${en ? "Please fix the following and press Request review again in step 4:" : "아래 내용을 보완한 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요:"}\n${note.trim()}\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}` : "",
+    onRecord: () => {
+      const t = note;
+      setNote("");
+      onRequestChanges(t);
+    }
+  }))));
 }
 
-// 사무소 ↔ 고객사 메시지 (달마다)
+// 텔레그램(있으면 우선) / 이메일 링크 버튼. 누르면 앱에도 기록(onRecord)하고 상대 채팅·메일을 연다.
+function DeliveryButtons({
+  recipient,
+  text,
+  subject,
+  disabled,
+  onRecord,
+  small
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const tg = recipient && recipient.telegram ? telegramLink(recipient.telegram, text) : "";
+  const mail = recipient && recipient.email ? mailLink(recipient.email, subject, text) : "";
+  const base = small ? S.buttonGhost : S.buttonPrimary;
+  const linkStyle = primary => ({
+    ...(primary ? base : S.buttonGhost),
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    ...(disabled ? {
+      ...S.buttonDisabled,
+      pointerEvents: "none"
+    } : {})
+  });
+  // 기록(저장)은 링크가 열린 다음에 — 클릭 중에 상태가 바뀌면 링크가 비활성화돼 열리지 않는다
+  const rec = () => {
+    if (onRecord) setTimeout(onRecord, 0);
+  };
+  if (!tg && !mail) {
+    return onRecord ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: {
+        ...base,
+        minHeight: 44
+      },
+      disabled: disabled,
+      onClick: rec
+    }, en ? "Save in app" : "앱에 남기기") : null;
+  }
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, tg && /*#__PURE__*/React.createElement("a", {
+    href: disabled ? undefined : tg,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    "aria-disabled": disabled,
+    style: linkStyle(true),
+    onClick: rec
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "send",
+    size: 16
+  }), en ? "Send on Telegram" : "텔레그램으로 보내기"), mail && /*#__PURE__*/React.createElement("a", {
+    href: disabled ? undefined : mail,
+    "aria-disabled": disabled,
+    style: linkStyle(!tg),
+    onClick: rec
+  }, tg ? en ? "Email instead" : "이메일로 보내기" : en ? "Send by email" : "이메일로 보내기"));
+}
+
+// 사무소 ↔ 고객사 연락 (달마다). 실제 전달은 텔레그램(없으면 이메일), 앱에는 기록만 남긴다.
 function MessagesPanel({
   messages,
   isClientView,
   onSend,
-  busy
+  busy,
+  recipient,
+  context
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -6018,6 +7463,8 @@ function MessagesPanel({
       return "";
     }
   };
+  const body = text.trim() ? `${context.header}\n${text.trim()}${isClientView ? "" : `\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}`}` : "";
+  const noChannel = !recipient.telegram && !recipient.email;
   return /*#__PURE__*/React.createElement("section", {
     "aria-label": en ? "Messages" : "메시지",
     style: {
@@ -6033,18 +7480,13 @@ function MessagesPanel({
       fontWeight: 700,
       color: PALETTE.ink
     }
-  }, en ? "Messages" : "메시지", " ", /*#__PURE__*/React.createElement("span", {
+  }, isClientView ? en ? "Contact Kohr & Co." : "사무소에 연락" : en ? "Contact the client" : "고객사에 연락", /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 400,
       color: PALETTE.inkSoft,
       fontSize: 14
     }
-  }, isClientView ? en ? "with Kohr & Co." : "Kohr & Co.와" : en ? "with the client" : "고객사와")), messages.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      color: PALETTE.inkSoft
-    }
-  }, en ? "No messages yet." : "아직 메시지가 없어요.") : /*#__PURE__*/React.createElement("div", {
+  }, " ", [recipient.label, recipient.telegram ? `Telegram ${telegramLabel(recipient.telegram)}` : null, !recipient.telegram && recipient.email ? recipient.email : null].filter(Boolean).join(" · "))), messages.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -6075,40 +7517,39 @@ function MessagesPanel({
         wordBreak: "break-word"
       }
     }, m.text));
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      alignItems: "flex-end"
-    }
-  }, /*#__PURE__*/React.createElement("textarea", {
-    rows: 2,
+  })), /*#__PURE__*/React.createElement("textarea", {
+    rows: 3,
     "aria-label": en ? "New message" : "새 메시지",
     style: {
       ...S.input,
-      flex: 1,
       resize: "vertical",
       fontFamily: FONT.body
     },
     value: text,
     onChange: e => setText(e.target.value),
     placeholder: isClientView ? en ? "Question or note for Kohr & Co." : "사무소에 묻거나 알릴 내용" : en ? "Message to the client" : "고객사에 보낼 내용"
-  }), /*#__PURE__*/React.createElement("button", {
-    type: "button",
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
-      ...S.buttonPrimary,
-      minHeight: 44
-    },
-    disabled: !text.trim() || busy,
-    onClick: async () => {
-      if (await onSend(text)) setText("");
+      display: "flex",
+      justifyContent: "flex-end"
     }
-  }, en ? "Send" : "보내기")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(DeliveryButtons, {
+    recipient: recipient,
+    text: body,
+    subject: context.subject,
+    disabled: !text.trim() || busy,
+    onRecord: () => {
+      const t = text;
+      setText("");
+      onSend(t);
+    }
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12.5,
-      color: PALETTE.inkSoft
+      color: noChannel ? PALETTE.brassText : PALETTE.inkSoft,
+      lineHeight: 1.6
     }
-  }, en ? "Sending also saves what’s on screen." : "보내면 화면의 입력 내용도 함께 저장돼요."));
+  }, noChannel ? en ? "No Telegram or email for this client yet — add it under Clients › Edit info. For now the message is only kept in the app." : "이 고객사의 텔레그램·이메일이 없어요. [고객사 관리 › 정보 수정]에서 넣어 주세요. 지금은 앱에만 남아요." : en ? "Opens Telegram (or email) with the message filled in — press Send there. A copy is kept here, and what’s on screen is saved." : "텔레그램(또는 메일)이 열리고 내용이 채워져요 — 거기서 [보내기]를 누르세요. 앱에도 기록되고 화면의 입력 내용도 저장돼요."));
 }
 function MoneyField({
   id,
@@ -6641,8 +8082,12 @@ function EvidencePanel({
   onChangeExchangeRate,
   onAdd,
   onUpdate,
-  onRemove
+  onRemove,
+  onUploadImage,
+  onAttachDrive,
+  showDrive
 }) {
+  const [supplierTin, setSupplierTin] = useState("");
   const [evidenceType, setEvidenceType] = useState("vat"); // "vat" | "general"
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].id); // 지급 유형 (드롭다운)
@@ -6686,6 +8131,7 @@ function EvidencePanel({
     setPendingHiRes(null);
     setDescription("");
     setVendor("");
+    setSupplierTin("");
     setAmount("");
     setTxDate("");
     setReadResult(null);
@@ -6775,6 +8221,7 @@ function EvidencePanel({
       txDate,
       category,
       vendor: vendor.trim(),
+      supplierTin: evidenceType === "vat" ? normalizeKhTin(supplierTin) : "",
       amount: Number(amount) || 0,
       currency,
       amountKHR: khr,
@@ -6785,6 +8232,16 @@ function EvidencePanel({
       summaryEn: "",
       createdAt: new Date().toISOString()
     }, buildWithholding(evidenceId, vendor.trim(), khr));
+    // 원본(고해상도) 사진은 Google Drive 에 따로 보관 — 실패해도 앱 기록에는 영향 없음
+    if (onUploadImage && pendingHiRes) {
+      const nm = [txDate, vendor.trim() || "receipt", amount].filter(Boolean).join("_");
+      onUploadImage(pendingHiRes, nm).then(info => {
+        if (info && info.url && onAttachDrive) onAttachDrive(evidenceId, {
+          driveId: info.id,
+          driveUrl: info.url
+        });
+      }).catch(() => {});
+    }
     resetForm();
     setManualOpen(false);
   };
@@ -6801,6 +8258,7 @@ function EvidencePanel({
       if (r.date) setTxDate(r.date);
       if (r.amount) setAmount(String(r.amount));
       if (r.currency) setCurrency(r.currency);
+      if (r.vattin) setSupplierTin(r.vattin);
       setReadResult({
         ...r,
         date: Boolean(r.date),
@@ -7098,7 +8556,26 @@ function EvidencePanel({
     placeholder: lang === "en" ? "Shop or company name" : "가게·회사 이름",
     value: vendor,
     onChange: e => setVendor(e.target.value)
-  })), /*#__PURE__*/React.createElement("label", {
+  })), evidenceType === "vat" && /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN",
+    style: {
+      ...S.input,
+      ...(supplierTin && !isValidKhTin(supplierTin) ? S.inputNeedsCheck : {})
+    },
+    placeholder: "K001-901234567",
+    value: supplierTin,
+    autoCapitalize: "characters",
+    onChange: e => setSupplierTin(e.target.value),
+    onBlur: () => setSupplierTin(normalizeKhTin(supplierTin))
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: !supplierTin || !isValidKhTin(supplierTin) ? PALETTE.brassText : PALETTE.inkSoft
+    }
+  }, !supplierTin ? lang === "en" ? "Needed to claim input VAT — copy it from the invoice." : "매입세액공제에 꼭 필요해요 — 인보이스에 적힌 번호를 넣어 주세요." : !isValidKhTin(supplierTin) ? lang === "en" ? "Format looks unusual (e.g. K001-901234567)." : "형식이 달라요 (예: K001-901234567)." : lang === "en" ? "Format OK." : "형식 확인됨.")), /*#__PURE__*/React.createElement("label", {
     style: S.stackLabel
   }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "What was it for?" : "무슨 비용인가요?"), /*#__PURE__*/React.createElement("select", {
     "aria-label": lang === "en" ? "Payment type" : "지급 유형",
@@ -7284,6 +8761,18 @@ function EvidencePanel({
         onChange: ev => set({
           vendor: ev.target.value
         })
+      }), draft.evidenceType === "vat" && /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          width: 180,
+          ...(draft.supplierTin && !isValidKhTin(draft.supplierTin) ? S.inputNeedsCheck : {})
+        },
+        "aria-label": lang === "en" ? "Supplier VATTIN (edit)" : "공급자 VATTIN 수정",
+        placeholder: lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN",
+        value: draft.supplierTin || "",
+        onChange: ev => set({
+          supplierTin: ev.target.value
+        })
       }), /*#__PURE__*/React.createElement("input", {
         type: "number",
         inputMode: "decimal",
@@ -7365,7 +8854,8 @@ function EvidencePanel({
           onUpdate(e.id, {
             ...draft,
             amount: Number(draft.amount) || 0,
-            vendor: (draft.vendor || "").trim()
+            vendor: (draft.vendor || "").trim(),
+            supplierTin: draft.evidenceType === "vat" ? normalizeKhTin(draft.supplierTin) : ""
           });
           setEditingId(null);
           setDraft(null);
@@ -7415,7 +8905,21 @@ function EvidencePanel({
       }
     }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력")), /*#__PURE__*/React.createElement("div", {
       style: S.evidenceMeta
-    }, e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.description && /*#__PURE__*/React.createElement("div", {
+    }, e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.isVatInvoice && /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.evidenceMeta,
+        color: isValidKhTin(e.supplierTin) ? PALETTE.inkSoft : PALETTE.brassText,
+        fontWeight: isValidKhTin(e.supplierTin) ? 400 : 600
+      }
+    }, isValidKhTin(e.supplierTin) ? `VATTIN ${e.supplierTin}` : lang === "en" ? "⚠ No supplier VATTIN — tap Edit to add" : "⚠ 공급자 VATTIN 없음 — [수정]에서 넣어 주세요"), showDrive && e.driveUrl && /*#__PURE__*/React.createElement("a", {
+      href: e.driveUrl,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      style: {
+        fontSize: 13,
+        color: PALETTE.teal
+      }
+    }, lang === "en" ? "Original on Drive" : "Drive 원본 보기"), e.description && /*#__PURE__*/React.createElement("div", {
       style: S.evidenceDesc
     }, e.description), (() => {
       const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
@@ -7439,6 +8943,7 @@ function EvidencePanel({
           txDate: e.txDate || "",
           category: e.category,
           vendor: e.vendor || "",
+          supplierTin: e.supplierTin || "",
           amount: e.amount ?? "",
           currency: e.currency || "USD",
           whtCategory: e.whtCategory || "",
@@ -7467,7 +8972,7 @@ function EvidencePanel({
     onClose: () => setViewing(null)
   }), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
-  }, lang === "en" ? "Uploaded images are stored only as compressed thumbnails to save space. For GDT tax audits, keep original receipts (tax invoices, etc.) separately — scanned or physical — for 10 years." : "업로드된 이미지는 용량 절약을 위해 축소된 썸네일로만 저장됩니다. GDT 세무조사 대비를 위한 원본 증빙(세금계산서 등)은 회사 자체 보관함(스캔본/실물)에 별도로 10년간 보관하세요."));
+  }, lang === "en" ? onUploadImage ? "The app keeps a small thumbnail; a full-size copy of each photo is also stored in Kohr & Co.’s Google Drive. Still keep the paper originals (tax invoices, etc.) for 10 years for GDT audits." : "Uploaded images are stored only as compressed thumbnails to save space. For GDT tax audits, keep original receipts (tax invoices, etc.) separately — scanned or physical — for 10 years." : onUploadImage ? "앱에는 작은 사진이 남고, 원본 크기 사진은 Kohr & Co. Google Drive에도 따로 보관돼요. 세무조사에 대비해 종이 원본(세금계산서 등)도 10년간 보관하세요." : "업로드된 이미지는 용량 절약을 위해 축소된 썸네일로만 저장됩니다. GDT 세무조사 대비를 위한 원본 증빙(세금계산서 등)은 회사 자체 보관함(스캔본/실물)에 별도로 10년간 보관하세요."));
 }
 
 /* ---------------- Withholding tax (원천세, ToW) ---------------- */
@@ -9652,7 +11157,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v6-review';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v7-ops';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -9674,6 +11179,7 @@ function doPost(e) {
     }
     const sheet = getSheet();
     const wsId = String(req.workspaceId || 'default');
+    var actor = String(req.actor || '').slice(0, 40);
     const row = findRow(sheet, wsId);
 
     if (req.action === 'load') {
@@ -9717,6 +11223,9 @@ function doPost(e) {
       } finally {
         lock.releaseLock();
       }
+      // 변경 기록 · 하루 한 번 자동 백업 (실패해도 저장은 유지)
+      try { writeAudit(base, merged, req.patch, auth, actor, now); } catch (e3) { }
+      try { maybeDailyBackup(merged); } catch (e4) { }
       // 사람이 읽을 수 있는 월별요약 시트를 함께 갱신 (실패해도 저장은 유지)
       try {
         rebuildSummary(SpreadsheetApp.getActiveSpreadsheet(), merged);
@@ -9731,6 +11240,24 @@ function doPost(e) {
       if (auth.role !== 'admin') return out({ error: 'FORBIDDEN' });
       var d = req.data || {};
       return out(setClientPassword(String(d.clientId || ''), String(d.password || '')));
+    }
+
+    // 영수증·납부 증빙 사진을 Google Drive 에 원본 크기로 보관 (고객사는 자기 회사만)
+    if (req.action === 'uploadImage') {
+      var u = req.data || {};
+      if (auth.role === 'client' && String(u.clientId) !== auth.clientId) return out({ error: 'FORBIDDEN' });
+      return out(saveImageToDrive(sheet, wsId, u));
+    }
+    // 관리자만: 변경 기록 보기
+    if (req.action === 'audit') {
+      if (auth.role !== 'admin') return out({ error: 'FORBIDDEN' });
+      return out({ rows: readAudit((req.data || {}).limit || 300, (req.data || {}).clientId || '') });
+    }
+    // 관리자만: 지금 백업
+    if (req.action === 'backupNow') {
+      if (auth.role !== 'admin') return out({ error: 'FORBIDDEN' });
+      var cur = row ? readData(sheet, row) : { data: null };
+      return out(backupToDrive(cur.data, true));
     }
 
     if (req.action === 'classify') {
@@ -9835,7 +11362,9 @@ function clientView(data, clientId) {
   var filings = {}, gains = {};
   if (data.filings && data.filings[clientId]) filings[clientId] = data.filings[clientId];
   if (data.capitalGains && data.capitalGains[clientId]) gains[clientId] = data.capitalGains[clientId];
-  return { clients: own, filings: filings, capitalGains: gains, settings: data.settings || {} };
+  var annual = {};
+  if (data.annual && data.annual[clientId]) annual[clientId] = data.annual[clientId];
+  return { clients: own, filings: filings, capitalGains: gains, annual: annual, settings: data.settings || {} };
 }
 
 // 고객사가 보낸 월별 신고 자료에서 사무소만 정할 수 있는 항목(신고 완료·접수번호·보완 요청)은 기존 값으로 되돌린다.
@@ -9850,6 +11379,8 @@ function guardClientFiling(prev, next) {
   if (prev && prev.filed) {
     out = JSON.parse(JSON.stringify(prev));
     out.messages = mergeMessages(prev.messages, next.messages, 'client');
+    var pay = mergePayment(prev.payment, next.payment);
+    if (pay) out.payment = pay; else delete out.payment;
     return out;
   }
   for (var i = 0; i < ADMIN_FIELDS.length; i++) {
@@ -9862,7 +11393,18 @@ function guardClientFiling(prev, next) {
     if (prevStatus === undefined) delete out.reviewStatus; else out.reviewStatus = prevStatus;
   }
   out.messages = mergeMessages(prev && prev.messages, next.messages, 'client');
+  var pay2 = mergePayment(prev && prev.payment, next.payment);
+  if (pay2) out.payment = pay2; else delete out.payment;
   return out;
+}
+// 납부 정보: 고객사도 입력할 수 있지만, 사무소가 '납부 확인'한 뒤에는 바꿀 수 없다. 확인 표시는 사무소만.
+function mergePayment(prev, next) {
+  if (prev && prev.confirmedAt) return prev;
+  if (!next) return prev && prev.confirmedAt ? prev : null;
+  var p = JSON.parse(JSON.stringify(next));
+  delete p.confirmedAt;
+  delete p.confirmedBy;
+  return p;
 }
 // 메시지는 지우거나 고칠 수 없고, 고객사는 자기 이름으로만 새 메시지를 붙일 수 있다
 function mergeMessages(oldList, newList, from) {
@@ -10171,11 +11713,11 @@ function rebuildSummary(ss, data) {
   if (!sheet) sheet = ss.insertSheet(SUMMARY_SHEET);
   sheet.clear();
 
-  var headers = ['고객사', 'TIN', '업종', '연도', '월', '제출여부', '적용환율',
+  var headers = ['고객사', 'TIN', '업종', '연도', '월', '신고여부', '적용환율',
     '매출액', '매입액', '손금합계(매입+경비)', '급여총액',
     '매출세액', '매입세액공제', 'VAT납부액', '선납이윤세(PPT)', '공공조명세',
     '급여세(ToS)', '원천세(ToW)', '총납부세액(GDT)', 'NSSF(별도)',
-    '직원수', '증빙건수'];
+    '직원수', '증빙건수', '납부여부', '납부일', '납부액'];
   var rows = [headers];
 
   var clients = (data && data.clients) || [];
@@ -10192,12 +11734,14 @@ function rebuildSummary(ss, data) {
       rows.push([
         c.name || '', c.tin || '', c.type || '',
         Number(parts[0]) || '', Number(parts[1]) || '',
-        r.filed ? '제출완료' : '미제출', r.rate,
+        r.filed ? '신고완료' : '미신고', r.rate,
         Math.round(r.revenue), Math.round(r.purchase), Math.round(r.expenses), Math.round(r.payroll),
         Math.round(r.outputVAT), Math.round(r.inputVAT), Math.round(r.vatPayable),
         Math.round(r.ppt), Math.round(r.plt),
         Math.round(r.tos), Math.round(r.whTax), Math.round(r.totalDue), Math.round(r.nssf),
-        r.employeeCount, r.evidenceCount
+        r.employeeCount, r.evidenceCount,
+        (cf[key].payment && cf[key].payment.paid) ? (cf[key].payment.confirmedAt ? '납부확인' : '납부') : '미납',
+        (cf[key].payment && cf[key].payment.paidAt) || '', Number(cf[key].payment && cf[key].payment.amountKHR) || ''
       ]);
     }
   }
@@ -10235,9 +11779,152 @@ function refreshSummaryManually() {
     SpreadsheetApp.getUi().alert('저장된 데이터가 없습니다.');
     return;
   }
-  var data = JSON.parse(sheet.getRange(row, 2).getValue() || 'null');
+  var data = readData(sheet, row).data;
   rebuildSummary(ss, data);
   SpreadsheetApp.getUi().alert('월별요약 시트를 새로 만들었습니다.');
+}
+
+/* ══════════════════════════════════════════════════════════
+   변경 기록 — 누가(작업자 이름·권한) 언제 무엇을 바꿨는지 '변경기록' 시트에 남긴다
+   ══════════════════════════════════════════════════════════ */
+var AUDIT_SHEET = '변경기록';
+var AUDIT_MAX = 5000;
+function auditSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(AUDIT_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(AUDIT_SHEET);
+    sh.appendRow(['시각', '작업자', '권한', '고객사', '대상', '내용']);
+  }
+  return sh;
+}
+function clientNameOf(data, id) {
+  var list = (data && data.clients) || [];
+  for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name || id;
+  return id || '';
+}
+function num(v) { return Number(v) || 0; }
+function describeFiling(a, b) {
+  a = a || {}; b = b || {};
+  var out = [];
+  var fields = [['revenue', '매출'], ['purchase', '매입'], ['expenses', '기타경비'], ['exchangeRate', '환율'], ['alcoholTobaccoRevenue', '주류·담배 매출']];
+  for (var i = 0; i < fields.length; i++) {
+    var k = fields[i][0];
+    if (String(a[k] || '') !== String(b[k] || '')) out.push(fields[i][1] + ' ' + (a[k] || 0) + '→' + (b[k] || 0));
+  }
+  var lists = [['employees', '직원'], ['evidence', '증빙'], ['withholding', '원천세']];
+  for (var j = 0; j < lists.length; j++) {
+    var la = a[lists[j][0]] || [], lb = b[lists[j][0]] || [];
+    if (la.length !== lb.length) out.push(lists[j][1] + ' ' + la.length + '→' + lb.length + '건');
+    else if (JSON.stringify(la) !== JSON.stringify(lb)) out.push(lists[j][1] + ' 내용 수정');
+  }
+  if (!!a.filed !== !!b.filed) out.push(b.filed ? '신고 완료' + (b.filedRef ? ' (접수번호 ' + b.filedRef + ')' : '') : '신고 완료 취소');
+  if ((a.reviewStatus || '') !== (b.reviewStatus || '')) out.push({ submitted: '검토 요청', changes: '보완 요청', approved: '검토 완료' }[b.reviewStatus] || ('상태 ' + (b.reviewStatus || '-')));
+  var pa = a.payment || {}, pb = b.payment || {};
+  if (!!pa.paid !== !!pb.paid) out.push(pb.paid ? '납부 완료 ' + (pb.paidAt || '') + ' ' + num(pb.amountKHR) + ' KHR' : '납부 표시 취소');
+  if (!pa.confirmedAt && pb.confirmedAt) out.push('납부 확인');
+  if ((a.messages || []).length !== (b.messages || []).length) out.push('메시지 +' + ((b.messages || []).length - (a.messages || []).length));
+  if (JSON.stringify(a.docs || {}) !== JSON.stringify(b.docs || {})) out.push('서류 체크 ' + Object.keys(pb && b.docs || {}).filter(function (k) { return b.docs[k]; }).length + '개');
+  return out.join(' · ') || '저장';
+}
+function writeAudit(before, after, patch, auth, actor, now) {
+  if (!patch || !patch.length) return;
+  var rows = [];
+  var who = actor || (auth.role === 'admin' ? '사무소' : clientNameOf(after, auth.clientId));
+  var roleText = auth.role === 'admin' ? '사무소' : '고객사';
+  for (var i = 0; i < patch.length; i++) {
+    var path = (patch[i] && patch[i].path) || [];
+    var what = '', target = '', cid = '';
+    if (path[0] === 'filings' && path.length === 3) {
+      cid = path[1]; target = path[2];
+      var a = before.filings && before.filings[cid] && before.filings[cid][path[2]];
+      var b = after.filings && after.filings[cid] && after.filings[cid][path[2]];
+      what = b === undefined ? '월별 자료 삭제' : describeFiling(a, b);
+    } else if (path[0] === 'clients') {
+      var na = {}, nb = {};
+      (before.clients || []).forEach(function (c) { na[c.id] = c; });
+      (after.clients || []).forEach(function (c) { nb[c.id] = c; });
+      var parts = [];
+      Object.keys(nb).forEach(function (id) { if (!na[id]) parts.push('고객사 등록: ' + nb[id].name); else if (JSON.stringify(na[id]) !== JSON.stringify(nb[id])) parts.push('정보 수정: ' + nb[id].name); });
+      Object.keys(na).forEach(function (id) { if (!nb[id]) parts.push('고객사 삭제: ' + na[id].name); });
+      what = parts.join(' · ') || '고객사 목록 저장';
+    } else if (path[0] === 'annual') {
+      cid = path[1]; what = '연간 일정 체크';
+    } else {
+      cid = path[0] === 'filings' || path[0] === 'capitalGains' ? path[1] : '';
+      what = path.join('/') + ' 저장';
+    }
+    rows.push([now, who, roleText, cid ? clientNameOf(after, cid) || clientNameOf(before, cid) : '', target, what]);
+  }
+  var sh = auditSheet();
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  var extra = sh.getLastRow() - 1 - AUDIT_MAX;
+  if (extra > 500) sh.deleteRows(2, extra);
+}
+function readAudit(limit, clientName) {
+  var sh = auditSheet();
+  var n = sh.getLastRow() - 1;
+  if (n < 1) return [];
+  var take = Math.min(n, 3000);
+  var v = sh.getRange(sh.getLastRow() - take + 1, 1, take, 6).getValues();
+  var outRows = [];
+  for (var i = v.length - 1; i >= 0 && outRows.length < limit; i--) {
+    if (clientName && String(v[i][3]) !== clientName) continue;
+    outRows.push({ at: String(v[i][0]), actor: String(v[i][1]), role: String(v[i][2]), client: String(v[i][3]), target: String(v[i][4]), what: String(v[i][5]) });
+  }
+  return outRows;
+}
+
+/* ══════════════════════════════════════════════════════════
+   Google Drive — 영수증 원본 보관 · 하루 한 번 자동 백업
+   처음 한 번: Apps Script 편집기에서 setupDrive 를 선택해 [실행] → 권한 허용
+   ══════════════════════════════════════════════════════════ */
+var DRIVE_ROOT = 'Kohr Tax 앱';
+function subFolder(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+function rootFolder() {
+  var it = DriveApp.getFoldersByName(DRIVE_ROOT);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(DRIVE_ROOT);
+}
+function safeName(s) { return String(s || '').replace(/[\\\\/:*?"<>|]/g, '_').slice(0, 80); }
+function saveImageToDrive(sheet, wsId, u) {
+  var m = String(u.dataUrl || '').match(/^data:(image\\/[a-z+]+);base64,(.+)$/);
+  if (!m) return { error: 'BAD_IMAGE' };
+  if (m[2].length > 8000000) return { error: 'IMAGE_TOO_BIG' };
+  var row = findRow(sheet, wsId);
+  var data = row ? readData(sheet, row).data : null;
+  var cname = safeName(clientNameOf(data, String(u.clientId || '')) || 'unknown');
+  var folder = subFolder(subFolder(subFolder(rootFolder(), u.kind === 'payment' ? '납부 증빙' : '영수증'), cname), safeName(u.month || 'etc'));
+  var ext = m[1] === 'image/png' ? '.png' : '.jpg';
+  var blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], safeName(u.name || ('receipt-' + new Date().getTime())) + ext);
+  var f = folder.createFile(blob);
+  return { ok: true, id: f.getId(), url: f.getUrl() };
+}
+function backupToDrive(data, manual) {
+  if (!data) return { error: 'NO_DATA' };
+  var folder = subFolder(rootFolder(), '백업');
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Phnom_Penh', 'yyyy-MM-dd_HHmm');
+  var f = folder.createFile('tax-app-backup-' + stamp + (manual ? '-manual' : '') + '.json', JSON.stringify(data), 'application/json');
+  // 자동 백업은 최근 60개만 남긴다
+  var files = [], it = folder.getFiles();
+  while (it.hasNext()) { var x = it.next(); if (x.getName().indexOf('-manual') < 0) files.push(x); }
+  files.sort(function (p, q) { return q.getDateCreated() - p.getDateCreated(); });
+  for (var i = 60; i < files.length; i++) files[i].setTrashed(true);
+  PropertiesService.getScriptProperties().setProperty('LAST_BACKUP', Utilities.formatDate(new Date(), 'Asia/Phnom_Penh', 'yyyy-MM-dd'));
+  return { ok: true, name: f.getName(), url: f.getUrl() };
+}
+function maybeDailyBackup(data) {
+  var today = Utilities.formatDate(new Date(), 'Asia/Phnom_Penh', 'yyyy-MM-dd');
+  if (PropertiesService.getScriptProperties().getProperty('LAST_BACKUP') === today) return;
+  backupToDrive(data, false);
+}
+// 처음 한 번 편집기에서 실행 — Drive 권한을 허용하고 폴더를 만든다
+function setupDrive() {
+  var r = rootFolder();
+  subFolder(r, '영수증'); subFolder(r, '납부 증빙'); subFolder(r, '백업');
+  Logger.log('Drive 준비 완료: ' + r.getUrl());
 }`;
 const SQL_SETUP = `create table if not exists tax_app_state (
   workspace_id text primary key,

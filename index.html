@@ -459,10 +459,18 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.7";
+const APP_RELEASE = "2026.11.04.9";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.04.9",
+  ko: ["매출·매입 인보이스를 사진으로 — ① 단계에서 찍으면 날짜·거래처·금액·VATTIN을 읽어 채워요", "급여대장·급여명세서를 사진으로 — ② 단계에서 직원 이름과 월급을 읽어 표로 보여 줘요", "읽은 내용은 등록 전·후 언제든 직접 고칠 수 있어요"],
+  en: ["Sales & purchase invoices by photo — in step 1 the date, party, amount and VATTIN are filled in for you", "Payroll sheets & payslips by photo — in step 2 names and salaries are read into a table", "Everything read can be edited before and after you add it"]
+}, {
+  version: "2026.11.04.8",
+  ko: ["영어 화면에서 글자가 잘리던 곳을 고침 — 칸이 좁으면 글자 크기를 자동으로 맞춰요"],
+  en: ["Fixed cut-off text in English — text now shrinks to fit narrow boxes and buttons"]
+}, {
   version: "2026.11.04.7",
   ko: ["국세청 마감일을 두 가지로 함께 표시 — 서면 신고 20일 · e-Filing 25일"],
   en: ["GDT deadlines now show both — paper filing the 20th · e-Filing the 25th"]
@@ -677,7 +685,7 @@ function gdtDueText(due, lang, short) {
   const md = d => short ? lang === "en" ? `${d.toLocaleDateString("en-US", {
     month: "short"
   })} ${d.getDate()}` : `${d.getMonth() + 1}월 ${d.getDate()}일` : fmtMonthDay(d, lang);
-  return lang === "en" ? `paper ${md(due.gdt)} · e-Filing ${md(due.gdtE)}` : `서면 ${md(due.gdt)} · e-Filing ${md(due.gdtE)}`;
+  return lang === "en" ? `paper ${md(due.gdt)} · e\u2011Filing ${md(due.gdtE)}` : `서면 ${md(due.gdt)} · e\u2011Filing ${md(due.gdtE)}`;
 }
 // 홈 제목 — 두 마감을 함께 ("서면 D-16 · e-Filing D-21")
 function dueHeadline(due, lang) {
@@ -2010,6 +2018,85 @@ Return ONLY raw JSON, no markdown, no extra text, with exactly these keys:
   "confidence": "high" | "medium" | "low"
 }
 If the image is not a receipt/invoice or is too blurry, return nulls with "confidence": "low".`;
+
+// ── 매출·매입 인보이스, 급여대장 사진 읽기 ──
+const INVOICE_PROMPT = kind => `You are reading ONE ${kind === "sales" ? "SALES invoice issued by our company to a customer" : "PURCHASE invoice / bill issued to our company by a supplier"} in Cambodia.
+Read carefully digit by digit; do not guess. Digits may be Khmer numerals (០-៩) — convert to 0-9.
+Dates are usually DAY/MONTH/YEAR. Amounts may be in USD ($) or Khmer riel (KHR, ៛). If both currencies are printed, use the one the invoice total is mainly stated in.
+- "party_name": the ${kind === "sales" ? "CUSTOMER (buyer, bill-to)" : "SUPPLIER (seller, the company that issued the invoice)"} name.
+- "party_vattin": that party's VAT TIN if printed (one letter + 3 digits + 9 digits, e.g. K001-901234567), else null.
+- "subtotal": amount BEFORE VAT; "vat": the VAT amount (10%) or 0 if none; "total": final amount including VAT.
+Return ONLY raw JSON with exactly these keys:
+{"date":"YYYY-MM-DD or null","invoice_no":"string or null","party_name":"string or null","party_vattin":"string or null","subtotal":number or null,"vat":number or null,"total":number or null,"currency":"USD" or "KHR" or null,"confidence":"high"|"medium"|"low"}`;
+const PAYROLL_PROMPT = `You are reading a PAYROLL document from Cambodia: a payroll sheet/ledger listing employees, or one or more payslips.
+For EACH employee row, read the employee name and the monthly salary. Read digit by digit; do not guess. Khmer numerals (០-៩) → 0-9.
+- "gross": salary BEFORE salary tax (labels like Gross, Total salary, Basic + allowances, ប្រាក់ខែសរុប). null if not shown.
+- "net": take-home pay AFTER tax (Net pay, Net salary, ប្រាក់ខែសុទ្ធ). null if not shown.
+- Ignore totals rows, employer NSSF columns and signatures.
+Return ONLY raw JSON:
+{"period":"YYYY-MM or null","currency":"USD" or "KHR" or null,"employees":[{"name":"string","position":"string or null","gross":number or null,"net":number or null}],"confidence":"high"|"medium"|"low"}`;
+async function readImageJson(dataUrl, prompt) {
+  const base64 = dataUrl.split(",")[1];
+  const mediaType = dataUrl.substring(5, dataUrl.indexOf(";"));
+  const ask = () => callClaude([{
+    role: "user",
+    content: [{
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType,
+        data: base64
+      }
+    }, {
+      type: "text",
+      text: prompt
+    }]
+  }]);
+  try {
+    return parseAiJson(await ask());
+  } catch (e) {
+    if (e.message !== "AI_BAD_JSON" && !(e instanceof SyntaxError)) throw e;
+    return parseAiJson(await ask());
+  }
+}
+// AI가 읽은 인보이스를 화면 입력값으로 정리
+function normalizeInvoiceReading(r) {
+  const cur = r?.currency === "KHR" || r?.currency === "USD" ? r.currency : null;
+  let subtotal = parseReceiptAmount(r?.subtotal);
+  const vat = r?.vat === 0 || r?.vat === "0" ? 0 : parseReceiptAmount(r?.vat);
+  const total = parseReceiptAmount(r?.total);
+  if (!subtotal && total) subtotal = vat ? total - vat : total;
+  const currency = cur || (subtotal && subtotal >= 1000 && Number.isInteger(subtotal) ? "KHR" : "USD");
+  return {
+    date: parseReceiptDate(r?.date) || "",
+    invoiceNo: typeof r?.invoice_no === "string" ? r.invoice_no.trim() : "",
+    party: typeof r?.party_name === "string" ? r.party_name.trim() : "",
+    partyTin: typeof r?.party_vattin === "string" && r.party_vattin.trim() ? normalizeKhTin(r.party_vattin) : "",
+    subtotal: subtotal ? String(Math.round(subtotal * 100) / 100) : "",
+    vat: vat ? String(Math.round(vat * 100) / 100) : vat === 0 ? "0" : "",
+    currency,
+    confidence: ["high", "medium", "low"].includes(r?.confidence) ? r.confidence : "medium"
+  };
+}
+function normalizePayrollReading(r) {
+  const currency = r?.currency === "KHR" || r?.currency === "USD" ? r.currency : null;
+  const rows = (Array.isArray(r?.employees) ? r.employees : []).map(e => {
+    const gross = parseReceiptAmount(e?.gross);
+    const net = parseReceiptAmount(e?.net);
+    return {
+      name: String(e?.name || "").trim(),
+      mode: gross ? "gross" : "net",
+      amount: String(gross || net || ""),
+      include: !!(String(e?.name || "").trim() && (gross || net))
+    };
+  }).filter(x => x.amount && !/^(grand\s*)?total|^សរុប|^합계/i.test(x.name));
+  const cur = currency || (rows.some(x => Number(x.amount) >= 50000) ? "KHR" : "USD");
+  return {
+    currency: cur,
+    rows,
+    confidence: ["high", "medium", "low"].includes(r?.confidence) ? r.confidence : "medium"
+  };
+}
 async function readReceiptBasics({
   dataUrl,
   exchangeRate
@@ -2262,6 +2349,7 @@ const NAV = [{
   id: "monthly",
   ko: "월별 신고",
   en: "Monthly filing",
+  tabEn: "Filing",
   hintKo: "매출·급여·증빙 입력",
   hintEn: "Sales, payroll, receipts"
 }, {
@@ -2366,6 +2454,135 @@ function Icon({
     d: d
   })));
 }
+
+// ── 글자 자동 맞춤 ──
+// 영어처럼 글자가 길어 칸에 다 안 들어가면(말줄임·잘림) 그 요소의 글자 크기를 조금씩 줄여 맞춘다.
+//  · 버튼·탭·라벨 등: 잘리는 요소와 그 안의 글자를 함께 줄임 (최소 원래의 72%, 11px)
+//  · 입력칸 안내문구(placeholder): 칸 폭에 맞게 줄임
+//  · 선택상자(select): 고른 항목 글자가 다 보이도록 줄임 (최소 12px)
+// 화면 크기·언어·내용이 바뀔 때마다 원래 크기로 되돌린 뒤 다시 맞춘다.
+const FIT_SKIP = new Set(["INPUT", "TEXTAREA", "SELECT", "OPTION", "svg", "path", "IMG", "TABLE", "TBODY", "THEAD", "TR", "CANVAS", "IFRAME"]);
+let fitCanvas = null;
+function textWidth(text, cs, sizePx) {
+  if (!fitCanvas) fitCanvas = document.createElement("canvas").getContext("2d");
+  fitCanvas.font = `${cs.fontStyle} ${cs.fontWeight} ${sizePx || cs.fontSize} ${cs.fontFamily}`;
+  return fitCanvas.measureText(text).width;
+}
+function ownText(el) {
+  for (const n of el.childNodes) if (n.nodeType === 3 && n.nodeValue.trim()) return true;
+  return false;
+}
+function inScrollBox(el) {
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const o = getComputedStyle(a).overflowX;
+    if (o === "auto" || o === "scroll") return true;
+  }
+  return false;
+}
+function fitAllText(root) {
+  if (!root) return;
+  // 1) 지난번에 줄인 것을 원래대로
+  root.querySelectorAll("[data-fit]").forEach(el => {
+    el.style.fontSize = el.dataset.fit === "-" ? "" : el.dataset.fit;
+    delete el.dataset.fit;
+  });
+  root.querySelectorAll("[data-phfit]").forEach(el => {
+    el.style.removeProperty("--ph-fs");
+    delete el.dataset.phfit;
+  });
+  // 2) 글자가 칸을 넘는 요소
+  const over = [];
+  for (const el of root.querySelectorAll("*")) {
+    if (FIT_SKIP.has(el.tagName) || !el.clientWidth || el.scrollWidth <= el.clientWidth + 1) continue;
+    const isBtn = el.tagName === "BUTTON" || el.tagName === "A";
+    if (!isBtn && !ownText(el) && !el.querySelector("span,b,strong")) continue;
+    const cs = getComputedStyle(el);
+    if (cs.overflowX === "auto" || cs.overflowX === "scroll") continue;
+    const clipped = cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.textOverflow === "ellipsis";
+    if (!clipped && !(isBtn && cs.whiteSpace === "nowrap")) continue;
+    if (!isBtn && !ownText(el) && el.children.length > 3) continue; // 큰 묶음(카드 등)은 건드리지 않는다
+    if (inScrollBox(el)) continue;
+    over.push(el);
+  }
+  for (const el of over) {
+    const targets = [el, ...el.querySelectorAll("*")].filter(t => !FIT_SKIP.has(t.tagName));
+    const base = targets.map(t => parseFloat(getComputedStyle(t).fontSize) || 14);
+    targets.forEach(t => {
+      if (!t.dataset.fit) t.dataset.fit = t.style.fontSize || "-";
+    });
+    const need = el.clientWidth / el.scrollWidth;
+    let f = Math.max(0.72, Math.min(0.98, need));
+    for (let i = 0; i < 12; i++) {
+      targets.forEach((t, k) => {
+        t.style.fontSize = Math.max(11, base[k] * f).toFixed(2) + "px";
+      });
+      if (el.scrollWidth <= el.clientWidth + 1 || f <= 0.72) break;
+      f = Math.max(0.72, f - 0.04);
+    }
+  }
+  // 3) 입력칸 안내문구
+  for (const el of root.querySelectorAll("input[placeholder], textarea[placeholder]")) {
+    if (!el.placeholder || !el.clientWidth || ["checkbox", "radio", "file", "date"].includes(el.type)) continue;
+    const cs = getComputedStyle(el);
+    const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2;
+    const longest = el.tagName === "TEXTAREA" ? 0 : textWidth(el.placeholder, cs);
+    if (longest > avail && avail > 20) {
+      const size = Math.max(11, parseFloat(cs.fontSize) * avail / longest);
+      el.style.setProperty("--ph-fs", size.toFixed(2) + "px");
+      el.dataset.phfit = "1";
+    }
+  }
+  // 4) 선택상자
+  for (const el of root.querySelectorAll("select")) {
+    if (!el.clientWidth) continue;
+    const opt = el.options[el.selectedIndex];
+    if (!opt) continue;
+    const cs = getComputedStyle(el);
+    const avail = el.clientWidth - parseFloat(cs.paddingLeft) - Math.max(parseFloat(cs.paddingRight), 24);
+    const w = textWidth(opt.text, cs);
+    if (w > avail && avail > 20) {
+      el.dataset.fit = el.style.fontSize || "-";
+      el.style.fontSize = Math.max(12, parseFloat(cs.fontSize) * avail / w).toFixed(2) + "px";
+    }
+  }
+}
+function useAutoFitText(dep) {
+  useEffect(() => {
+    const root = document.getElementById("root") || document.body;
+    let raf = 0,
+      busy = false;
+    const run = () => {
+      raf = 0;
+      if (busy) return;
+      busy = true;
+      try {
+        fitAllText(root);
+      } catch (e) {/* 맞춤 실패는 무시 */}
+      busy = false;
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(run);
+    };
+    const mo = new MutationObserver(schedule);
+    mo.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["placeholder", "class", "value", "aria-selected", "aria-pressed"]
+    });
+    window.addEventListener("resize", schedule);
+    document.addEventListener("change", schedule, true);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule).catch(() => {});
+    schedule();
+    return () => {
+      mo.disconnect();
+      window.removeEventListener("resize", schedule);
+      document.removeEventListener("change", schedule, true);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [dep]);
+}
 function CambodiaTaxApp() {
   const [data, setData] = useState({
     clients: [],
@@ -2405,6 +2622,7 @@ function CambodiaTaxApp() {
   });
   const [status, setStatus] = useState("");
   const [lang, setLang] = useState("ko");
+  useAutoFitText(lang);
   const [syncedAt, setSyncedAt] = useState(null);
   const [backendOverride, setBackendOverride] = useState(null);
   const [backendError, setBackendError] = useState("");
@@ -3481,7 +3699,7 @@ function CambodiaTaxApp() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: n.id,
       size: 22
-    }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.en : n.ko));
+    }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.tabEn || n.en : n.ko));
   })), /*#__PURE__*/React.createElement("main", {
     style: S.main,
     className: "main-content"
@@ -4117,7 +4335,7 @@ function Dashboard({
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, receiptTarget.c.name, " · ", en ? "date and amount are read automatically" : "날짜·금액은 자동으로 읽어요")), /*#__PURE__*/React.createElement(Icon, {
+  }, receiptTarget.c.name, " · ", en ? "reads date & amount for you" : "날짜·금액은 자동으로 읽어요")), /*#__PURE__*/React.createElement(Icon, {
     name: "chevronRight",
     size: 18,
     color: PALETTE.inkSoft
@@ -4597,13 +4815,16 @@ function ActivityView({
   }, en ? "Change log" : "변경 기록"), /*#__PURE__*/React.createElement("span", {
     style: {
       display: "flex",
-      gap: 8
+      gap: 8,
+      flexWrap: "wrap",
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("select", {
     "aria-label": en ? "Filter by client" : "고객사로 보기",
     style: {
       ...S.select,
-      minWidth: 160
+      minWidth: 0,
+      flex: "1 1 160px"
     },
     value: filter,
     onChange: e => setFilter(e.target.value)
@@ -4902,6 +5123,13 @@ function ReminderModal({
     setCopied(id);
     setTimeout(() => setCopied(c => c === id ? "" : c), 2000);
   };
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   const ST = {
     empty: en ? "Not started" : "입력 전",
     draft: en ? "In progress" : "입력 중",
@@ -6266,6 +6494,12 @@ function MonthlyView({
     }),
     settings: settings,
     onUpdateSettings: onUpdateSettings
+  }), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
+    local: local,
+    setLocal: setLocal,
+    rate: calc.rate,
+    disabled: locked,
+    onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
   }), /*#__PURE__*/React.createElement(MoneyField, {
     id: "mf-revenue",
     label: en ? "Sales" : "매출액",
@@ -6330,7 +6564,13 @@ function MonthlyView({
     style: S.panelTitle
   }, lang === "en" ? "Payroll" : "급여"), /*#__PURE__*/React.createElement("p", {
     style: S.stepIntro
-  }, lang === "en" ? "Add each employee's monthly salary in USD. Choose Gross (before tax) or Net (take-home); salary tax is calculated for you. No employees? Skip to the next step." : "직원별 월급을 USD로 입력하세요. 세전(세금 공제 전)·세후(실수령) 중 아는 쪽을 고르면 급여세가 자동 계산됩니다. 직원이 없으면 다음 단계로 넘어가세요."), isNewFiling && (local.employees || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Add each employee's monthly salary in USD. Choose Gross (before tax) or Net (take-home); salary tax is calculated for you. No employees? Skip to the next step." : "직원별 월급을 USD로 입력하세요. 세전(세금 공제 전)·세후(실수령) 중 아는 쪽을 고르면 급여세가 자동 계산됩니다. 직원이 없으면 다음 단계로 넘어가세요."), /*#__PURE__*/React.createElement(PayrollDocsPanel, {
+    local: local,
+    setLocal: setLocal,
+    rate: calc.rate,
+    disabled: locked,
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "payroll") : null
+  }), isNewFiling && (local.employees || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: PALETTE.brassText,
@@ -6869,7 +7109,7 @@ function MonthlyView({
       overflow: "hidden",
       textOverflow: "ellipsis"
     }
-  }, en ? `Next: ${stepsDef[step].en}` : `다음: ${stepsDef[step].ko}`), /*#__PURE__*/React.createElement(Icon, {
+  }, en ? `Next: ${stepsDef[step].shortEn || stepsDef[step].en}` : `다음: ${stepsDef[step].ko}`), /*#__PURE__*/React.createElement(Icon, {
     name: "arrowRight",
     size: 18
   })) : isClientView ? /*#__PURE__*/React.createElement("button", {
@@ -7550,6 +7790,886 @@ function MessagesPanel({
       lineHeight: 1.6
     }
   }, noChannel ? en ? "No Telegram or email for this client yet — add it under Clients › Edit info. For now the message is only kept in the app." : "이 고객사의 텔레그램·이메일이 없어요. [고객사 관리 › 정보 수정]에서 넣어 주세요. 지금은 앱에만 남아요." : en ? "Opens Telegram (or email) with the message filled in — press Send there. A copy is kept here, and what’s on screen is saved." : "텔레그램(또는 메일)이 열리고 내용이 채워져요 — 거기서 [보내기]를 누르세요. 앱에도 기록되고 화면의 입력 내용도 저장돼요."));
+}
+
+// 사진 고르기(촬영/앨범) 버튼 한 쌍
+function PhotoPickButtons({
+  onPick,
+  disabled,
+  cameraLabel,
+  galleryLabel,
+  primary
+}) {
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+  const pick = e => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) onPick(f);
+  };
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    ref: camRef,
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    style: {
+      display: "none"
+    },
+    onChange: pick,
+    "aria-hidden": "true",
+    tabIndex: -1
+  }), /*#__PURE__*/React.createElement("input", {
+    ref: galRef,
+    type: "file",
+    accept: "image/*",
+    style: {
+      display: "none"
+    },
+    onChange: pick,
+    "aria-label": galleryLabel
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: primary ? S.buttonPrimary : S.buttonOutline,
+    disabled: disabled,
+    onClick: () => camRef.current && camRef.current.click()
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "camera",
+    size: 16,
+    style: {
+      marginRight: 6,
+      verticalAlign: -3
+    }
+  }), cameraLabel), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: disabled,
+    onClick: () => galRef.current && galRef.current.click()
+  }, galleryLabel));
+}
+
+// ① 매출·매입 인보이스를 사진으로 — 매출은 매출액에 더하고, 매입은 증빙(③)으로 등록. 모두 직접 고칠 수 있다.
+function InvoiceDocsPanel({
+  local,
+  setLocal,
+  rate,
+  onUploadImage,
+  disabled
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [kind, setKind] = useState("sales");
+  const [pending, setPending] = useState(null); // { kind, thumb, hiRes, reading, error, f:{...} }
+  const [editId, setEditId] = useState(null);
+  const [editF, setEditF] = useState(null);
+  const R = Number(rate) || DEFAULT_EXCHANGE_RATE;
+  const toUSD = (amt, cur) => cur === "KHR" ? (Number(amt) || 0) / R : Number(amt) || 0;
+  const r2 = n => Math.round(n * 100) / 100;
+  const usd = n => `$${fmtUsd(n)}`;
+  const salesDocs = local.salesDocs || [];
+  const purchaseDocs = (local.evidence || []).filter(e => e.source === "invoice-upload");
+  const pickFile = async (file, k) => {
+    if (!file.type || !file.type.startsWith("image/")) {
+      setPending({
+        kind: k,
+        error: en ? "Only image files (JPG, PNG)." : "이미지 파일만 올릴 수 있어요 (JPG, PNG)."
+      });
+      return;
+    }
+    let thumb, hiRes;
+    try {
+      [thumb, hiRes] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
+    } catch (e) {
+      setPending({
+        kind: k,
+        error: describeAiError(e.message, lang)
+      });
+      return;
+    }
+    const blank = {
+      date: "",
+      invoiceNo: "",
+      party: "",
+      partyTin: "",
+      subtotal: "",
+      vat: "",
+      currency: "USD"
+    };
+    setPending({
+      kind: k,
+      thumb,
+      hiRes,
+      reading: true,
+      f: blank
+    });
+    try {
+      const f = normalizeInvoiceReading(await readImageJson(hiRes, INVOICE_PROMPT(k)));
+      setPending(p => p && p.thumb === thumb ? {
+        ...p,
+        reading: false,
+        f,
+        confidence: f.confidence
+      } : p);
+    } catch (e) {
+      setPending(p => p && p.thumb === thumb ? {
+        ...p,
+        reading: false,
+        error: describeAiError(e.message, lang)
+      } : p);
+    }
+  };
+  const vatOf = f => f.vat !== "" ? Number(f.vat) || 0 : r2((Number(f.subtotal) || 0) * 0.1);
+  const register = () => {
+    const p = pending;
+    const f = p.f;
+    if (!(Number(f.subtotal) > 0)) {
+      setPending({
+        ...p,
+        error: en ? "Enter the amount before VAT." : "VAT 제외 금액을 넣어 주세요."
+      });
+      return;
+    }
+    const id = uid();
+    if (p.kind === "sales") {
+      const doc = {
+        id,
+        thumbnail: p.thumb,
+        date: f.date,
+        invoiceNo: f.invoiceNo,
+        customer: f.party,
+        customerTin: f.partyTin,
+        subtotal: Number(f.subtotal),
+        vat: vatOf(f),
+        currency: f.currency,
+        createdAt: new Date().toISOString()
+      };
+      const addUSD = toUSD(doc.subtotal, doc.currency);
+      setLocal(prev => ({
+        ...prev,
+        salesDocs: [...(prev.salesDocs || []), doc],
+        revenue: String(r2((Number(prev.revenue) || 0) + addUSD))
+      }));
+    } else {
+      const total = (Number(f.subtotal) || 0) + vatOf(f);
+      const isVat = vatOf(f) > 0;
+      const ev = recalcEvidence({
+        id,
+        thumbnail: p.thumb,
+        evidenceType: isVat ? "vat" : "general",
+        category: "purchase_invoice",
+        vendor: f.party,
+        supplierTin: isVat ? normalizeKhTin(f.partyTin) : "",
+        txDate: f.date,
+        amount: r2(total),
+        currency: f.currency,
+        description: f.invoiceNo ? `Invoice ${f.invoiceNo}` : "",
+        whtCategory: "",
+        source: "invoice-upload",
+        createdAt: new Date().toISOString()
+      }, R);
+      setLocal(prev => ({
+        ...prev,
+        evidence: [...(prev.evidence || []), ev]
+      }));
+    }
+    if (onUploadImage && p.hiRes) {
+      const nm = [f.date, p.kind === "sales" ? "sales" : "purchase", f.invoiceNo || f.party].filter(Boolean).join("_");
+      onUploadImage(p.hiRes, nm, p.kind).then(info => {
+        if (!info || !info.url) return;
+        setLocal(prev => p.kind === "sales" ? {
+          ...prev,
+          salesDocs: (prev.salesDocs || []).map(d => d.id === id ? {
+            ...d,
+            driveId: info.id,
+            driveUrl: info.url
+          } : d)
+        } : {
+          ...prev,
+          evidence: (prev.evidence || []).map(d => d.id === id ? {
+            ...d,
+            driveId: info.id,
+            driveUrl: info.url
+          } : d)
+        });
+      }).catch(() => {});
+    }
+    setPending(null);
+  };
+  const startEdit = (d, k) => {
+    setEditId(d.id);
+    setEditF(k === "sales" ? {
+      kind: k,
+      date: d.date || "",
+      invoiceNo: d.invoiceNo || "",
+      party: d.customer || "",
+      partyTin: d.customerTin || "",
+      subtotal: String(d.subtotal ?? ""),
+      vat: String(d.vat ?? ""),
+      currency: d.currency || "USD"
+    } : {
+      kind: k,
+      date: d.txDate || "",
+      invoiceNo: (d.description || "").replace(/^Invoice /, ""),
+      party: d.vendor || "",
+      partyTin: d.supplierTin || "",
+      subtotal: String(r2((Number(d.amount) || 0) - (d.isVatInvoice ? (Number(d.amount) || 0) / 11 : 0))),
+      vat: String(d.isVatInvoice ? r2((Number(d.amount) || 0) / 11) : 0),
+      currency: d.currency || "USD"
+    });
+  };
+  const saveEdit = () => {
+    const f = editF;
+    if (!(Number(f.subtotal) > 0)) return;
+    if (f.kind === "sales") {
+      setLocal(prev => {
+        const old = (prev.salesDocs || []).find(d => d.id === editId);
+        const next = {
+          ...old,
+          date: f.date,
+          invoiceNo: f.invoiceNo,
+          customer: f.party,
+          customerTin: f.partyTin ? normalizeKhTin(f.partyTin) : "",
+          subtotal: Number(f.subtotal),
+          vat: vatOf(f),
+          currency: f.currency
+        };
+        const delta = toUSD(next.subtotal, next.currency) - toUSD(old.subtotal, old.currency);
+        return {
+          ...prev,
+          salesDocs: prev.salesDocs.map(d => d.id === editId ? next : d),
+          revenue: String(Math.max(0, r2((Number(prev.revenue) || 0) + delta)))
+        };
+      });
+    } else {
+      const total = (Number(f.subtotal) || 0) + vatOf(f);
+      const isVat = vatOf(f) > 0;
+      setLocal(prev => ({
+        ...prev,
+        evidence: (prev.evidence || []).map(d => d.id === editId ? recalcEvidence({
+          ...d,
+          evidenceType: isVat ? "vat" : "general",
+          vendor: f.party,
+          supplierTin: isVat ? normalizeKhTin(f.partyTin) : "",
+          txDate: f.date,
+          amount: r2(total),
+          currency: f.currency,
+          description: f.invoiceNo ? `Invoice ${f.invoiceNo}` : ""
+        }, R) : d)
+      }));
+    }
+    setEditId(null);
+    setEditF(null);
+  };
+  const remove = (d, k) => {
+    if (k === "sales") setLocal(prev => ({
+      ...prev,
+      salesDocs: (prev.salesDocs || []).filter(x => x.id !== d.id),
+      revenue: String(Math.max(0, r2((Number(prev.revenue) || 0) - toUSD(d.subtotal, d.currency))))
+    }));else setLocal(prev => ({
+      ...prev,
+      evidence: (prev.evidence || []).filter(x => x.id !== d.id)
+    }));
+  };
+  const fields = (f, set, k) => /*#__PURE__*/React.createElement("div", {
+    className: "form-grid-2",
+    style: S.formGrid2
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Invoice date" : "인보이스 날짜"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    "aria-label": en ? "Invoice date" : "인보이스 날짜",
+    style: S.input,
+    value: f.date,
+    onChange: e => set({
+      date: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Invoice no." : "인보이스 번호"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Invoice no." : "인보이스 번호",
+    style: S.input,
+    value: f.invoiceNo,
+    onChange: e => set({
+      invoiceNo: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, k === "sales" ? en ? "Customer" : "고객(매출처)" : en ? "Supplier" : "공급자(매입처)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": k === "sales" ? en ? "Customer" : "고객(매출처)" : en ? "Supplier" : "공급자(매입처)",
+    style: S.input,
+    value: f.party,
+    onChange: e => set({
+      party: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, k === "sales" ? en ? "Customer VATTIN (if any)" : "고객 VATTIN (있으면)" : en ? "Supplier VATTIN" : "공급자 VATTIN"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": k === "sales" ? en ? "Customer VATTIN" : "고객 VATTIN" : en ? "Supplier VATTIN" : "공급자 VATTIN",
+    placeholder: "K001-901234567",
+    style: {
+      ...S.input,
+      ...(f.partyTin && !isValidKhTin(f.partyTin) ? S.inputNeedsCheck : {})
+    },
+    value: f.partyTin,
+    onChange: e => set({
+      partyTin: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Amount before VAT" : "VAT 제외 금액"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    "aria-label": en ? "Amount before VAT" : "VAT 제외 금액",
+    style: {
+      ...S.input,
+      flex: 1,
+      minWidth: 0
+    },
+    value: f.subtotal,
+    onChange: e => set({
+      subtotal: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Currency" : "통화",
+    style: {
+      ...S.select,
+      width: 84,
+      flexShrink: 0
+    },
+    value: f.currency,
+    onChange: e => set({
+      currency: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"), /*#__PURE__*/React.createElement("option", {
+    value: "KHR"
+  }, "KHR")))), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "VAT (0 if none)" : "VAT (없으면 0)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    "aria-label": en ? "VAT amount" : "VAT 금액",
+    style: S.input,
+    value: f.vat,
+    placeholder: f.subtotal ? String(r2((Number(f.subtotal) || 0) * 0.1)) : "",
+    onChange: e => set({
+      vat: e.target.value
+    })
+  })));
+  const money = (amt, cur) => cur === "KHR" ? `${fmt(amt)} KHR` : usd(Number(amt) || 0);
+  const salesSumUSD = salesDocs.reduce((a, d) => a + toUSD(d.subtotal, d.currency), 0);
+  const row = (d, k) => {
+    const name = k === "sales" ? d.customer : d.vendor;
+    const date = k === "sales" ? d.date : d.txDate;
+    const amt = k === "sales" ? money(d.subtotal, d.currency) : money(d.amount, d.currency);
+    if (editId === d.id && editF) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: d.id,
+        style: {
+          ...S.evidenceEdit,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10
+        }
+      }, fields(editF, x => setEditF({
+        ...editF,
+        ...x
+      }), k), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap"
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonPrimary,
+        disabled: !(Number(editF.subtotal) > 0),
+        onClick: saveEdit
+      }, en ? "Apply changes" : "수정 적용"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonGhost,
+        onClick: () => {
+          setEditId(null);
+          setEditF(null);
+        }
+      }, en ? "Cancel" : "취소")));
+    }
+    return /*#__PURE__*/React.createElement("div", {
+      key: d.id,
+      style: S.evidenceRow
+    }, d.thumbnail && /*#__PURE__*/React.createElement("img", {
+      src: d.thumbnail,
+      alt: "",
+      style: S.thumbSmall
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 14.5,
+        fontWeight: 600,
+        color: PALETTE.ink,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...S.statusBadge,
+        marginRight: 6,
+        background: k === "sales" ? "#E8F0FB" : PALETTE.tealTint,
+        color: k === "sales" ? "#1F4E8C" : PALETTE.tealDeep
+      }
+    }, k === "sales" ? en ? "Sales" : "매출" : en ? "Purchase" : "매입"), name || (en ? "Name not read" : "이름 없음")), /*#__PURE__*/React.createElement("div", {
+      style: S.evidenceMeta
+    }, [date, k === "sales" ? d.invoiceNo : (d.description || "").replace(/^Invoice /, "#"), k === "sales" ? en ? "before VAT" : "VAT 제외" : d.isVatInvoice ? en ? "incl. VAT" : "VAT 포함" : ""].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        whiteSpace: "nowrap"
+      }
+    }, amt), !disabled && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall2,
+      onClick: () => startEdit(d, k)
+    }, en ? "Edit" : "수정"), !disabled && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall,
+      "aria-label": en ? "Delete document" : "문서 삭제",
+      onClick: () => remove(d, k)
+    }, "✕"));
+  };
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Invoices by photo" : "인보이스 사진으로 입력",
+    style: {
+      border: `1px dashed #B9C9C2`,
+      borderRadius: 14,
+      padding: 14,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      background: "#FAFCFB"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15.5,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Enter from invoice photos" : "인보이스 사진으로 입력"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.6
+    }
+  }, en ? "Sales invoices are added to Sales; purchase invoices are registered as receipts (step 3). You can edit everything afterwards." : "매출 인보이스는 매출액에 더해지고, 매입 인보이스는 ③ 증빙으로 등록돼요. 읽은 내용은 언제든 고칠 수 있어요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    role: "group",
+    "aria-label": en ? "Invoice type" : "인보이스 종류",
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, [["sales", en ? "Sales invoice" : "매출 인보이스"], ["purchase", en ? "Purchase invoice" : "매입 인보이스"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    type: "button",
+    "aria-pressed": kind === k,
+    style: {
+      ...S.buttonGhostSmall2,
+      flex: 1,
+      minHeight: 40,
+      ...(kind === k ? {
+        background: PALETTE.tealTint,
+        color: PALETTE.tealDeep,
+        borderColor: PALETTE.teal,
+        fontWeight: 700
+      } : {})
+    },
+    onClick: () => setKind(k)
+  }, l))), /*#__PURE__*/React.createElement(PhotoPickButtons, {
+    onPick: f => pickFile(f, kind),
+    cameraLabel: en ? "Take photo" : "사진 찍기",
+    galleryLabel: en ? "Choose photo" : "사진 고르기"
+  })), pending && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center"
+    }
+  }, pending.thumb && /*#__PURE__*/React.createElement("img", {
+    src: pending.thumb,
+    alt: "",
+    style: {
+      ...S.thumbSmall,
+      width: 64,
+      height: 64
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("b", null, pending.kind === "sales" ? en ? "Sales invoice" : "매출 인보이스" : en ? "Purchase invoice" : "매입 인보이스"), /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      fontSize: 13,
+      color: pending.error ? PALETTE.red : pending.confidence === "low" ? PALETTE.brassText : PALETTE.inkSoft
+    }
+  }, pending.reading ? en ? "Reading the invoice…" : "인보이스를 읽는 중…" : pending.error ? pending.error : pending.confidence === "low" ? en ? "Hard to read — please check every field." : "잘 안 보여요 — 칸마다 꼭 확인해 주세요." : en ? "Read. Check and fix if needed, then Add." : "읽었어요. 확인하고 틀리면 고친 뒤 [등록]하세요."))), pending.f && fields(pending.f, x => setPending(p => ({
+    ...p,
+    f: {
+      ...p.f,
+      ...x
+    },
+    error: ""
+  })), pending.kind), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, pending.f && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: pending.reading,
+    onClick: register
+  }, pending.kind === "sales" ? en ? "Add to sales" : "매출에 등록" : en ? "Register purchase" : "매입 증빙으로 등록"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => setPending(null)
+  }, en ? "Cancel" : "취소"))), (salesDocs.length > 0 || purchaseDocs.length > 0) && /*#__PURE__*/React.createElement("div", null, salesDocs.map(d => row(d, "sales")), purchaseDocs.map(d => row(d, "purchase")), salesDocs.length > 0 && Math.abs(salesSumUSD - (Number(local.revenue) || 0)) > 0.01 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.brassText,
+      marginTop: 6,
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, en ? `Sales invoices total ${usd(salesSumUSD)} (before VAT) — Sales field is ${usd(Number(local.revenue) || 0)}.` : `매출 인보이스 합계 ${usd(salesSumUSD)} (VAT 제외) — 매출액 칸은 ${usd(Number(local.revenue) || 0)}이에요.`, !disabled && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    onClick: () => setLocal(prev => ({
+      ...prev,
+      revenue: String(r2(salesSumUSD))
+    }))
+  }, en ? "Use invoice total" : "인보이스 합계로 맞추기"))));
+}
+
+// ② 급여대장·급여명세서 사진으로 직원과 월급 채우기 — 반영 전 표에서 확인·수정
+function PayrollDocsPanel({
+  local,
+  setLocal,
+  rate,
+  onUploadImage,
+  disabled
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [pending, setPending] = useState(null);
+  const [done, setDone] = useState("");
+  const R = Number(rate) || DEFAULT_EXCHANGE_RATE;
+  const docs = local.payrollDocs || [];
+  const pickFile = async file => {
+    setDone("");
+    if (!file.type || !file.type.startsWith("image/")) {
+      setPending({
+        error: en ? "Only image files (JPG, PNG)." : "이미지 파일만 올릴 수 있어요 (JPG, PNG)."
+      });
+      return;
+    }
+    let thumb, hiRes;
+    try {
+      [thumb, hiRes] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
+    } catch (e) {
+      setPending({
+        error: describeAiError(e.message, lang)
+      });
+      return;
+    }
+    setPending({
+      thumb,
+      hiRes,
+      reading: true,
+      rows: [],
+      currency: "USD"
+    });
+    try {
+      const r = normalizePayrollReading(await readImageJson(hiRes, PAYROLL_PROMPT));
+      setPending(p => p && p.thumb === thumb ? {
+        ...p,
+        reading: false,
+        ...r
+      } : p);
+    } catch (e) {
+      setPending(p => p && p.thumb === thumb ? {
+        ...p,
+        reading: false,
+        error: describeAiError(e.message, lang)
+      } : p);
+    }
+  };
+  const setRow = (i, x) => setPending(p => ({
+    ...p,
+    rows: p.rows.map((r, k) => k === i ? {
+      ...r,
+      ...x
+    } : r)
+  }));
+  const norm = n => String(n || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const apply = () => {
+    const p = pending;
+    const chosen = p.rows.filter(r => r.include && r.name.trim() && Number(r.amount) > 0);
+    let added = 0,
+      changed = 0;
+    const id = uid();
+    setLocal(prev => {
+      const emps = [...(prev.employees || [])];
+      for (const r of chosen) {
+        const amtUSD = p.currency === "KHR" ? Math.round(Number(r.amount) / R * 100) / 100 : Number(r.amount);
+        const i = emps.findIndex(e => norm(e.name) === norm(r.name));
+        if (i >= 0) {
+          emps[i] = {
+            ...emps[i],
+            gross: String(amtUSD),
+            mode: r.mode
+          };
+          changed++;
+        } else {
+          emps.push({
+            id: uid(),
+            name: r.name.trim(),
+            gross: String(amtUSD),
+            mode: r.mode
+          });
+          added++;
+        }
+      }
+      return {
+        ...prev,
+        employees: emps,
+        payrollDocs: [...(prev.payrollDocs || []), {
+          id,
+          thumbnail: p.thumb,
+          count: chosen.length,
+          createdAt: new Date().toISOString()
+        }]
+      };
+    });
+    if (onUploadImage && p.hiRes) {
+      onUploadImage(p.hiRes, `payroll_${new Date().toISOString().slice(0, 10)}`, "payroll").then(info => {
+        if (info && info.url) setLocal(prev => ({
+          ...prev,
+          payrollDocs: (prev.payrollDocs || []).map(d => d.id === id ? {
+            ...d,
+            driveId: info.id,
+            driveUrl: info.url
+          } : d)
+        }));
+      }).catch(() => {});
+    }
+    setDone(en ? `Applied ${chosen.length} employee(s) — ${added} new, ${changed} updated. Check below, then Save.` : `${chosen.length}명 반영했어요 — 새 직원 ${added}명, 금액 바뀐 직원 ${changed}명. 아래에서 확인하고 [저장]하세요.`);
+    setPending(null);
+  };
+  const nChosen = pending && pending.rows ? pending.rows.filter(r => r.include && r.name.trim() && Number(r.amount) > 0).length : 0;
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Payroll by photo" : "급여 자료 사진으로 입력",
+    style: {
+      border: `1px dashed #B9C9C2`,
+      borderRadius: 14,
+      padding: 14,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      background: "#FAFCFB",
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15.5,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Enter from a payroll sheet or payslips" : "급여대장·급여명세서 사진으로 입력"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.6
+    }
+  }, en ? "Names and salaries are read for you. Check the table, then apply — existing employees with the same name are updated." : "직원 이름과 월급을 읽어 와요. 표에서 확인한 뒤 반영하면, 같은 이름의 직원은 금액만 바뀌고 새 직원은 추가돼요.", docs.length > 0 && (en ? ` · ${docs.length} document(s) uploaded this month` : ` · 이번 달 올린 자료 ${docs.length}건`))), !pending && !disabled && /*#__PURE__*/React.createElement(PhotoPickButtons, {
+    onPick: pickFile,
+    cameraLabel: en ? "Take photo" : "사진 찍기",
+    galleryLabel: en ? "Choose photo" : "사진 고르기"
+  }), done && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.tealDeep
+    }
+  }, done), pending && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      padding: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center"
+    }
+  }, pending.thumb && /*#__PURE__*/React.createElement("img", {
+    src: pending.thumb,
+    alt: "",
+    style: {
+      ...S.thumbSmall,
+      width: 64,
+      height: 64
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      fontSize: 13.5,
+      color: pending.error ? PALETTE.red : PALETTE.inkSoft
+    }
+  }, pending.reading ? en ? "Reading names and salaries…" : "이름과 월급을 읽는 중…" : pending.error ? pending.error : pending.rows.length ? en ? `Found ${pending.rows.length} row(s). Fix anything wrong, untick rows to skip.` : `${pending.rows.length}명을 찾았어요. 틀린 곳은 고치고, 넣지 않을 줄은 체크를 빼세요.` : en ? "No employees found. Add rows by hand." : "직원을 찾지 못했어요. 직접 줄을 추가하세요.")), !pending.reading && !pending.error && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.stackLabel,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Amounts are in" : "금액 통화"), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Payroll currency" : "급여 통화",
+    style: {
+      ...S.select,
+      width: 96
+    },
+    value: pending.currency,
+    onChange: e => setPending({
+      ...pending,
+      currency: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"), /*#__PURE__*/React.createElement("option", {
+    value: "KHR"
+  }, "KHR"))), pending.rows.map((r, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "payroll-read-row",
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+      borderTop: i ? "1px solid #EEF1F4" : "none",
+      paddingTop: i ? 8 : 0
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: r.include,
+    onChange: e => setRow(i, {
+      include: e.target.checked
+    }),
+    "aria-label": en ? `Include ${r.name}` : `${r.name} 넣기`,
+    style: {
+      width: 20,
+      height: 20,
+      accentColor: PALETTE.teal
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? "Employee name" : "직원 이름",
+    style: {
+      ...S.input,
+      flex: "2 1 140px"
+    },
+    value: r.name,
+    onChange: e => setRow(i, {
+      name: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Gross or net" : "세전/세후",
+    style: {
+      ...S.select,
+      flex: "0 0 96px"
+    },
+    value: r.mode,
+    onChange: e => setRow(i, {
+      mode: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "gross"
+  }, en ? "Gross" : "세전"), /*#__PURE__*/React.createElement("option", {
+    value: "net"
+  }, en ? "Net" : "세후")), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "decimal",
+    "aria-label": en ? "Salary" : "월급",
+    style: {
+      ...S.input,
+      flex: "1 1 110px"
+    },
+    value: r.amount,
+    onChange: e => setRow(i, {
+      amount: e.target.value
+    })
+  }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    onClick: () => setPending({
+      ...pending,
+      rows: [...pending.rows, {
+        name: "",
+        mode: "gross",
+        amount: "",
+        include: true
+      }]
+    })
+  }, en ? "+ Add row" : "+ 줄 추가"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, !pending.reading && !pending.error && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: !nChosen,
+    onClick: apply
+  }, en ? `Apply ${nChosen} to employees` : `직원 ${nChosen}명 반영`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => setPending(null)
+  }, en ? "Cancel" : "취소"))));
 }
 function MoneyField({
   id,
@@ -9271,8 +10391,12 @@ function WithholdingPanel({
     className: "form-row",
     style: S.formRow
   }, /*#__PURE__*/React.createElement("select", {
+    className: "wide-select",
     "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
-    style: S.select,
+    style: {
+      ...S.select,
+      flex: "1 1 260px"
+    },
     value: category,
     onChange: e => setCategory(e.target.value)
   }, WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
@@ -9300,10 +10424,11 @@ function WithholdingPanel({
     "aria-label": mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross payment (USD)" : "총지급액 (USD)",
     style: {
       ...S.input,
-      width: 130
+      flex: "1 1 150px",
+      minWidth: 120
     },
     type: "number",
-    placeholder: mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross payment (USD)" : "총지급액 (USD)",
+    placeholder: mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross (USD)" : "총지급액 (USD)",
     value: amount,
     onChange: e => setAmount(e.target.value)
   }), /*#__PURE__*/React.createElement("button", {
@@ -9347,7 +10472,7 @@ function WithholdingPanel({
   }, isDragging ? lang === "en" ? "Drop the image here" : "여기에 이미지를 놓으세요" : lang === "en" ? "Drag & drop a document image here, or click to choose a file" : "증빙 이미지를 여기로 드래그하거나 클릭해서 선택하세요")), /*#__PURE__*/React.createElement("input", {
     "aria-label": lang === "en" ? "Additional note (optional — e.g., October office rent)" : "추가 설명 (선택 — 예: 10월 사무실 임차료)",
     style: S.input,
-    placeholder: lang === "en" ? "Additional note (optional — e.g., October office rent)" : "추가 설명 (선택 — 예: 10월 사무실 임차료)",
+    placeholder: lang === "en" ? "Note (optional) — e.g. October rent" : "추가 설명 (선택 — 예: 10월 사무실 임차료)",
     value: description,
     onChange: e => setDescription(e.target.value)
   }), pendingPreview && /*#__PURE__*/React.createElement("div", {
@@ -11157,7 +12282,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v7-ops';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v8-docs';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -11812,7 +12937,7 @@ function describeFiling(a, b) {
     var k = fields[i][0];
     if (String(a[k] || '') !== String(b[k] || '')) out.push(fields[i][1] + ' ' + (a[k] || 0) + '→' + (b[k] || 0));
   }
-  var lists = [['employees', '직원'], ['evidence', '증빙'], ['withholding', '원천세']];
+  var lists = [['employees', '직원'], ['evidence', '증빙'], ['withholding', '원천세'], ['salesDocs', '매출 인보이스'], ['payrollDocs', '급여 자료']];
   for (var j = 0; j < lists.length; j++) {
     var la = a[lists[j][0]] || [], lb = b[lists[j][0]] || [];
     if (la.length !== lb.length) out.push(lists[j][1] + ' ' + la.length + '→' + lb.length + '건');
@@ -11896,7 +13021,8 @@ function saveImageToDrive(sheet, wsId, u) {
   var row = findRow(sheet, wsId);
   var data = row ? readData(sheet, row).data : null;
   var cname = safeName(clientNameOf(data, String(u.clientId || '')) || 'unknown');
-  var folder = subFolder(subFolder(subFolder(rootFolder(), u.kind === 'payment' ? '납부 증빙' : '영수증'), cname), safeName(u.month || 'etc'));
+  var KIND_FOLDER = { payment: '납부 증빙', sales: '매출 인보이스', purchase: '매입 인보이스', payroll: '급여 자료' };
+  var folder = subFolder(subFolder(subFolder(rootFolder(), KIND_FOLDER[u.kind] || '영수증'), cname), safeName(u.month || 'etc'));
   var ext = m[1] === 'image/png' ? '.png' : '.jpg';
   var blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], safeName(u.name || ('receipt-' + new Date().getTime())) + ext);
   var f = folder.createFile(blob);
@@ -11923,7 +13049,7 @@ function maybeDailyBackup(data) {
 // 처음 한 번 편집기에서 실행 — Drive 권한을 허용하고 폴더를 만든다
 function setupDrive() {
   var r = rootFolder();
-  subFolder(r, '영수증'); subFolder(r, '납부 증빙'); subFolder(r, '백업');
+  subFolder(r, '영수증'); subFolder(r, '납부 증빙'); subFolder(r, '매출 인보이스'); subFolder(r, '매입 인보이스'); subFolder(r, '급여 자료'); subFolder(r, '백업');
   Logger.log('Drive 준비 완료: ' + r.getUrl());
 }`;
 const SQL_SETUP = `create table if not exists tax_app_state (
@@ -12599,7 +13725,7 @@ function RatesView() {
     noFmt: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Prepayment Profit Tax (PPT)" : "선납이윤세 (PPT)",
-    value: lang === "en" ? "Revenue (excl. VAT) × 1%, due by the 15th of the following month" : "매출액(부가세 제외) × 1%, 익월 15일까지",
+    value: lang === "en" ? "Revenue (excl. VAT) × 1%, due the 20th (paper) / 25th (e-Filing) of the following month" : "매출액(부가세 제외) × 1%, 익월 20일(서면)·25일(e-Filing)까지",
     noFmt: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Annual Profit Tax (ToI/ToP)" : "연간 이윤세 (ToI/ToP)",
@@ -12661,9 +13787,17 @@ function NumberRow({
     }
   }, label), /*#__PURE__*/React.createElement("span", {
     style: {
-      whiteSpace: "nowrap",
-      flexShrink: 0,
-      fontFamily: FONT.mono,
+      ...(noFmt && String(value).length > 14 ? {
+        whiteSpace: "normal",
+        flexShrink: 1,
+        minWidth: 0,
+        textAlign: "right",
+        maxWidth: "62%"
+      } : {
+        whiteSpace: "nowrap",
+        flexShrink: 0
+      }),
+      fontFamily: noFmt && String(value).length > 14 ? FONT.body : FONT.mono,
       fontWeight: bold || big ? 700 : 500,
       fontSize: big ? 20 : 14,
       color: big ? PALETTE.teal : PALETTE.ink
@@ -12796,6 +13930,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 input:focus, select:focus, textarea:focus { border-color: ${PALETTE.teal}; outline: none; box-shadow: 0 0 0 3px ${PALETTE.tealTint}; }
 ::selection { background: #CFE8DF; color: ${PALETTE.ink}; }
 input::placeholder, textarea::placeholder { color: #68737F; }
+[data-phfit]::placeholder { font-size: var(--ph-fs); }
 button { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
 button:disabled { cursor: not-allowed; }
 details > summary { cursor: pointer; }
@@ -12900,6 +14035,7 @@ img, video, canvas { max-width: 100%; }
   .two-col-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 14px !important; }
   .two-col-grid > * { min-width: 0; }
   .form-row input, .form-row select { flex: 1 1 140px !important; }
+  .form-row select.wide-select { flex: 1 1 100% !important; }
   .h1-title { font-size: 21px !important; }
   .draft-doc { padding: 20px 16px !important; max-width: 100% !important; }
   .selector-row { gap: 8px !important; }

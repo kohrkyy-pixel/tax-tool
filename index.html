@@ -447,12 +447,72 @@ function currentApkBuild() {
   return Number.isFinite(n) ? n : null;
 }
 
-// GitHub Releases의 최신 APK 정보 — 6시간 안에 확인했다면 저장해 둔 결과를 쓴다 (force면 바로 확인)
+// ── 업데이트 안내 팝업 ──
+// 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
+// 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
+const APP_RELEASE = "2026.11.04.2";
+// 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
+const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
+const RELEASE_NOTES = [{
+  version: "2026.11.04.2",
+  ko: ["앱 안에서 사용 설명서(PDF)를 받을 수 있어요 — 설정 › 앱 정보, 홈의 사용 방법, 로그인 화면", "업데이트되면 이렇게 팝업으로 알려 드려요"],
+  en: ["Download the user manual (PDF) inside the app — Settings › App info, Home guide, sign-in screen", "Updates are announced with a pop-up like this one"]
+}, {
+  version: "2026.11.04",
+  ko: ["고객사마다 비밀번호로 로그인 — 우리 회사 자료만 보여요", "새 화면 디자인: 홈의 마감 카드, 4단계 입력 막대, 큰 금액 입력칸", "영수증 촬영 버튼을 맨 앞으로, 인식 결과를 카드로 확인", "휴대폰·태블릿 화면 크기에 맞춰 자동 배치, 로그아웃 버튼 추가", "새 버전이 나오면 이렇게 팝업으로 알려 드려요"],
+  en: ["Each client signs in with its own password and sees only its own company", "New design: deadline card on Home, 4-step bar, large amount fields", "Receipt camera button first, with the reading shown as a card", "Layout adapts to phones and tablets; new Log out button", "New versions are announced with a pop-up like this one"]
+}];
+const SEEN_RELEASE_KEY = "ctt:seen-release";
+const UPDATE_SNOOZE_KEY = "ctt:update-snooze";
+const UPDATE_SNOOZE_MS = 24 * 3600 * 1000; // [나중에]를 누르면 하루 동안 다시 묻지 않는다
+
+function releaseStamp() {
+  return `${APP_RELEASE}|${currentApkBuild() ?? "web"}`;
+}
+// 처음 설치한 사람에게는 "업데이트되었어요"를 띄우지 않는다 — 이 기기에 예전 사용 흔적이 있을 때만
+function hadPreviousUse() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || "";
+      if (k.startsWith("ctt:") && k !== SEEN_RELEASE_KEY && k !== UPDATE_CHECK_KEY) return true;
+    }
+  } catch (e) {/* 저장소 없음 */}
+  return false;
+}
+function snoozed(id) {
+  try {
+    const v = JSON.parse(localStorage.getItem(UPDATE_SNOOZE_KEY) || "null");
+    return !!(v && v.id === id && Date.now() - v.at < UPDATE_SNOOZE_MS);
+  } catch (e) {
+    return false;
+  }
+}
+function snooze(id) {
+  try {
+    localStorage.setItem(UPDATE_SNOOZE_KEY, JSON.stringify({
+      id,
+      at: Date.now()
+    }));
+  } catch (e) {/* 무시 */}
+}
+// 웹(GitHub 페이지): 같은 주소의 최신 파일을 받아 APP_RELEASE 값이 바뀌었는지 본다
+async function fetchLatestWebRelease() {
+  if (!/^https?:$/.test(location.protocol) || currentApkBuild() != null) return null;
+  const res = await fetch(location.pathname + "?v=" + Date.now(), {
+    cache: "no-store"
+  });
+  if (!res.ok) return null;
+  const text = await res.text();
+  const m = text.match(/APP_RELEASE\s*=\s*"([^"]+)"/);
+  return m ? m[1] : null;
+}
+
+// GitHub Releases의 최신 APK 정보 — 1시간 안에 확인했다면 저장해 둔 결과를 쓴다 (force면 바로 확인)
 async function fetchLatestRelease(force = false) {
   if (!force) {
     try {
       const cached = JSON.parse(localStorage.getItem(UPDATE_CHECK_KEY) || "null");
-      if (cached && Date.now() - cached.at < 6 * 3600 * 1000) return cached;
+      if (cached && Date.now() - cached.at < 3600 * 1000) return cached;
     } catch (e) {/* 저장된 값 없음 */}
   }
   const res = await fetch(RELEASES_API, {
@@ -2144,12 +2204,66 @@ function CambodiaTaxApp() {
   // 앱(APK)일 때 새 버전이 있으면 화면 위에 업데이트 안내를 띄운다
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  // 업데이트 팝업: "new" = 새 버전이 나왔어요(받기/새로고침), "done" = 업데이트되었어요(바뀐 점)
+  const [updatePopup, setUpdatePopup] = useState(null);
   useEffect(() => {
-    const mine = currentApkBuild();
-    if (!isAndroidApp() || mine == null) return;
-    fetchLatestRelease(false).then(info => {
-      if (info.build && info.build > mine) setUpdateInfo(info);
-    }).catch(() => {/* 인터넷이 없으면 조용히 넘어간다 */});
+    // 1) 방금 업데이트된 경우 — 바뀐 점 안내 (한 번만)
+    try {
+      const seen = localStorage.getItem(SEEN_RELEASE_KEY);
+      const now = releaseStamp();
+      if (seen !== now) {
+        const prevRelease = seen ? seen.split("|")[0] : null;
+        if (seen || hadPreviousUse()) {
+          setUpdatePopup({
+            kind: "done",
+            notesChanged: prevRelease !== APP_RELEASE,
+            prevRelease
+          });
+        }
+        localStorage.setItem(SEEN_RELEASE_KEY, now);
+      }
+    } catch (e) {/* 저장소를 못 쓰면 안내 생략 */}
+
+    // 2) 새 버전 확인 — 앱을 열 때, 다시 화면으로 돌아올 때, 열어 둔 동안 30분마다
+    const check = async () => {
+      try {
+        const mine = currentApkBuild();
+        if (isAndroidApp() && mine != null) {
+          const info = await fetchLatestRelease(false);
+          if (info.build && info.build > mine) {
+            setUpdateInfo(info);
+            const id = "apk-" + info.build;
+            if (!snoozed(id)) setUpdatePopup(p => p && p.kind === "done" ? p : {
+              kind: "new",
+              platform: "apk",
+              id,
+              info
+            });
+          }
+        } else {
+          const latest = await fetchLatestWebRelease();
+          if (latest && latest !== APP_RELEASE) {
+            const id = "web-" + latest;
+            if (!snoozed(id)) setUpdatePopup(p => p && p.kind === "done" ? p : {
+              kind: "new",
+              platform: "web",
+              id,
+              latest
+            });
+          }
+        }
+      } catch (e) {/* 인터넷이 없으면 조용히 넘어간다 */}
+    };
+    check();
+    const timer = setInterval(check, 30 * 60 * 1000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
   const backend = useMemo(() => {
     const cfg = resolveBackendConfig({
@@ -2906,7 +3020,13 @@ function CambodiaTaxApp() {
   }, /*#__PURE__*/React.createElement("div", {
     style: S.app,
     className: "app-root"
-  }, /*#__PURE__*/React.createElement("style", null, CSS_FONTS), /*#__PURE__*/React.createElement("aside", {
+  }, /*#__PURE__*/React.createElement("style", null, CSS_FONTS), updatePopup && /*#__PURE__*/React.createElement(UpdatePopup, {
+    popup: updatePopup,
+    onClose: () => {
+      if (updatePopup.kind === "new") snooze(updatePopup.id);
+      setUpdatePopup(null);
+    }
+  }), /*#__PURE__*/React.createElement("aside", {
     style: S.sidebar,
     className: "sidebar"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3454,7 +3574,11 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Print the filing draft under Reports and file with the GDT by the 20th." : "[보고서]의 신고서 작성안을 보고 다음 달 20일까지 국세청에 신고합니다.")), data.clients.length === 0 && !isClient && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Print the filing draft under Reports and file with the GDT by the 20th." : "[보고서]의 신고서 작성안을 보고 다음 달 20일까지 국세청에 신고합니다.")), /*#__PURE__*/React.createElement(ManualLink, {
+    style: {
+      marginTop: 10
+    }
+  }), data.clients.length === 0 && !isClient && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonPrimary,
@@ -5433,6 +5557,203 @@ function ExchangeRatePanel({
 
 /* ---------------- 증빙 사진 크게 보기 ---------------- */
 
+// 사용 설명서(PDF) 받기 링크 — 앱 밖(브라우저)에서 열린다
+function ManualLink({
+  style,
+  variant = "link"
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const label = en ? "User manual (PDF)" : "사용 설명서 받기 (PDF)";
+  if (variant === "button") {
+    return /*#__PURE__*/React.createElement("a", {
+      href: MANUAL_URL,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      className: "manual-link",
+      style: {
+        ...S.buttonGhost,
+        textDecoration: "none",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        ...style
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "doc",
+      size: 18
+    }), label);
+  }
+  return /*#__PURE__*/React.createElement("a", {
+    href: MANUAL_URL,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "manual-link",
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 14.5,
+      fontWeight: 600,
+      color: PALETTE.teal,
+      minHeight: 40,
+      ...style
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "doc",
+    size: 18
+  }), label);
+}
+
+// 업데이트 안내 팝업 — 새 버전이 나왔을 때(받기·새로고침) / 업데이트 직후(바뀐 점)
+function UpdatePopup({
+  popup,
+  onClose
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const mainRef = React.useRef(null);
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    if (mainRef.current) mainRef.current.focus();
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // 마지막으로 본 버전 이후의 바뀐 점을 모두 모은다 (최대 3개 버전)
+  const since = [];
+  for (const r of RELEASE_NOTES) {
+    if (popup.prevRelease && r.version === popup.prevRelease) break;
+    since.push(r);
+    if (since.length >= 3) break;
+  }
+  const notes = {
+    ko: since.flatMap(r => r.ko),
+    en: since.flatMap(r => r.en)
+  };
+  const isNew = popup.kind === "new";
+  const mine = currentApkBuild();
+  const title = isNew ? en ? "A new version is available" : "새 버전이 나왔어요" : en ? "The app has been updated" : "앱이 업데이트되었어요";
+  const versionLine = isNew ? popup.platform === "apk" ? en ? `v1.0.${mine} → v1.0.${popup.info.build}` : `지금 v1.0.${mine} → 새 버전 v1.0.${popup.info.build}` : en ? `Version ${popup.latest}` : `새 버전 ${popup.latest}` : mine != null ? `v1.0.${mine} · ${APP_RELEASE}` : APP_RELEASE;
+  return /*#__PURE__*/React.createElement("div", {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "upd-title",
+    style: S.modalBackdrop,
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.modalCard,
+    className: "update-popup",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      background: isNew ? "#FFF1D6" : PALETTE.tealTint,
+      color: isNew ? PALETTE.brassText : PALETTE.teal,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: isNew ? "arrowRight" : "check",
+    size: 24,
+    stroke: 2.4,
+    style: isNew ? {
+      transform: "rotate(90deg)"
+    } : undefined
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    id: "upd-title",
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft,
+      marginTop: 2
+    }
+  }, versionLine))), !isNew && popup.notesChanged || isNew && popup.platform === "web" ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: PALETTE.ink,
+      marginBottom: 6
+    }
+  }, isNew ? en ? "Refresh to use the latest version." : "새로고침하면 최신 버전으로 바뀌어요." : en ? "What’s new" : "이번에 바뀐 점"), !isNew && /*#__PURE__*/React.createElement("ul", {
+    style: {
+      margin: 0,
+      paddingLeft: 20,
+      fontSize: 14.5,
+      lineHeight: 1.7,
+      color: PALETTE.ink
+    }
+  }, (en ? notes.en : notes.ko).map((t, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, t))), !isNew && /*#__PURE__*/React.createElement(ManualLink, {
+    style: {
+      marginTop: 10
+    }
+  })) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 14.5,
+      lineHeight: 1.7,
+      color: PALETTE.ink
+    }
+  }, isNew ? en ? "Download it, then tap the download notification to install. Your data stays as it is." : "받은 뒤 다운로드 알림을 눌러 설치하세요. 입력한 자료는 그대로 남아요." : en ? "You are on the latest version." : "최신 버전으로 바뀌었어요."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end",
+      flexWrap: "wrap"
+    }
+  }, isNew ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: onClose
+  }, en ? "Later" : "나중에"), popup.platform === "apk" ? /*#__PURE__*/React.createElement("a", {
+    ref: mainRef,
+    href: popup.info.url,
+    onClick: onClose,
+    style: {
+      ...S.buttonPrimary,
+      textDecoration: "none",
+      display: "inline-flex",
+      alignItems: "center"
+    }
+  }, en ? "Get update" : "업데이트 받기") : /*#__PURE__*/React.createElement("button", {
+    ref: mainRef,
+    type: "button",
+    style: S.buttonPrimary,
+    onClick: () => {
+      onClose();
+      window.location.reload();
+    }
+  }, en ? "Refresh now" : "지금 새로고침")) : /*#__PURE__*/React.createElement("button", {
+    ref: mainRef,
+    type: "button",
+    style: S.buttonPrimary,
+    onClick: onClose
+  }, en ? "OK" : "확인"))));
+}
 function ImageViewer({
   src,
   caption,
@@ -8371,11 +8692,17 @@ function UnlockScreen({
       ...(lang === "en" ? S.langBtnLightActive : {})
     },
     onClick: () => onLang("en")
-  }, "English")), /*#__PURE__*/React.createElement("p", {
+  }, "English")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement(ManualLink, null)), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 11.5,
       color: PALETTE.brassMuted,
-      marginTop: 18,
+      marginTop: 10,
       lineHeight: 1.7,
       textAlign: "center"
     }
@@ -9446,11 +9773,32 @@ function AboutView({
     title: en ? "App info & updates" : "앱 정보·업데이트",
     sub: ""
   }), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.panelTitle
+  }, en ? "User manual" : "사용 설명서"), /*#__PURE__*/React.createElement("p", {
+    style: S.stepIntro
+  }, en ? "Step-by-step guide with screenshots — install, sign-in, monthly filing, receipts. Updated whenever the app changes." : "설치, 로그인, 월별 신고, 영수증 올리기를 화면 순서대로 설명해요. 앱이 크게 바뀔 때마다 함께 새로 고쳐져요."), /*#__PURE__*/React.createElement(ManualLink, {
+    variant: "button"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      marginTop: 8
+    }
+  }, en ? `Manual for version ${APP_RELEASE}` : `${APP_RELEASE} 버전 기준`)), /*#__PURE__*/React.createElement("section", {
     style: S.panel
   }, /*#__PURE__*/React.createElement(NumberRow, {
     noFmt: true,
     label: en ? "This copy" : "지금 쓰는 것",
     value: inApp ? `${en ? "Android app" : "안드로이드 앱"} v1.0.${mine}` : en ? "Web version (always up to date)" : "웹 버전 (항상 최신)"
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    noFmt: true,
+    label: en ? "Release" : "버전",
+    value: APP_RELEASE
   }), info && /*#__PURE__*/React.createElement(NumberRow, {
     noFmt: true,
     label: en ? "Latest app" : "최신 앱",
@@ -9911,6 +10259,9 @@ img, video, canvas { max-width: 100%; }
 .main-content { min-width: 0; }
 .mobile-only, .phone-only { display: none; }
 .ctx-change-btn { display: none; }
+@keyframes popIn { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+.update-popup { animation: popIn .22s ease-out; }
+@media (prefers-reduced-motion: reduce) { .update-popup { animation: none; } }
 .logout-compact {
   display: none; align-items: center; height: 36px; padding: 0 12px; border-radius: 18px; flex-shrink: 0; margin-left: 6px;
   border: 1px solid #CDD3DA; background: #fff; font-size: 13px; font-weight: 600; color: ${PALETTE.inkSoft}; cursor: pointer; white-space: nowrap;
@@ -11190,6 +11541,32 @@ const S = {
     border: `1px solid ${PALETTE.teal}`,
     borderRadius: 12,
     background: "#FAFCFB"
+  },
+  modalBackdrop: {
+    position: "fixed",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 200,
+    background: "rgba(15,25,35,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 440,
+    background: "#fff",
+    borderRadius: 18,
+    padding: "22px 20px 18px",
+    boxShadow: "0 24px 64px rgba(15,25,35,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+    maxHeight: "calc(100vh - 32px)",
+    overflowY: "auto"
   },
   viewerBackdrop: {
     position: "fixed",

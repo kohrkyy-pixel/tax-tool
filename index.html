@@ -460,10 +460,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.3";
+const APP_RELEASE = "2026.11.04.4";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.04.4",
+  ko: ["검토 요청 — 다 입력하면 4단계에서 [입력 완료 · 검토 요청]을 눌러 주세요", "사무소 메시지 — 달마다 Kohr & Co.와 메시지를 주고받고, 보완 요청이 오면 홈에 표시돼요", "신고가 끝난 달은 잠겨서 실수로 바뀌지 않아요", "급여: 부양가족 공제(1인 15만 리엘), 비거주자 20%, 현물급여세 20% 반영"],
+  en: ["Request review — when everything is entered, press Done · Request review in step 4", "Messages — talk with Kohr & Co. for each month; change requests show on Home", "Filed months are locked so they can’t be changed by mistake", "Payroll: dependent allowance (KHR 150,000 each), non-resident 20%, fringe-benefit tax 20%"]
+}, {
   version: "2026.11.04.3",
   ko: ["아이폰에서도 앱처럼 써요 — Safari 공유 버튼 → [홈 화면에 추가]", "홈 화면 아이콘(Kohr 세무)으로 열면 주소창 없이 전체 화면으로 실행"],
   en: ["Use it like an app on iPhone — Safari Share → Add to Home Screen", "Opens full-screen from the “Kohr 세무” home-screen icon"]
@@ -800,7 +804,7 @@ async function gasRequest(cfg, action, data, extra) {
       }
       throw new Error("AUTH_REQUIRED");
     }
-    if (json.version && !/^v[45]-/.test(json.version)) {
+    if (json.version && !/^v[4-9]-/.test(json.version)) {
       throw new Error("배포된 스크립트가 최신이 아닙니다. [배포 → 배포 관리 → 편집 → 버전: 새 버전 → 배포]를 실행하세요.");
     }
     throw new Error("AUTH_REQUIRED");
@@ -1324,10 +1328,41 @@ function grossFromNet(netKHR) {
   return net;
 }
 
+// ── 직원별 급여세 (Sub-Decree 196, 2023년 1월 시행) ──
+// · 거주자: 부양가족(일하지 않는 배우자, 14세 미만 또는 25세 미만 전일제 학생 자녀) 1인당 월 150,000 KHR를 과세표준에서 공제한 뒤 누진세율
+// · 비거주자: 캄보디아 원천 급여에 20% 단일세율(분리과세)
+// · 현물급여(Fringe benefits): 지급액의 20%를 고용주가 납부
+const DEPENDENT_ALLOWANCE_KHR = 150000;
+const NONRESIDENT_SALARY_RATE = 0.2;
+const FRINGE_BENEFIT_RATE = 0.2;
+function employeeTaxableBase(e, grossKHR) {
+  if (e?.nonResident) return Math.max(0, Number(grossKHR) || 0);
+  return Math.max(0, (Number(grossKHR) || 0) - (Number(e?.dependents) || 0) * DEPENDENT_ALLOWANCE_KHR);
+}
+function employeeSalaryTax(e, grossKHR) {
+  if (e?.nonResident) return Math.round((Number(grossKHR) || 0) * NONRESIDENT_SALARY_RATE);
+  return calcSalaryTax(employeeTaxableBase(e, grossKHR));
+}
+function employeeFringeTax(e, rate) {
+  return Math.round((Number(e?.fringe) || 0) * rate * FRINGE_BENEFIT_RATE);
+}
+// 세후 금액 → 세전 금액 (부양가족·비거주자까지 반영) — 세후액은 세전액이 늘수록 늘어나므로 이분 탐색
+function grossFromNetFor(e, netKHR) {
+  const net = Number(netKHR) || 0;
+  if (net <= 0) return 0;
+  let lo = net,
+    hi = net / (1 - 0.2) + 1;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (mid - employeeSalaryTax(e, mid) < net) lo = mid;else hi = mid;
+  }
+  return Math.round(hi);
+}
+
 // 직원 입력값(세전 또는 세후, USD)과 환율로부터 세전 총급여(KHR)를 계산
 function employeeGrossKHR(e, rate) {
   const enteredKHR = (Number(e.gross) || 0) * rate;
-  return e.mode === "net" ? grossFromNet(enteredKHR) : enteredKHR;
+  return e.mode === "net" ? grossFromNetFor(e, enteredKHR) : enteredKHR;
 }
 
 // 경비 계정과목 → 원천세 대상 여부 매핑
@@ -1392,7 +1427,8 @@ function calcMonthly(f) {
   const ppt = revenue.supplyKHR * 0.01;
   const pltBaseKHR = (Number(f?.alcoholTobaccoRevenue) || 0) * rate;
   const plt = pltBaseKHR * PLT_RATE;
-  const salaryTaxTotal = employees.reduce((s, e) => s + calcSalaryTax(employeeGrossKHR(e, rate)), 0);
+  const salaryTaxTotal = employees.reduce((s, e) => s + employeeSalaryTax(e, employeeGrossKHR(e, rate)), 0);
+  const fringeTaxTotal = employees.reduce((s, e) => s + employeeFringeTax(e, rate), 0);
   // NSSF는 가입 대상 사업장(직원 8인 이상 등)으로 지정된 경우에만 계산한다
   const nssfApplicable = f?.nssfApplicable === true;
   const nssf = nssfApplicable ? calcNssfTotals(employees, rate) : {
@@ -1400,7 +1436,7 @@ function calcMonthly(f) {
     employeeTotal: 0,
     grandTotal: 0
   };
-  const totalDue = vatPayable + ppt + plt + salaryTaxTotal + withholdingTaxTotal;
+  const totalDue = vatPayable + ppt + plt + salaryTaxTotal + fringeTaxTotal + withholdingTaxTotal;
   return {
     rate,
     revenue,
@@ -1412,6 +1448,7 @@ function calcMonthly(f) {
     pltBaseKHR,
     plt,
     salaryTaxTotal,
+    fringeTaxTotal,
     withholdingTaxTotal,
     withholdingBaseTotal,
     nssfApplicable,
@@ -3458,7 +3495,7 @@ function Dashboard({
   const rows = data.clients.map(c => {
     const filing = (data.filings[c.id] || {})[mKey];
     const hasData = filing && (Number(filing.revenue) > 0 || Number(filing.purchase) > 0 || Number(filing.expenses) > 0 || (filing.employees || []).length > 0 || (filing.evidence || []).length > 0 || (filing.withholding || []).length > 0);
-    const status = filing?.filed ? "filed" : hasData ? "draft" : "empty";
+    const status = filing?.filed ? "filed" : filing?.reviewStatus === "submitted" ? "submitted" : filing?.reviewStatus === "changes" ? "changes" : hasData ? "draft" : "empty";
     const stepsDone = filing ? [Number(filing.revenue) > 0 || Number(filing.purchase) > 0 || Number(filing.expenses) > 0, (filing.employees || []).length > 0, (filing.evidence || []).length + (filing.withholding || []).length > 0].filter(Boolean).length : 0;
     const issues = validateFiling(filing || {}, c, (data.filings[c.id] || {})[prevKey], lang).filter(i => i.level !== "info");
     return {
@@ -3470,11 +3507,21 @@ function Dashboard({
       calc: hasData ? calcMonthly(filing) : null
     };
   });
-  const order = {
-    empty: 0,
-    draft: 1,
-    filed: 2
+  // 사무소는 검토 요청 먼저, 고객사는 보완 요청 먼저
+  const order = isClient ? {
+    changes: 0,
+    empty: 1,
+    draft: 2,
+    submitted: 3,
+    filed: 4
+  } : {
+    submitted: 0,
+    changes: 1,
+    empty: 2,
+    draft: 3,
+    filed: 4
   };
+  const [remindOpen, setRemindOpen] = useState(false);
   rows.sort((x, y) => order[x.status] - order[y.status] || y.issues.length - x.issues.length);
   const count = st => rows.filter(r => r.status === st).length;
   const total = rows.length;
@@ -3496,28 +3543,44 @@ function Dashboard({
       fg: PALETTE.inkSoft,
       action: en ? "Continue" : "이어서 입력"
     },
+    submitted: {
+      ko: "검토 요청",
+      en: "Review requested",
+      bg: "#E8F0FB",
+      fg: "#1F4E8C",
+      action: isClient ? en ? "View" : "보기" : en ? "Review" : "검토하기"
+    },
+    changes: {
+      ko: "보완 요청",
+      en: "Changes requested",
+      bg: "#FBEDEA",
+      fg: PALETTE.red,
+      action: isClient ? en ? "Fix" : "보완하기" : en ? "View" : "보기"
+    },
     filed: {
-      ko: "제출 완료",
+      ko: "신고 완료",
       en: "Filed",
       bg: PALETTE.tealTint,
       fg: PALETTE.tealDeep,
       action: en ? "View" : "보기"
     }
   };
-  const actionStyle = st => st === "empty" ? S.buttonPrimary : st === "draft" ? S.buttonOutline : S.buttonGhost;
-  const headline = allFiled ? en ? "All filed" : "모두 제출했어요" : due.days > 0 ? en ? `${due.days} days to the deadline` : `마감까지 ${due.days}일` : due.days === 0 ? en ? "Due today" : "오늘 마감이에요" : en ? `${-due.days} days overdue` : `마감이 ${-due.days}일 지났어요`;
+  const actionStyle = st => st === "empty" || st === "submitted" && !isClient || st === "changes" && isClient ? S.buttonPrimary : st === "draft" ? S.buttonOutline : S.buttonGhost;
+  const headline = allFiled ? en ? "All filed" : "모두 신고했어요" : due.days > 0 ? en ? `${due.days} days to the deadline` : `마감까지 ${due.days}일` : due.days === 0 ? en ? "Due today" : "오늘 마감이에요" : en ? `${-due.days} days overdue` : `마감이 ${-due.days}일 지났어요`;
   const monthLabel = en ? `Filings for ${selectedMonth}/${selectedYear}` : `${selectedYear}년 ${selectedMonth}월분 신고`;
   const filedText = r => {
-    if (!r.filing?.filedAt) return en ? "Filed" : "제출 완료";
+    if (!r.filing?.filedAt) return en ? "Filed" : "신고 완료";
     const d = new Date(r.filing.filedAt);
     return en ? `Filed ${d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric"
-    })}` : `${d.getMonth() + 1}월 ${d.getDate()}일 제출`;
+    })}` : `${d.getMonth() + 1}월 ${d.getDate()}일 신고`;
   };
   const statusLine = r => {
     if (r.status === "empty") return en ? "Not started yet" : "입력 전 · 아직 시작 안 함";
     if (r.status === "draft") return `${en ? "In progress" : "입력 중"} · ${en ? `${r.stepsDone}/4 steps` : `${r.stepsDone}/4단계`} · ${fmt(r.calc.totalDue)} KHR`;
+    if (r.status === "submitted") return `${en ? "Review requested" : "검토 요청"} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
+    if (r.status === "changes") return en ? "Changes requested — see messages" : "보완 요청 · 메시지 확인";
     return `${filedText(r)} · ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`;
   };
   const attentionText = r => {
@@ -3527,6 +3590,16 @@ function Dashboard({
   };
   // 영수증 바로 찍기 — 아직 제출하지 않은 첫 고객사의 증빙 단계로
   const receiptTarget = rows.find(r => r.status !== "filed") || rows[0];
+  const notReady = rows.filter(r => r.status === "empty" || r.status === "draft" || r.status === "changes");
+  const remindButton = !isClient && notReady.length > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      textDecoration: "none",
+      padding: "6px 2px"
+    },
+    onClick: () => setRemindOpen(true)
+  }, en ? `Remind (${notReady.length})` : `알림 보내기 (${notReady.length})`);
   const progress = total > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -3537,9 +3610,9 @@ function Dashboard({
       color: "#E4F1EC",
       marginBottom: 6
     }
-  }, /*#__PURE__*/React.createElement("span", null, en ? `Filed ${count("filed")} / ${total}` : `제출 완료 ${count("filed")} / ${total}곳`), /*#__PURE__*/React.createElement("span", null, en ? `In progress ${count("draft")} · Not started ${count("empty")}` : `입력 중 ${count("draft")} · 입력 전 ${count("empty")}`)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, en ? `Filed ${count("filed")} / ${total}` : `신고 완료 ${count("filed")} / ${total}곳`), /*#__PURE__*/React.createElement("span", null, count("submitted") ? en ? `Review ${count("submitted")} · ` : `검토 요청 ${count("submitted")} · ` : "", en ? `In progress ${count("draft") + count("changes")} · Not started ${count("empty")}` : `입력 중 ${count("draft") + count("changes")} · 입력 전 ${count("empty")}`)), /*#__PURE__*/React.createElement("div", {
     role: "img",
-    "aria-label": en ? `${count("filed")} of ${total} filed` : `${total}곳 중 ${count("filed")}곳 제출`,
+    "aria-label": en ? `${count("filed")} of ${total} filed` : `${total}곳 중 ${count("filed")}곳 신고 완료`,
     style: {
       height: 8,
       borderRadius: 4,
@@ -3554,7 +3627,7 @@ function Dashboard({
     }
   }), /*#__PURE__*/React.createElement("span", {
     style: {
-      width: `${count("draft") / total * 100}%`,
+      width: `${(count("draft") + count("submitted") + count("changes")) / total * 100}%`,
       background: "rgba(255,255,255,.55)"
     }
   })));
@@ -3584,7 +3657,7 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps, then press Save." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 [저장]을 누릅니다."), /*#__PURE__*/React.createElement("li", null, en ? "Snap receipts as you get them — the date and amount are read automatically." : "영수증은 받을 때마다 사진으로 올리세요 — 날짜·금액은 자동으로 읽어요."), /*#__PURE__*/React.createElement("li", null, en ? "Kohr & Co. reviews your entries and files with the GDT by the 20th." : "입력한 내용은 Kohr & Co.가 검토한 뒤 20일까지 국세청에 신고합니다.")) : /*#__PURE__*/React.createElement("ol", {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps, then press Save." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 [저장]을 누릅니다."), /*#__PURE__*/React.createElement("li", null, en ? "Snap receipts as you get them — the date and amount are read automatically." : "영수증은 받을 때마다 사진으로 올리세요 — 날짜·금액은 자동으로 읽어요."), /*#__PURE__*/React.createElement("li", null, en ? "When done, press Request review in step 4. Kohr & Co. checks it, asks for changes if needed, and files with the GDT." : "다 입력하면 4단계에서 [검토 요청]을 누르세요. Kohr & Co.가 확인하고, 필요하면 보완을 요청한 뒤 국세청에 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month have ready: sales invoices, payroll (incl. dependents), purchase receipts/VAT invoices, rent and service bills." : "매달 준비할 것: 매출 인보이스, 급여 내역(부양가족 포함), 매입 영수증·VAT 인보이스, 임차료·용역비 청구서")) : /*#__PURE__*/React.createElement("ol", {
     style: {
       margin: 0,
       paddingLeft: 20,
@@ -3592,7 +3665,7 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Print the filing draft under Reports and file with the GDT by the 20th." : "[보고서]의 신고서 작성안을 보고 다음 달 20일까지 국세청에 신고합니다.")), /*#__PURE__*/React.createElement(ManualLink, {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Clients press Request review when ready — review those first, send change requests or file." : "고객사가 [검토 요청]한 곳부터 확인하고, 보완 요청을 보내거나 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "After filing on GDT e-Filing, enter the reference no. and mark as filed — the month locks for the client." : "e-Filing 신고 후 접수번호를 넣고 [신고 완료로 표시] — 고객사는 그 달을 더 고칠 수 없어요.")), /*#__PURE__*/React.createElement(ManualLink, {
     style: {
       marginTop: 10
     }
@@ -3674,7 +3747,12 @@ function Dashboard({
       fontWeight: 700,
       color: PALETTE.ink
     }
-  }, isClient ? en ? "This month's to-do" : "이번 달 할 일" : en ? "To-do by client" : "고객사별 할 일"), !isClient && /*#__PURE__*/React.createElement("button", {
+  }, isClient ? en ? "This month's to-do" : "이번 달 할 일" : en ? "To-do by client" : "고객사별 할 일"), !isClient && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 14
+    }
+  }, remindButton, /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.linkButton,
@@ -3682,7 +3760,7 @@ function Dashboard({
       padding: "6px 2px"
     },
     onClick: () => onGo("clients")
-  }, en ? "Add client" : "고객사 추가")), /*#__PURE__*/React.createElement("section", {
+  }, en ? "Add client" : "고객사 추가"))), /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
       padding: 0,
@@ -3726,8 +3804,8 @@ function Dashboard({
     style: {
       fontSize: 13,
       marginTop: 1,
-      color: r.status === "empty" ? PALETTE.brassText : r.status === "filed" ? PALETTE.tealDeep : PALETTE.inkSoft,
-      fontWeight: r.status === "empty" ? 600 : 400
+      color: r.status === "empty" ? PALETTE.brassText : r.status === "changes" ? PALETTE.red : r.status === "submitted" ? "#1F4E8C" : r.status === "filed" ? PALETTE.tealDeep : PALETTE.inkSoft,
+      fontWeight: r.status === "empty" || r.status === "changes" || r.status === "submitted" ? 600 : 400
     }
   }, statusLine(r))), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -3877,7 +3955,7 @@ function Dashboard({
       fontSize: 14,
       color: PALETTE.inkSoft
     }
-  }, en ? "Filed" : "제출 완료"), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Filed" : "신고 완료", count("submitted") ? en ? ` · ${count("submitted")} awaiting review` : ` · 검토 대기 ${count("submitted")}곳` : ""), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -3929,10 +4007,16 @@ function Dashboard({
     }
   }, en ? "Progress by client" : "고객사별 진행 상황"), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: "flex",
+      gap: 14,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
       fontSize: 13.5,
       color: PALETTE.inkSoft
     }
-  }, en ? "Needs attention first" : "확인 필요한 곳 먼저")), /*#__PURE__*/React.createElement("div", {
+  }, isClient ? en ? "Needs attention first" : "확인 필요한 곳 먼저" : en ? "Review requests first" : "검토 요청 먼저"), remindButton)), /*#__PURE__*/React.createElement("div", {
     className: "table-scroll",
     style: {
       overflowX: "auto"
@@ -4022,7 +4106,7 @@ function Dashboard({
       padding: "14px 12px",
       color: r.status === "empty" ? PALETTE.inkSoft : PALETTE.ink
     }
-  }, r.status === "filed" ? filedText(r) : en ? `${r.stepsDone} / 4 steps` : `${r.stepsDone} / 4단계`), /*#__PURE__*/React.createElement("td", {
+  }, r.status === "filed" ? filedText(r) + (r.filing?.filedRef ? ` · ${r.filing.filedRef}` : "") : en ? `${r.stepsDone} / 4 steps` : `${r.stepsDone} / 4단계`), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "14px 12px",
       textAlign: "right",
@@ -4067,7 +4151,223 @@ function Dashboard({
     }
   }, fmt(sumDue)), /*#__PURE__*/React.createElement("td", {
     colSpan: 2
-  }))))))), (!guideHidden || data.clients.length === 0) && guide);
+  }))))))), (!guideHidden || data.clients.length === 0) && guide, remindOpen && /*#__PURE__*/React.createElement(ReminderModal, {
+    rows: notReady,
+    year: selectedYear,
+    month: selectedMonth,
+    due: due,
+    onClose: () => setRemindOpen(false)
+  }));
+}
+
+// 사무소 전용: 입력 전·입력 중·보완 요청 고객사에 보낼 알림 문구 (복사 / 텔레그램 공유)
+const APP_PUBLIC_URL = "https://kohrkyy-pixel.github.io/tax-tool/";
+function reminderText(r, year, month, due, withDue, en) {
+  const lastAdmin = [...(r.filing && r.filing.messages || [])].reverse().find(m => m.from === "admin");
+  const lines = [];
+  if (en) {
+    lines.push(`Hello ${r.c.name},`);
+    if (r.status === "changes") {
+      lines.push(`For your ${month}/${year} filing, we need a few changes:`);
+      if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
+      lines.push("Please update the app and press [Request review] in step 4.");
+    } else if (r.status === "draft") {
+      lines.push(`Your ${month}/${year} data is partly entered. Please finish sales, payroll and receipts in the app and press [Request review] in step 4.`);
+    } else {
+      lines.push(`Please enter your ${month}/${year} sales, payroll and receipts in the app, then press [Request review] in step 4.`);
+    }
+    if (withDue) lines.push(`GDT filing deadline: ${fmtMonthDay(due.gdt, "en")} · NSSF: ${fmtMonthDay(due.nssf, "en")}`);
+    lines.push(`App: ${APP_PUBLIC_URL}`);
+    lines.push("Questions: Kim Yong-yun, Kohr & Co. · Telegram @kohrkyy · 089 313 834");
+  } else {
+    lines.push(`${r.c.name} 담당자님, 안녕하세요. Kohr & Co.입니다.`);
+    if (r.status === "changes") {
+      lines.push(`${year}년 ${month}월분 신고 자료에 보완이 필요해요.`);
+      if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
+      lines.push("앱에서 고친 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요.");
+    } else if (r.status === "draft") {
+      lines.push(`${year}년 ${month}월분 자료가 아직 입력 중이에요. 매출·급여·영수증을 마저 입력하고 4단계에서 [검토 요청]을 눌러 주세요.`);
+    } else {
+      lines.push(`${year}년 ${month}월분 매출·급여·영수증을 앱에 입력하고 4단계에서 [검토 요청]을 눌러 주세요.`);
+    }
+    if (withDue) lines.push(`국세청 신고 마감: ${fmtMonthDay(due.gdt, "ko")} · NSSF 납부: ${fmtMonthDay(due.nssf, "ko")}`);
+    lines.push(`앱 주소: ${APP_PUBLIC_URL}`);
+    lines.push("문의: 김용윤 세무사 · Telegram @kohrkyy · 089 313 834");
+  }
+  return lines.join("\n");
+}
+function ReminderModal({
+  rows,
+  year,
+  month,
+  due,
+  onClose
+}) {
+  const lang = useLang();
+  const [msgLang, setMsgLang] = useState(lang);
+  const [withDue, setWithDue] = useState(false);
+  const [copied, setCopied] = useState("");
+  const en = lang === "en";
+  const copy = async (id, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } catch (e2) {/* 무시 */}
+      document.body.removeChild(ta);
+    }
+    setCopied(id);
+    setTimeout(() => setCopied(c => c === id ? "" : c), 2000);
+  };
+  const ST = {
+    empty: en ? "Not started" : "입력 전",
+    draft: en ? "In progress" : "입력 중",
+    changes: en ? "Changes requested" : "보완 요청"
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "remind-title",
+    style: S.modalBackdrop,
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.modalCard,
+      maxWidth: 560
+    },
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    id: "remind-title",
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Remind clients" : "고객사에 알림 보내기"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft,
+      marginTop: 2
+    }
+  }, en ? `${month}/${year} · ${rows.length} client(s) not ready` : `${year}년 ${month}월분 · 준비 안 된 ${rows.length}곳`)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.iosHintClose,
+    "aria-label": en ? "Close" : "닫기",
+    onClick: onClose
+  }, "✕")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 16,
+      flexWrap: "wrap",
+      alignItems: "center",
+      fontSize: 14,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    role: "group",
+    "aria-label": en ? "Message language" : "메시지 언어",
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, ["ko", "en"].map(l => /*#__PURE__*/React.createElement("button", {
+    key: l,
+    type: "button",
+    "aria-pressed": msgLang === l,
+    style: {
+      ...S.buttonGhostSmall2,
+      ...(msgLang === l ? {
+        background: PALETTE.tealTint,
+        color: PALETTE.tealDeep,
+        borderColor: PALETTE.teal
+      } : {})
+    },
+    onClick: () => setMsgLang(l)
+  }, l === "ko" ? "한국어" : "English"))), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: withDue,
+    onChange: e => setWithDue(e.target.checked)
+  }), en ? "Include deadlines" : "마감일 넣기")), rows.map(r => {
+    const text = reminderText(r, year, month, due, withDue, msgLang === "en");
+    return /*#__PURE__*/React.createElement("div", {
+      key: r.c.id,
+      style: {
+        border: `1px solid ${PALETTE.line}`,
+        borderRadius: 14,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 8,
+        alignItems: "baseline"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 700,
+        color: PALETTE.ink
+      }
+    }, r.c.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: r.status === "changes" ? PALETTE.red : PALETTE.inkSoft
+      }
+    }, ST[r.status])), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13.5,
+        lineHeight: 1.6,
+        color: PALETTE.ink,
+        background: PALETTE.paper,
+        borderRadius: 10,
+        padding: "8px 10px",
+        whiteSpace: "pre-wrap"
+      }
+    }, text), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        justifyContent: "flex-end"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhost,
+      onClick: () => copy(r.c.id, text)
+    }, copied === r.c.id ? en ? "Copied ✓" : "복사됨 ✓" : en ? "Copy" : "복사"), /*#__PURE__*/React.createElement("a", {
+      style: {
+        ...S.buttonPrimary,
+        textDecoration: "none",
+        display: "inline-flex",
+        alignItems: "center"
+      },
+      href: `https://t.me/share/url?url=${encodeURIComponent(APP_PUBLIC_URL)}&text=${encodeURIComponent(text)}`,
+      target: "_blank",
+      rel: "noopener noreferrer"
+    }, en ? "Telegram" : "텔레그램")));
+  })));
 }
 
 /* ---------------- Clients ---------------- */
@@ -4662,7 +4962,7 @@ function MonthlyView({
           };
         } else {
           // gross -> net: 세후 실수령액(KHR)을 USD로 환산해 세후 입력값으로 전환
-          const netKHR = grossKHR - calcSalaryTax(grossKHR);
+          const netKHR = grossKHR - employeeSalaryTax(e, grossKHR);
           return {
             ...e,
             mode: "net",
@@ -4697,30 +4997,83 @@ function MonthlyView({
     n: 4,
     ko: "확인·제출",
     en: "Review & file",
-    shortKo: "제출",
-    shortEn: "File",
-    done: !!local.filed
+    shortKo: "확인",
+    shortEn: "Review",
+    done: !!local.filed || local.reviewStatus === "submitted"
   }];
   const attention = issues.filter(i => i.level === "error" || i.level === "warning").length;
   const en = lang === "en";
   const due = dueDatesFor(selectedYear, selectedMonth);
   const errorCount = issues.filter(i => i.level === "error").length;
   const fileBlocked = errorCount > 0 && !local.filed;
-  const toggleFiled = async () => {
-    const next = {
-      ...local,
-      filed: !local.filed,
-      filedAt: new Date().toISOString()
-    };
+  const isClientView = !canManageClients;
+  const locked = isClientView && !!local.filed; // 신고 완료된 달은 고객사가 고칠 수 없다 (메시지는 가능)
+  const reviewStatus = local.filed ? "filed" : local.reviewStatus || "";
+  const messages = local.messages || [];
+  const lastAdminMsg = [...messages].reverse().find(m => m.from === "admin");
+  // 화면의 내용으로 즉시 저장 (검토 요청·보완 요청·신고 완료·메시지 같은 확정 행위)
+  const commit = async next => {
     setLocal(next);
     setSaveState("saving");
-    const ok = await onSave(next); // 제출완료 표시는 확정 행위이므로 화면의 내용과 함께 즉시 저장한다
+    const ok = await onSave(next);
     if (ok === false) {
       setSaveState("failed");
-      return;
+      return false;
     }
     setSaveState("saved");
     setLastSavedAt(new Date());
+    return true;
+  };
+  const toggleFiled = () => commit({
+    ...local,
+    filed: !local.filed,
+    filedAt: new Date().toISOString(),
+    ...(local.filed ? {} : {
+      reviewStatus: "approved",
+      reviewedAt: new Date().toISOString()
+    })
+  });
+  const newMsg = text => ({
+    id: uid(),
+    from: isClientView ? "client" : "admin",
+    text: text.trim(),
+    at: new Date().toISOString()
+  });
+  const requestReview = note => commit({
+    ...local,
+    reviewStatus: "submitted",
+    submittedAt: new Date().toISOString(),
+    messages: note && note.trim() ? [...messages, newMsg(note)] : messages
+  });
+  const requestChanges = note => commit({
+    ...local,
+    reviewStatus: "changes",
+    reviewedAt: new Date().toISOString(),
+    messages: [...messages, newMsg(note)]
+  });
+  const sendMessage = text => commit({
+    ...local,
+    messages: [...messages, newMsg(text)]
+  });
+  const STATUS_LABEL = {
+    submitted: {
+      ko: "검토 요청됨",
+      en: "Review requested",
+      bg: "#E8F0FB",
+      fg: "#1F4E8C"
+    },
+    changes: {
+      ko: "보완 요청",
+      en: "Changes requested",
+      bg: "#FBEDEA",
+      fg: PALETTE.red
+    },
+    filed: {
+      ko: "신고 완료",
+      en: "Filed",
+      bg: PALETTE.tealTint,
+      fg: PALETTE.tealDeep
+    }
   };
   const saveStatusText = saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" ? en ? "Save failed — entries kept. Press Save again." : "저장 실패 — 입력 내용은 남아 있어요. [저장]을 다시 눌러 주세요." : isDirty ? en ? "Unsaved changes" : "저장하지 않은 변경 있음" : saveState === "saved" && lastSavedAt ? en ? `Saved · ${lastSavedAt.toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -4766,7 +5119,13 @@ function MonthlyView({
       fontWeight: 700,
       color: local.filed ? PALETTE.teal : due.days <= 5 ? PALETTE.red : PALETTE.tealDeep
     }
-  }, "(", local.filed ? en ? "filed" : "제출 완료" : deadlineText(due.days, lang), ")"))), local.filed && /*#__PURE__*/React.createElement(Seal, null), /*#__PURE__*/React.createElement("button", {
+  }, "(", local.filed ? en ? "filed" : "신고 완료" : deadlineText(due.days, lang), ")"))), STATUS_LABEL[reviewStatus] && /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      background: STATUS_LABEL[reviewStatus].bg,
+      color: STATUS_LABEL[reviewStatus].fg
+    }
+  }, en ? STATUS_LABEL[reviewStatus].en : STATUS_LABEL[reviewStatus].ko), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "ctx-change-btn",
     style: S.buttonGhostSmall2,
@@ -4885,11 +5244,35 @@ function MonthlyView({
       color: PALETTE.ink,
       lineHeight: 1.7
     }
-  }, lang === "en" ? "Someone else saved this filing while you were editing. Your edits are kept on screen and have not been overwritten. Saving now will replace their version — check with them first, or discard your changes to load theirs." : "편집하시는 동안 다른 사람이 이 신고서를 저장했습니다. 화면의 내 편집 내용은 그대로 보존되어 있습니다. 지금 저장하면 상대방이 저장한 내용을 덮어쓰게 되니, 먼저 확인하시거나 [변경 취소]로 상대방 버전을 불러오세요.")), step !== 4 && attention > 0 && /*#__PURE__*/React.createElement("button", {
+  }, lang === "en" ? "Someone else saved this filing while you were editing. Your edits are kept on screen and have not been overwritten. Saving now will replace their version — check with them first, or discard your changes to load theirs." : "편집하시는 동안 다른 사람이 이 신고서를 저장했습니다. 화면의 내 편집 내용은 그대로 보존되어 있습니다. 지금 저장하면 상대방이 저장한 내용을 덮어쓰게 되니, 먼저 확인하시거나 [변경 취소]로 상대방 버전을 불러오세요.")), reviewStatus === "changes" && lastAdminMsg && /*#__PURE__*/React.createElement("div", {
+    role: "note",
+    style: S.noticeRed
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      marginBottom: 2
+    }
+  }, isClientView ? en ? "Kohr & Co. asked for changes" : "사무소에서 보완을 요청했어요" : en ? "You asked for changes" : "보완 요청을 보냈어요"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      whiteSpace: "pre-wrap"
+    }
+  }, lastAdminMsg.text), isClientView && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      marginTop: 6,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Fix it, then press Request review again in step 4." : "고친 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요.")), locked && /*#__PURE__*/React.createElement("div", {
+    role: "note",
+    style: S.noticeTeal
+  }, en ? "This month has been filed, so it can’t be changed. Send a message in step 4 if something needs fixing." : "신고가 끝난 달이라 고칠 수 없어요. 고칠 내용이 있으면 4단계에서 메시지로 알려 주세요."), step !== 4 && attention > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     onClick: () => goStep(4),
     style: S.attentionChip
-  }, lang === "en" ? `${attention} item(s) to check — see step 4` : `확인할 항목 ${attention}건 — 4단계에서 보기`), step === 1 && /*#__PURE__*/React.createElement("section", {
+  }, lang === "en" ? `${attention} item(s) to check — see step 4` : `확인할 항목 ${attention}건 — 4단계에서 보기`), /*#__PURE__*/React.createElement("fieldset", {
+    disabled: locked,
+    style: S.lockFieldset
+  }, step === 1 && /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
       display: "flex",
@@ -5011,9 +5394,10 @@ function MonthlyView({
     }
   }, lang === "en" ? "Carried forward from the most recent previous month with payroll data — check the names and amounts for this month, then press Save." : "가장 최근 이전 달의 직원 명단·급여가 이월되어 화면에 채워졌습니다 — 이번 달 기준으로 확인·수정한 뒤 [저장]을 눌러야 실제로 기록됩니다."), (local.employees || []).map(e => {
     const grossKHR = employeeGrossKHR(e, calc.rate);
-    const tax = calcSalaryTax(grossKHR);
+    const tax = employeeSalaryTax(e, grossKHR);
     const netKHR = grossKHR - tax;
     const isNet = e.mode === "net";
+    const fringeTax = employeeFringeTax(e, calc.rate);
     return /*#__PURE__*/React.createElement("div", {
       key: e.id,
       style: S.employeeCard
@@ -5069,7 +5453,70 @@ function MonthlyView({
         color: PALETTE.brassText,
         marginTop: 4
       }
-    }, lang === "en" ? "Net amount entered — gross salary calculated automatically by reversing the tax brackets." : "세후 금액을 입력하셨습니다 — 세율 구간을 역산해 세전 금액이 자동 계산됩니다."));
+    }, lang === "en" ? "Net amount entered — gross salary calculated automatically by reversing the tax brackets." : "세후 금액을 입력하셨습니다 — 세율 구간을 역산해 세전 금액이 자동 계산됩니다."), /*#__PURE__*/React.createElement("div", {
+      className: "employee-extra",
+      style: S.employeeExtra
+    }, /*#__PURE__*/React.createElement("label", {
+      style: S.extraItem,
+      title: lang === "en" ? "Non-working spouse; children under 14, or under 25 in full-time study" : "일하지 않는 배우자, 14세 미만 자녀(전일제 학생은 25세 미만)"
+    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Dependents" : "부양가족"), /*#__PURE__*/React.createElement("select", {
+      "aria-label": lang === "en" ? "Number of dependents" : "부양가족 수",
+      style: {
+        ...S.select,
+        minHeight: 36,
+        padding: "4px 8px",
+        fontSize: 14
+      },
+      value: e.dependents || 0,
+      disabled: !!e.nonResident,
+      onChange: ev => updateEmployee(e.id, "dependents", Number(ev.target.value))
+    }, [0, 1, 2, 3, 4, 5, 6, 7, 8].map(n => /*#__PURE__*/React.createElement("option", {
+      key: n,
+      value: n
+    }, lang === "en" ? n : `${n}명`)))), /*#__PURE__*/React.createElement("label", {
+      style: S.extraItem
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: !!e.nonResident,
+      onChange: ev => updateEmployee(e.id, "nonResident", ev.target.checked),
+      style: {
+        width: 18,
+        height: 18
+      }
+    }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Non-resident (20% flat)" : "비거주자 (20% 단일세율)")), /*#__PURE__*/React.createElement("label", {
+      style: S.extraItem
+    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Fringe benefits" : "현물급여"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4
+      }
+    }, "$", /*#__PURE__*/React.createElement("input", {
+      "aria-label": lang === "en" ? "Fringe benefits (USD)" : "현물급여 (USD)",
+      type: "number",
+      inputMode: "decimal",
+      placeholder: "0",
+      style: {
+        ...S.input,
+        width: 90,
+        minHeight: 36,
+        padding: "4px 8px",
+        fontSize: 14
+      },
+      value: e.fringe || "",
+      onChange: ev => updateEmployee(e.id, "fringe", ev.target.value)
+    })))), Number(e.dependents) > 0 && !e.nonResident || e.nonResident || fringeTax > 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12.5,
+        color: PALETTE.inkSoft,
+        marginTop: 4,
+        lineHeight: 1.6
+      }
+    }, e.nonResident ? lang === "en" ? "Non-resident: 20% of gross, no dependent allowance." : "비거주자: 세전 급여의 20%, 부양가족 공제 없음." : Number(e.dependents) > 0 ? lang === "en" ? `Dependent allowance ${fmt(Number(e.dependents) * DEPENDENT_ALLOWANCE_KHR)} KHR deducted before tax.` : `부양가족 공제 ${fmt(Number(e.dependents) * DEPENDENT_ALLOWANCE_KHR)} KHR를 빼고 세금을 계산했어요.` : "", fringeTax > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block"
+      }
+    }, lang === "en" ? `Fringe benefit tax (20%, paid by employer): ${fmt(fringeTax)} KHR` : `현물급여세 (20%, 회사 부담): ${fmt(fringeTax)} KHR`)) : null);
   }), /*#__PURE__*/React.createElement("button", {
     style: S.buttonGhost,
     onClick: addEmployee
@@ -5151,7 +5598,7 @@ function MonthlyView({
       ...local,
       withholding: (local.withholding || []).filter(w => w.id !== id)
     })
-  })), step === 4 && /*#__PURE__*/React.createElement("div", {
+  }))), step === 4 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -5189,7 +5636,7 @@ function MonthlyView({
       background: "#EEF1F4",
       margin: "14px 0 6px"
     }
-  }), [[en ? "VAT payable" : "부가가치세 (VAT)", calc.vatPayable], [en ? "Prepayment Profit Tax (1% of sales)" : "선납이윤세 (매출 1%)", calc.ppt], ...(calc.plt > 0 || Number(local.alcoholTobaccoRevenue) > 0 ? [[en ? "Public Lighting Tax (5%)" : "공공조명세 (주류·담배 5%)", calc.plt]] : []), [en ? `Salary tax (${(local.employees || []).length} staff)` : `급여세 (직원 ${(local.employees || []).length}명)`, calc.salaryTaxTotal], [en ? "Withholding tax (ToW)" : "원천세 (ToW)", calc.withholdingTaxTotal]].map(([label, v]) => /*#__PURE__*/React.createElement("div", {
+  }), [[en ? "VAT payable" : "부가가치세 (VAT)", calc.vatPayable], [en ? "Prepayment Profit Tax (1% of sales)" : "선납이윤세 (매출 1%)", calc.ppt], ...(calc.plt > 0 || Number(local.alcoholTobaccoRevenue) > 0 ? [[en ? "Public Lighting Tax (5%)" : "공공조명세 (주류·담배 5%)", calc.plt]] : []), [en ? `Salary tax (${(local.employees || []).length} staff)` : `급여세 (직원 ${(local.employees || []).length}명)`, calc.salaryTaxTotal], ...(calc.fringeTaxTotal > 0 ? [[en ? "Fringe benefit tax (20%)" : "현물급여세 (20%)", calc.fringeTaxTotal]] : []), [en ? "Withholding tax (ToW)" : "원천세 (ToW)", calc.withholdingTaxTotal]].map(([label, v]) => /*#__PURE__*/React.createElement("div", {
     key: label,
     style: {
       display: "flex",
@@ -5333,23 +5780,36 @@ function MonthlyView({
     name: "chevronRight",
     size: 18,
     color: PALETTE.inkSoft
-  })), /*#__PURE__*/React.createElement("div", {
+  })), !isClientView && /*#__PURE__*/React.createElement(AdminReviewPanel, {
+    local: local,
+    onRef: v => setLocal({
+      ...local,
+      filedRef: v
+    }),
+    onRequestChanges: requestChanges,
+    busy: saveState === "saving"
+  }), /*#__PURE__*/React.createElement(MessagesPanel, {
+    messages: messages,
+    isClientView: isClientView,
+    onSend: sendMessage,
+    busy: saveState === "saving"
+  }), /*#__PURE__*/React.createElement("div", {
     id: "filed-help",
     style: {
       fontSize: 13.5,
       lineHeight: 1.6,
-      color: fileBlocked ? PALETTE.red : PALETTE.inkSoft,
+      color: !isClientView && fileBlocked ? PALETTE.red : PALETTE.inkSoft,
       padding: "0 2px"
     }
-  }, local.filed && local.filedAt ? en ? `Marked as filed · ${new Date(local.filedAt).toLocaleDateString("en-US", {
+  }, local.filed && local.filedAt ? en ? `Filed · ${new Date(local.filedAt).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric"
-  })}` : `제출 완료로 표시됨 · ${new Date(local.filedAt).toLocaleDateString("ko-KR", {
+  })}${local.filedRef ? ` · GDT ref ${local.filedRef}` : ""}` : `신고 완료 · ${new Date(local.filedAt).toLocaleDateString("ko-KR", {
     year: "numeric",
     month: "short",
     day: "numeric"
-  })}` : fileBlocked ? en ? `Fix the ${errorCount} error(s) above before marking as filed.` : `위 오류 ${errorCount}건을 고쳐야 제출 완료로 표시할 수 있어요.` : en ? "Press the button below after filing on GDT e-Filing." : "국세청 e-Filing에서 제출한 뒤 아래 버튼을 눌러 주세요.")), /*#__PURE__*/React.createElement("div", {
+  })}${local.filedRef ? ` · 국세청 접수번호 ${local.filedRef}` : ""}` : isClientView ? reviewStatus === "submitted" ? en ? "Review requested — Kohr & Co. will check and file. You can still fix entries and request again." : "검토를 요청했어요. Kohr & Co.가 확인한 뒤 신고해요. 그 사이 고칠 게 있으면 고치고 다시 요청하면 돼요." : en ? "When everything is entered, press Request review. Kohr & Co. files with the GDT." : "다 입력했으면 아래 [검토 요청]을 눌러 주세요. 국세청 신고는 Kohr & Co.가 해요." : fileBlocked ? en ? `Fix the ${errorCount} error(s) above before marking as filed.` : `위 오류 ${errorCount}건을 고쳐야 신고 완료로 표시할 수 있어요.` : en ? "Press the button below after filing on GDT e-Filing." : "국세청 e-Filing에서 신고한 뒤 아래 버튼을 눌러 주세요.")), /*#__PURE__*/React.createElement("div", {
     className: "mobile-total-bar",
     style: S.actionBar
   }, /*#__PURE__*/React.createElement("div", {
@@ -5408,7 +5868,7 @@ function MonthlyView({
       } : {})
     },
     onClick: handleSave,
-    disabled: !isDirty || saveState === "saving"
+    disabled: !isDirty || saveState === "saving" || locked
   }, saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? en ? "Retry save" : "다시 저장" : isDirty ? en ? "Save" : "저장" : en ? "Saved" : "저장됨"), step < 4 ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.barBtnPrimary,
@@ -5421,7 +5881,21 @@ function MonthlyView({
   }, en ? `Next: ${stepsDef[step].en}` : `다음: ${stepsDef[step].ko}`), /*#__PURE__*/React.createElement(Icon, {
     name: "arrowRight",
     size: 18
-  })) : /*#__PURE__*/React.createElement("button", {
+  })) : isClientView ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.barBtnPrimary,
+      ...(locked ? S.buttonDisabled : {}),
+      ...(reviewStatus === "submitted" && !isDirty ? {
+        background: "#fff",
+        color: PALETTE.ink,
+        border: "1px solid #CDD3DA"
+      } : {})
+    },
+    disabled: locked || saveState === "saving",
+    "aria-describedby": "filed-help",
+    onClick: () => requestReview("")
+  }, locked ? en ? "Filed" : "신고 완료됨" : reviewStatus === "submitted" && !isDirty ? en ? "Requested ✓ · request again" : "요청됨 ✓ · 다시 요청" : en ? "Done · Request review" : "입력 완료 · 검토 요청") : /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.barBtnPrimary,
@@ -5435,7 +5909,206 @@ function MonthlyView({
     disabled: fileBlocked || saveState === "saving",
     "aria-describedby": "filed-help",
     onClick: toggleFiled
-  }, local.filed ? en ? "Undo filed status" : "제출 완료 취소" : isDirty ? en ? "Save & mark as filed" : "저장하고 제출 완료로 표시" : en ? "Mark as filed" : "제출 완료로 표시"))));
+  }, local.filed ? en ? "Undo filed status" : "신고 완료 취소" : isDirty ? en ? "Save & mark as filed" : "저장하고 신고 완료로 표시" : en ? "Mark as filed" : "신고 완료로 표시"))));
+}
+
+// 사무소 전용: 국세청 접수번호, 보완 요청 보내기
+function AdminReviewPanel({
+  local,
+  onRef,
+  onRequestChanges,
+  busy
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [note, setNote] = useState("");
+  const submittedAt = local.submittedAt ? new Date(local.submittedAt).toLocaleString(en ? "en-US" : "ko-KR", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }) : "";
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Office review" : "사무소 검토",
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      borderColor: "#B9C9C2"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Office review" : "사무소 검토"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, local.filed ? en ? "Filed" : "신고 완료" : local.reviewStatus === "submitted" ? en ? `Client requested review · ${submittedAt}` : `고객사 검토 요청 · ${submittedAt}` : local.reviewStatus === "changes" ? en ? "Change request sent" : "보완 요청 보냄" : en ? "Not requested yet" : "아직 검토 요청 전")), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "GDT e-Filing reference no. (optional)" : "국세청 접수번호 (선택)"), /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    value: local.filedRef || "",
+    onChange: e => onRef(e.target.value),
+    placeholder: en ? "e.g. reference shown after e-Filing" : "e-Filing 제출 후 나오는 번호"
+  })), !local.filed && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Ask the client to fix something" : "고객사에 보완 요청"), /*#__PURE__*/React.createElement("textarea", {
+    rows: 2,
+    style: {
+      ...S.input,
+      resize: "vertical",
+      fontFamily: FONT.body
+    },
+    value: note,
+    onChange: e => setNote(e.target.value),
+    placeholder: en ? "e.g. Please upload the October bank statement." : "예: 10월 은행 입출금 내역을 올려 주세요."
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhost,
+      color: PALETTE.red,
+      borderColor: PALETTE.red
+    },
+    disabled: !note.trim() || busy,
+    onClick: async () => {
+      if (await onRequestChanges(note)) setNote("");
+    }
+  }, en ? "Send change request" : "보완 요청 보내기"))));
+}
+
+// 사무소 ↔ 고객사 메시지 (달마다)
+function MessagesPanel({
+  messages,
+  isClientView,
+  onSend,
+  busy
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [text, setText] = useState("");
+  const fmtAt = at => {
+    try {
+      return new Date(at).toLocaleString(en ? "en-US" : "ko-KR", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+    } catch (e) {
+      return "";
+    }
+  };
+  return /*#__PURE__*/React.createElement("section", {
+    "aria-label": en ? "Messages" : "메시지",
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Messages" : "메시지", " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: PALETTE.inkSoft,
+      fontSize: 14
+    }
+  }, isClientView ? en ? "with Kohr & Co." : "Kohr & Co.와" : en ? "with the client" : "고객사와")), messages.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "No messages yet." : "아직 메시지가 없어요.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, messages.map(m => {
+    const mine = m.from === "client" === isClientView;
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        alignSelf: mine ? "flex-end" : "flex-start",
+        maxWidth: "88%",
+        background: mine ? PALETTE.tealTint : PALETTE.paper,
+        borderRadius: 12,
+        padding: "8px 12px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: PALETTE.inkSoft,
+        marginBottom: 2
+      }
+    }, m.from === "admin" ? "Kohr & Co." : en ? "Client" : "고객사", " · ", fmtAt(m.at)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 14.5,
+        color: PALETTE.ink,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word"
+      }
+    }, m.text));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
+    rows: 2,
+    "aria-label": en ? "New message" : "새 메시지",
+    style: {
+      ...S.input,
+      flex: 1,
+      resize: "vertical",
+      fontFamily: FONT.body
+    },
+    value: text,
+    onChange: e => setText(e.target.value),
+    placeholder: isClientView ? en ? "Question or note for Kohr & Co." : "사무소에 묻거나 알릴 내용" : en ? "Message to the client" : "고객사에 보낼 내용"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonPrimary,
+      minHeight: 44
+    },
+    disabled: !text.trim() || busy,
+    onClick: async () => {
+      if (await onSend(text)) setText("");
+    }
+  }, en ? "Send" : "보내기")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Sending also saves what’s on screen." : "보내면 화면의 입력 내용도 함께 저장돼요."));
 }
 function MoneyField({
   id,
@@ -8249,7 +8922,9 @@ function DraftView({
     ko: lang === "en" ? "Tax on Salary (ToS)" : "급여세 (ToS)",
     term: "tos",
     showGdt: showGdt
-  }), /*#__PURE__*/React.createElement("span", null, fmt(calc.salaryTaxTotal), " KHR")), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", null, fmt(calc.salaryTaxTotal), " KHR")), calc.fringeTaxTotal > 0 && /*#__PURE__*/React.createElement("div", {
+    style: S.draftRow
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Tax on Fringe Benefits (20%)" : "현물급여세 (Fringe Benefits, 20%)"), /*#__PURE__*/React.createElement("span", null, fmt(calc.fringeTaxTotal), " KHR")), /*#__PURE__*/React.createElement("div", {
     style: S.draftRow
   }, /*#__PURE__*/React.createElement(GdtLabel, {
     ko: lang === "en" ? "Withholding Tax (ToW)" : "원천세 (ToW)",
@@ -8318,7 +8993,19 @@ function DraftView({
     }
   }, lang === "en" ? "No employees registered for this period." : "이번 기간에 등록된 직원이 없습니다.")) : (filing.employees || []).map((e, i) => {
     const grossKHR = employeeGrossKHR(e, calc.rate);
-    const breakdown = calcSalaryBreakdown(grossKHR);
+    const allowanceKHR = e.nonResident ? 0 : (Number(e.dependents) || 0) * DEPENDENT_ALLOWANCE_KHR;
+    const baseKHR = employeeTaxableBase(e, grossKHR);
+    const breakdown = e.nonResident ? {
+      rows: [{
+        lo: 0,
+        hi: Infinity,
+        rate: NONRESIDENT_SALARY_RATE,
+        taxable: grossKHR,
+        tax: employeeSalaryTax(e, grossKHR)
+      }],
+      totalTax: employeeSalaryTax(e, grossKHR)
+    } : calcSalaryBreakdown(baseKHR);
+    breakdown.net = Math.round(grossKHR - breakdown.totalTax); // 실지급액은 공제 전 총급여 기준
     return /*#__PURE__*/React.createElement("div", {
       style: {
         ...S.draftDoc,
@@ -8346,7 +9033,13 @@ function DraftView({
         color: PALETTE.brassMuted,
         marginTop: 2
       }
-    }, lang === "en" ? `Exchange rate: 1 USD = ${fmt(calc.rate)} KHR` : `적용 환율: 1 USD = ${fmt(calc.rate)} KHR`), /*#__PURE__*/React.createElement("div", {
+    }, lang === "en" ? `Exchange rate: 1 USD = ${fmt(calc.rate)} KHR` : `적용 환율: 1 USD = ${fmt(calc.rate)} KHR`), e.nonResident ? /*#__PURE__*/React.createElement("div", {
+      style: S.draftRow
+    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Residency" : "거주 구분"), /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Non-resident — 20% flat" : "비거주자 — 20% 단일세율")) : allowanceKHR > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: S.draftRow
+    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? `Dependent allowance (${e.dependents} × 150,000)` : `부양가족 공제 (${e.dependents}명 × 150,000)`), /*#__PURE__*/React.createElement("span", null, "− ", fmt(allowanceKHR), " KHR")), /*#__PURE__*/React.createElement("div", {
+      style: S.draftRow
+    }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Taxable salary" : "과세표준"), /*#__PURE__*/React.createElement("span", null, fmt(baseKHR), " KHR"))) : null, /*#__PURE__*/React.createElement("div", {
       style: S.draftSectionTitle
     }, lang === "en" ? "Progressive Tax Calculation" : "누진세율 구간별 계산"), /*#__PURE__*/React.createElement("div", {
       className: "table-scroll"
@@ -8959,7 +9652,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v5-clients';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v6-review';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -9145,6 +9838,48 @@ function clientView(data, clientId) {
   return { clients: own, filings: filings, capitalGains: gains, settings: data.settings || {} };
 }
 
+// 고객사가 보낸 월별 신고 자료에서 사무소만 정할 수 있는 항목(신고 완료·접수번호·보완 요청)은 기존 값으로 되돌린다.
+// 신고 완료된 달은 메시지만 추가할 수 있다.
+var ADMIN_FIELDS = ['filed', 'filedAt', 'filedRef', 'reviewedAt'];
+function guardClientFiling(prev, next) {
+  if (next === undefined || next === null) {
+    if (prev && prev.filed) throw new Error('FORBIDDEN');
+    return next;
+  }
+  var out = JSON.parse(JSON.stringify(next));
+  if (prev && prev.filed) {
+    out = JSON.parse(JSON.stringify(prev));
+    out.messages = mergeMessages(prev.messages, next.messages, 'client');
+    return out;
+  }
+  for (var i = 0; i < ADMIN_FIELDS.length; i++) {
+    var k = ADMIN_FIELDS[i];
+    if (prev && prev[k] !== undefined) out[k] = prev[k]; else delete out[k];
+  }
+  // 고객사는 '검토 요청'만 할 수 있다 (보완 요청 상태는 사무소가 정한다)
+  var prevStatus = prev ? prev.reviewStatus : undefined;
+  if (out.reviewStatus !== 'submitted' && out.reviewStatus !== prevStatus) {
+    if (prevStatus === undefined) delete out.reviewStatus; else out.reviewStatus = prevStatus;
+  }
+  out.messages = mergeMessages(prev && prev.messages, next.messages, 'client');
+  return out;
+}
+// 메시지는 지우거나 고칠 수 없고, 고객사는 자기 이름으로만 새 메시지를 붙일 수 있다
+function mergeMessages(oldList, newList, from) {
+  var old = oldList || [], seen = {};
+  for (var i = 0; i < old.length; i++) seen[old[i].id] = true;
+  var out = old.slice();
+  var add = newList || [];
+  for (var j = 0; j < add.length; j++) {
+    var m = add[j];
+    if (m && m.id && !seen[m.id]) {
+      out.push({ id: String(m.id), from: from, text: String(m.text || '').slice(0, 2000), at: new Date().toISOString() });
+      seen[m.id] = true;
+    }
+  }
+  return out;
+}
+
 // patch = [{ path: ['filings', 'c1', '2026-10'], value: {...} }, ...] — value 가 없으면 삭제
 // onlyClient 가 있으면(고객사 로그인) 그 회사의 filings·capitalGains 외에는 모두 거부
 function applyPatch(base, patch, onlyClient) {
@@ -9160,6 +9895,10 @@ function applyPatch(base, patch, onlyClient) {
     if (onlyClient) {
       var okPath = (path[0] === 'filings' || path[0] === 'capitalGains') && path[1] === onlyClient;
       if (!okPath) throw new Error('FORBIDDEN');
+      if (path[0] === 'filings' && path.length === 3) {
+        var prev = (data.filings && data.filings[onlyClient] && data.filings[onlyClient][path[2]]) || null;
+        p = { path: path, value: guardClientFiling(prev, p.value) };
+      }
     }
     var node = data;
     for (var k = 0; k < path.length - 1; k++) {
@@ -9348,9 +10087,21 @@ function grossFromNet(net) {
   return n;
 }
 
+// 직원별 급여세 — 부양가족 1인당 150,000 KHR 공제, 비거주자 20% 단일세율 (앱 계산과 동일)
+function empTax(e, g) {
+  if (e && e.nonResident) return Math.round(g * 0.2);
+  var base = Math.max(0, g - (Number(e && e.dependents) || 0) * 150000);
+  return salaryTax(base);
+}
+function empGrossFromNet(e, net) {
+  if (net <= 0) return 0;
+  var lo = net, hi = net / 0.8 + 1;
+  for (var i = 0; i < 80; i++) { var mid = (lo + hi) / 2; if (mid - empTax(e, mid) < net) lo = mid; else hi = mid; }
+  return Math.round(hi);
+}
 function empGrossKHR(e, rate) {
   var entered = (Number(e.gross) || 0) * rate;
-  return e.mode === 'net' ? grossFromNet(entered) : entered;
+  return e.mode === 'net' ? empGrossFromNet(e, entered) : entered;
 }
 
 function calcRow(f) {
@@ -9372,12 +10123,13 @@ function calcRow(f) {
   for (var j = 0; j < wh.length; j++) whTax += Number(wh[j].taxKHR) || 0;
 
   var emps = (f && f.employees) || [];
-  var tos = 0, nssfEmployer = 0, nssfEmployee = 0, payroll = 0;
+  var tos = 0, fbt = 0, nssfEmployer = 0, nssfEmployee = 0, payroll = 0;
   var nssfOn = (f && f.nssfApplicable) === true;
   for (var k = 0; k < emps.length; k++) {
     var g = empGrossKHR(emps[k], rate);
     payroll += g;
-    tos += salaryTax(g);
+    tos += empTax(emps[k], g);
+    fbt += Math.round((Number(emps[k].fringe) || 0) * rate * 0.2);
     if (nssfOn) {
       var wage = g > 0 ? Math.min(Math.max(g, NSSF_MIN), NSSF_MAX) : 0;
       nssfEmployer += wage * 0.041;
@@ -9390,7 +10142,7 @@ function calcRow(f) {
   var ppt = revenueSupply * 0.01;
   var pltBase = (Number(f && f.alcoholTobaccoRevenue) || 0) * rate;
   var plt = pltBase * PLT_RATE;
-  var totalDue = vatPayable + ppt + plt + tos + whTax;
+  var totalDue = vatPayable + ppt + plt + tos + fbt + whTax;
   var expensesManual = (Number(f && f.expenses) || 0) * rate;
 
   return {
@@ -11227,6 +11979,49 @@ const S = {
     background: PALETTE.brassDeep,
     color: "#fff",
     border: `1px solid ${PALETTE.brassDeep}`
+  },
+  lockFieldset: {
+    border: 0,
+    padding: 0,
+    margin: 0,
+    minWidth: 0
+  },
+  noticeRed: {
+    background: "#FBEDEA",
+    border: `1px solid ${PALETTE.red}`,
+    color: PALETTE.ink,
+    borderRadius: 14,
+    padding: "12px 14px",
+    marginBottom: 14,
+    fontSize: 14.5,
+    lineHeight: 1.6
+  },
+  noticeTeal: {
+    background: PALETTE.tealTint,
+    border: `1px solid ${PALETTE.teal}`,
+    color: PALETTE.tealDeep,
+    borderRadius: 14,
+    padding: "12px 14px",
+    marginBottom: 14,
+    fontSize: 14.5,
+    lineHeight: 1.6
+  },
+  employeeExtra: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px 16px",
+    alignItems: "center",
+    marginTop: 8,
+    paddingTop: 8,
+    borderTop: "1px dashed #E1E5EA"
+  },
+  extraItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13.5,
+    color: PALETTE.ink,
+    cursor: "pointer"
   },
   employeeCard: {
     border: `1px solid ${PALETTE.line}`,

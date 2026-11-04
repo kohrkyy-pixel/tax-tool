@@ -3666,7 +3666,7 @@ function MonthlyView({
       className: "stepper-label"
     }, lang === "en" ? st.en : st.ko)));
   })), /*#__PURE__*/React.createElement("div", {
-    className: "mobile-only",
+    className: "phone-only",
     style: {
       fontSize: 15,
       fontWeight: 700,
@@ -8379,19 +8379,34 @@ details > summary { cursor: pointer; }
 
 * { box-sizing: border-box; }
 
-.mobile-only { display: none; }
+/* ── 화면 크기 자동 맞춤 ──
+   · 휴대폰(세로·가로)과 세로로 든 태블릿: 위 얇은 머리글 + 아래 탭 (compact)
+   · 가로로 든 태블릿·PC: 왼쪽 메뉴
+   · 폭이 아주 좁은 폰(글자 크게/화면 확대 설정): 전체를 살짝 축소 */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img, video, canvas { max-width: 100%; }
+.app-root { width: 100%; overflow-x: clip; }
+.main-content { min-width: 0; }
+.mobile-only, .phone-only { display: none; }
 .bottom-tabs { display: none; }
 .mobile-total-bar { display: flex; position: sticky; bottom: 16px; }
-@media (max-width: 768px) {
+
+/* 가로 태블릿·작은 노트북: 메뉴와 여백을 줄여 내용 폭 확보 */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .sidebar { width: 208px !important; padding: 18px 10px !important; }
+  .main-content { padding: 24px 28px 110px !important; }
+}
+
+@media (max-width: 767px), (orientation: portrait) and (max-width: 1023px), (max-height: 520px) and (max-width: 1023px) {
   .app-root { flex-direction: column !important; }
-  /* 휴대폰: 위쪽은 상호와 언어만 있는 얇은 머리글, 메뉴는 아래 탭으로 */
+  /* 위쪽은 상호와 언어만 있는 얇은 머리글, 메뉴는 아래 탭으로 */
   .sidebar {
     width: 100% !important;
     height: auto !important;
     flex-direction: row !important;
     align-items: center !important;
     justify-content: space-between !important;
-    padding: 10px 14px !important;
+    padding: 10px max(14px, env(safe-area-inset-left)) !important;
     position: sticky !important;
     top: 0;
     z-index: 20;
@@ -8399,38 +8414,74 @@ details > summary { cursor: pointer; }
     border-bottom: 1px solid ${PALETTE.line};
   }
   .sidebar-lang-row { margin: 0 !important; }
-  .sidebar-lang-row button { padding: 5px 9px !important; font-size: 12.5px !important; }
+  .sidebar-lang-row { flex-shrink: 0; }
+  .sidebar-lang-row button { padding: 5px 9px !important; font-size: 12.5px !important; white-space: nowrap; }
   .side-nav, .sidebar-footer { display: none !important; }
   .bottom-tabs {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
     background: #fff; border-top: 1px solid ${PALETTE.line};
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    padding: 6px max(6px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    justify-content: center;
   }
   .bottom-tabs button {
-    flex: 1; min-height: 48px; border: none; background: transparent; border-radius: 10px;
+    flex: 1 1 0; max-width: 180px; min-width: 0; min-height: 48px; border: none; background: transparent; border-radius: 10px;
     font-size: 13.5px; font-weight: 500; color: ${PALETTE.inkSoft}; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px;
   }
   .bottom-tabs button.active { background: ${PALETTE.tealTint}; color: ${PALETTE.tealDeep}; font-weight: 700; }
   .mobile-total-bar { bottom: calc(70px + env(safe-area-inset-bottom)) !important; }
-  .main-content { padding: 18px 14px 150px !important; max-width: 100% !important; min-width: 0; overflow-wrap: break-word; }
+  .main-content {
+    padding: 20px 20px 150px !important; width: 100%; max-width: 880px !important; margin: 0 auto;
+    min-width: 0; overflow-wrap: break-word;
+  }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .main-content select, .main-content input { max-width: 100%; }
+  .main-content .form-row { max-width: 100%; }
+  .mobile-only { display: block !important; }
+  .desktop-only { display: none !important; }
+}
+
+/* 휴대폰 폭: 한 줄에 한 칸씩 */
+@media (max-width: 599px) {
+  .main-content { padding: 18px 14px 150px !important; }
   .card-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
   .two-col-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 14px !important; }
   .two-col-grid > * { min-width: 0; }
   .form-row input, .form-row select { flex: 1 1 140px !important; }
   .h1-title { font-size: 21px !important; }
-  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .draft-doc { padding: 20px 16px !important; max-width: 100% !important; }
   .selector-row { gap: 8px !important; }
   .selector-row select, .selector-row input { flex: 1 1 auto !important; }
   .rate-bar { flex-direction: column !important; align-items: flex-start !important; }
-  .main-content select, .main-content input { max-width: 100%; min-width: 0 !important; }
-  .main-content .form-row { max-width: 100%; }
+  .main-content select, .main-content input { min-width: 0 !important; }
   .employee-row { flex-wrap: wrap !important; }
   .employee-row .employee-name { flex: 1 1 100% !important; }
   .employee-row .employee-amount { flex: 1 1 120px !important; width: auto !important; }
-  .mobile-only { display: block !important; }
-  .desktop-only { display: none !important; }
   .stepper-label { display: none; }
+  .phone-only { display: block !important; }
+}
+
+/* 세로 태블릿: 2단 배치는 유지하되 여유 있게 */
+@media (min-width: 600px) and (max-width: 1023px) and (orientation: portrait) {
+  .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .two-col-grid > * { min-width: 0; }
+}
+
+/* 가로로 눕힌 휴대폰: 높이가 낮으니 고정 머리글·합계바를 풀어 화면 확보 */
+@media (max-height: 520px) and (max-width: 1023px) {
+  .sidebar { position: static !important; }
+  .mobile-total-bar { position: static !important; margin-top: 12px; }
+  .bottom-tabs button { min-height: 42px; }
+  .main-content { padding-bottom: 80px !important; }
+}
+
+/* 아주 좁은 폰(화면 크게 설정 포함): 여백·글자를 조금 줄여 한 화면에 맞춤 */
+@media (max-width: 359px) {
+  .main-content { padding: 14px 10px 150px !important; }
+  .bottom-tabs { padding-left: 2px !important; padding-right: 2px !important; }
+  .bottom-tabs button { font-size: 12.5px !important; padding: 0 2px; }
+  .sidebar { padding: 8px 10px !important; }
+  .h1-title { font-size: 19px !important; }
 }
 `;
 const S = {

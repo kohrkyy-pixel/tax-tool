@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
-        webView.setBackgroundColor(0xFFEFEEE4);
+        webView.setBackgroundColor(0xFFF4F6F8);
         setContentView(webView);
 
         assetLoader = new WebViewAssetLoader.Builder()
@@ -60,11 +60,15 @@ public class MainActivity extends Activity {
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
-        s.setLoadWithOverviewMode(true);
+        // 화면 맞춤: 웹페이지의 viewport(width=device-width)를 그대로 따르고,
+        // '전체 보기' 축소·글자 자동 키우기(font boosting)·손가락 확대는 끈다 → 기기마다 같은 배치
         s.setUseWideViewPort(true);
-        s.setSupportZoom(true);
-        s.setBuiltInZoomControls(true);
+        s.setLoadWithOverviewMode(false);
+        s.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
+        applyTextZoom(s);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
@@ -220,5 +224,22 @@ public class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    /**
+     * 휴대폰 '글자 크기' 설정을 앱에 반영하되, 화면이 깨지지 않도록 85~115% 범위로 제한한다.
+     * (설정을 크게 해둔 폰에서 글자가 넘쳐 배치가 무너지는 문제 방지)
+     */
+    private void applyTextZoom(WebSettings s) {
+        float scale = getResources().getConfiguration().fontScale;
+        int zoom = Math.round(Math.max(0.85f, Math.min(1.15f, scale)) * 100f);
+        s.setTextZoom(zoom);
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // 회전·화면 분할·글자 크기 변경 시 화면을 다시 불러오지 않고 배치만 다시 계산 (입력 중인 내용 유지)
+        if (webView != null) applyTextZoom(webView.getSettings());
     }
 }

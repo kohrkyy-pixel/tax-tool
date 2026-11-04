@@ -2572,12 +2572,29 @@ function CambodiaTaxApp() {
   }, []);
 
   // 잠금 — 이 기기에서 암호를 지우고 잠금 화면으로 되돌린다
+  // 로그아웃 — 이 기기에 기억된 비밀번호(서버 연결 설정에 함께 저장된 것 포함)를 모두 지우고
+  // 처음 비밀번호 입력 화면으로 돌아간다. 서버의 자료는 그대로 남는다.
   const lockApp = useCallback(async () => {
-    setBypassUnlock(false);
     try {
       await window.storage.delete(GAS_PASS_KEY, false);
     } catch (e) {/* 저장된 값 없음 */}
-    setSessionPass(null);
+    const cleanOverride = backendOverride ? {
+      ...backendOverride,
+      passphrase: ""
+    } : null;
+    if (backendOverride && backendOverride.passphrase) {
+      try {
+        await window.storage.set(BACKEND_CONFIG_KEY, JSON.stringify(cleanOverride), true);
+      } catch (e) {/* 이번 실행에만 적용 */}
+    }
+    setBackendOverride(cleanOverride);
+    setSessionPass(""); // 빈 값 → 비밀번호 입력 화면
+    backendRef.current = {
+      ...backendRef.current,
+      passphrase: ""
+    }; // 주기적 동기화도 멈춤
+    sheetUpdatedRef.current = null;
+    setBypassUnlock(false);
     setData({
       clients: [],
       filings: {},
@@ -2588,7 +2605,16 @@ function CambodiaTaxApp() {
       }
     });
     setSelectedClientId(null);
-  }, []);
+    setAuth({
+      role: "admin",
+      clientId: null,
+      access: {}
+    });
+    setLocalImport(null);
+    setBackendError("");
+    setStatus("");
+    setView("dashboard");
+  }, [backendOverride]);
 
   // 백엔드 연결 설정 저장 — 저장 후 즉시 해당 백엔드에서 데이터를 다시 읽어온다
   const saveBackendConfig = useCallback(async cfgInput => {
@@ -2923,7 +2949,15 @@ function CambodiaTaxApp() {
     className: "lang-toggle-compact",
     onClick: () => changeLang(lang === "en" ? "ko" : "en"),
     "aria-label": lang === "en" ? "언어를 한국어로 바꾸기" : "Switch language to English"
-  }, lang === "en" ? "EN · 한국어" : "KO · EN"), /*#__PURE__*/React.createElement("nav", {
+  }, lang === "en" ? "EN · 한국어" : "KO · EN"), (backend.mode === "gsheet" && backend.passphrase || backend.reviewMode) && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "logout-compact",
+    onClick: () => {
+      const guard = leaveGuardRef.current;
+      if (guard && !guard()) return;
+      lockApp();
+    }
+  }, lang === "en" ? "Log out" : "로그아웃"), /*#__PURE__*/React.createElement("nav", {
     className: "side-nav",
     style: {
       marginTop: 18
@@ -3024,7 +3058,7 @@ function CambodiaTaxApp() {
       if (guard && !guard()) return;
       lockApp();
     }
-  }, backend.reviewMode ? lang === "en" ? "Back to passphrase" : "암호 입력 화면으로" : lang === "en" ? "Lock" : "잠금"))), /*#__PURE__*/React.createElement("nav", {
+  }, lang === "en" ? "Log out" : "로그아웃"))), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-tabs",
     "aria-label": lang === "en" ? "Main menu" : "주 메뉴"
   }, navItems.map(n => {
@@ -9877,6 +9911,10 @@ img, video, canvas { max-width: 100%; }
 .main-content { min-width: 0; }
 .mobile-only, .phone-only { display: none; }
 .ctx-change-btn { display: none; }
+.logout-compact {
+  display: none; align-items: center; height: 36px; padding: 0 12px; border-radius: 18px; flex-shrink: 0; margin-left: 6px;
+  border: 1px solid #CDD3DA; background: #fff; font-size: 13px; font-weight: 600; color: ${PALETTE.inkSoft}; cursor: pointer; white-space: nowrap;
+}
 .money-field:focus-within { border-color: ${PALETTE.teal} !important; box-shadow: 0 0 0 3px ${PALETTE.tealTint}; }
 .money-field input:focus, .money-field input:focus-visible { box-shadow: none !important; outline: none !important; }
 .money-field input::-webkit-outer-spin-button, .money-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -9929,6 +9967,10 @@ img, video, canvas { max-width: 100%; }
   .bottom-tabs button.active { color: ${PALETTE.teal}; font-weight: 700; }
   .sidebar-lang-row { display: none !important; }
   .lang-toggle-compact { display: inline-flex !important; }
+  .logout-compact { display: inline-flex !important; }
+  .sidebar-brand-row { flex: 1 1 auto; min-width: 0; }
+  .sidebar-brand-row > div:last-child { overflow: hidden; }
+  .sidebar-brand-row > div:last-child > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mobile-total-bar { bottom: calc(70px + env(safe-area-inset-bottom)) !important; }
   .main-content {
     padding: 20px 20px 150px !important; width: 100%; max-width: 880px !important; margin: 0 auto;

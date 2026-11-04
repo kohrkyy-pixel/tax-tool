@@ -1466,7 +1466,7 @@ function uid() {
 }
 
 // 업로드한 증빙 이미지를 저장소 용량 절약을 위해 축소 후 base64로 변환 (저장용 썸네일)
-function fileToResizedDataUrl(file, maxWidth = 400, quality = 0.55) {
+function fileToResizedDataUrl(file, maxWidth = 600, quality = 0.6) {
   return fileToScaledDataUrl(file, {
     scaleFor: w => Math.min(1, maxWidth / w),
     quality
@@ -3863,13 +3863,27 @@ function MonthlyView({
       evidence: [...(local.evidence || []), item],
       withholding: whtItem ? [...(local.withholding || []), whtItem] : local.withholding || []
     }),
-    onUpdate: (id, patch) => setLocal({
-      ...local,
-      evidence: (local.evidence || []).map(e => e.id === id ? {
-        ...e,
-        ...patch
-      } : e)
-    }),
+    onUpdate: (id, patch) => {
+      const rate = local.exchangeRate || DEFAULT_EXCHANGE_RATE;
+      let updated = null;
+      const evidence = (local.evidence || []).map(e => {
+        if (e.id !== id) return e;
+        updated = recalcEvidence({
+          ...e,
+          ...patch
+        }, rate);
+        return updated;
+      });
+      // 이 증빙에서 자동 생성된 원천세 항목도 바뀐 내용으로 맞춘다
+      const others = (local.withholding || []).filter(w => w.fromEvidenceId !== id);
+      const prevLinked = (local.withholding || []).find(w => w.fromEvidenceId === id);
+      const linked = updated ? linkedWithholdingFor(updated, prevLinked, rate, lang) : prevLinked;
+      setLocal({
+        ...local,
+        evidence,
+        withholding: linked ? [...others, linked] : others
+      });
+    },
     onRemove: id => setLocal({
       ...local,
       evidence: (local.evidence || []).filter(e => e.id !== id),
@@ -3883,6 +3897,13 @@ function MonthlyView({
   }), /*#__PURE__*/React.createElement(WithholdingPanel, {
     items: local.withholding || [],
     exchangeRate: calc.rate,
+    onUpdate: (id, patch) => setLocal({
+      ...local,
+      withholding: (local.withholding || []).map(w => w.id === id ? {
+        ...w,
+        ...patch
+      } : w)
+    }),
     onAdd: item => setLocal({
       ...local,
       withholding: [...(local.withholding || []), item]
@@ -4154,6 +4175,100 @@ function ExchangeRatePanel({
   }, lang === "en" ? "Check GDT rate ↗" : "GDT 공시환율 확인 ↗")));
 }
 
+/* ---------------- 증빙 사진 크게 보기 ---------------- */
+
+function ImageViewer({
+  src,
+  caption,
+  onClose
+}) {
+  const lang = useLang();
+  const closeRef = React.useRef(null);
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden"; // 뒤 화면이 같이 스크롤되지 않게
+    if (closeRef.current) closeRef.current.focus();
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+  if (!src) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": lang === "en" ? "Receipt photo" : "증빙 사진",
+    style: S.viewerBackdrop,
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.viewerBar,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, caption), /*#__PURE__*/React.createElement("button", {
+    ref: closeRef,
+    type: "button",
+    style: S.viewerClose,
+    onClick: onClose
+  }, lang === "en" ? "Close" : "닫기")), /*#__PURE__*/React.createElement("div", {
+    style: S.viewerStage,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("img", {
+    src: src,
+    alt: caption || "",
+    style: S.viewerImg
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#C9D2DA",
+      fontSize: 13,
+      textAlign: "center",
+      padding: "8px 12px 14px"
+    }
+  }, lang === "en" ? "Pinch or zoom the page to enlarge further. Tap outside the photo to close." : "더 크게 보려면 두 손가락으로 확대하세요. 사진 바깥을 누르면 닫힙니다."));
+}
+
+// 증빙 금액·유형이 바뀌면 KHR 금액과 매입세액을 다시 계산한다 (등록할 때와 같은 방식)
+function recalcEvidence(e, exchangeRate) {
+  const rate = Number(exchangeRate) || DEFAULT_EXCHANGE_RATE;
+  const amount = Number(e.amount) || 0;
+  const khr = Math.round(e.currency === "USD" ? amount * rate : amount);
+  const isVat = e.evidenceType === "vat";
+  return {
+    ...e,
+    amountKHR: khr,
+    isVatInvoice: isVat,
+    vatAmountKHR: isVat ? Math.round(khr * 10 / 110) : 0
+  };
+}
+
+// 증빙에서 자동 생성된 원천세 항목을 증빙 내용에 맞춰 다시 만든다 (없애야 하면 null)
+function linkedWithholdingFor(e, existing, exchangeRate, lang) {
+  if (!e.whtCategory || !(e.amountKHR > 0)) return null;
+  const rate = withholdingRate(e.whtCategory);
+  return {
+    ...(existing || {}),
+    id: existing?.id || uid(),
+    fromEvidenceId: e.id,
+    category: e.whtCategory,
+    payee: e.vendor || (lang === "en" ? "From receipt" : "증빙에서 자동생성"),
+    amount: e.amountKHR / (Number(exchangeRate) || DEFAULT_EXCHANGE_RATE),
+    mode: "gross",
+    amountKHR: e.amountKHR,
+    rate,
+    taxKHR: e.amountKHR * rate,
+    createdAt: existing?.createdAt || new Date().toISOString()
+  };
+}
+
 /* ---------------- Evidence upload & auto-classification ---------------- */
 
 function EvidencePanel({
@@ -4177,6 +4292,9 @@ function EvidencePanel({
   const [pendingFile, setPendingFile] = useState(null);
   const [pendingPreview, setPendingPreview] = useState(null);
   const [pendingHiRes, setPendingHiRes] = useState(null); // AI 인식용 고해상도 (저장하지 않음)
+  const [viewing, setViewing] = useState(null); // 크게 보기 중인 증빙
+  const [editingId, setEditingId] = useState(null); // 수정 중인 증빙 id
+  const [draft, setDraft] = useState(null); // 수정 중인 값
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -4387,11 +4505,19 @@ function EvidencePanel({
       alignItems: "flex-start",
       flexWrap: "wrap"
     }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.thumbButton,
+    onClick: () => setViewing({
+      src: pendingHiRes || pendingPreview,
+      caption: lang === "en" ? "Uploaded photo" : "올린 사진"
+    }),
+    "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
   }, /*#__PURE__*/React.createElement("img", {
     src: pendingPreview,
-    alt: "preview",
+    alt: "",
     style: S.thumb
-  }), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       minWidth: 200
@@ -4592,44 +4718,263 @@ function EvidencePanel({
       ...S.panelTitle,
       fontSize: 12
     }
-  }, lang === "en" ? `Uploaded receipts (${evidence.length})` : `업로드된 증빙 (${evidence.length}건)`), evidence.map(e => /*#__PURE__*/React.createElement("div", {
-    key: e.id,
-    style: S.evidenceRow
-  }, e.thumbnail && /*#__PURE__*/React.createElement("img", {
-    src: e.thumbnail,
-    alt: "",
-    style: S.thumbSmall
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
+  }, lang === "en" ? `Uploaded receipts (${evidence.length})` : `업로드된 증빙 (${evidence.length}건)`), evidence.map(e => {
+    const caption = [e.txDate, e.vendor, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`].filter(Boolean).join(" · ");
+    if (editingId === e.id && draft) {
+      const set = patch => setDraft({
+        ...draft,
+        ...patch
+      });
+      return /*#__PURE__*/React.createElement("div", {
+        key: e.id,
+        style: S.evidenceEdit,
+        className: "evidence-edit"
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 12,
+          alignItems: "flex-start",
+          flexWrap: "wrap"
+        }
+      }, e.thumbnail && /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.thumbButton,
+        onClick: () => setViewing({
+          src: e.thumbnail,
+          caption
+        }),
+        "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
+      }, /*#__PURE__*/React.createElement("img", {
+        src: e.thumbnail,
+        alt: "",
+        style: {
+          ...S.thumb,
+          width: 84,
+          height: 84
+        }
+      })), /*#__PURE__*/React.createElement("div", {
+        style: {
+          flex: 1,
+          minWidth: 220
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: S.evidenceTypeToggle
+      }, ["vat", "general"].map(t => /*#__PURE__*/React.createElement("button", {
+        key: t,
+        type: "button",
+        style: {
+          ...S.typeToggleBtn,
+          ...(draft.evidenceType === t ? S.typeToggleBtnActive : {})
+        },
+        onClick: () => set({
+          evidenceType: t
+        })
+      }, t === "vat" ? lang === "en" ? "Tax invoice (VAT)" : "세금계산서 (매입세액 공제)" : lang === "en" ? "General receipt" : "일반 경비증빙"))))), /*#__PURE__*/React.createElement("div", {
+        className: "form-row",
+        style: {
+          ...S.formRow,
+          marginTop: 12
+        }
+      }, /*#__PURE__*/React.createElement("input", {
+        type: "date",
+        style: {
+          ...S.input,
+          width: 160
+        },
+        "aria-label": lang === "en" ? "Transaction date" : "거래일자",
+        value: draft.txDate || "",
+        onChange: ev => set({
+          txDate: ev.target.value
+        })
+      }), /*#__PURE__*/React.createElement("select", {
+        style: {
+          ...S.select,
+          minWidth: 190
+        },
+        "aria-label": lang === "en" ? "Payment type" : "지급 유형",
+        value: draft.category,
+        onChange: ev => set({
+          category: ev.target.value
+        })
+      }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+        key: c.id,
+        value: c.id
+      }, lang === "en" ? c.en : c.ko))), /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          flex: "1 1 180px"
+        },
+        "aria-label": lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
+        placeholder: lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
+        value: draft.vendor || "",
+        onChange: ev => set({
+          vendor: ev.target.value
+        })
+      }), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        inputMode: "decimal",
+        style: {
+          ...S.input,
+          width: 130
+        },
+        "aria-label": lang === "en" ? "Amount" : "금액",
+        placeholder: lang === "en" ? "Amount" : "금액",
+        value: draft.amount,
+        onChange: ev => set({
+          amount: ev.target.value
+        })
+      }), /*#__PURE__*/React.createElement("select", {
+        style: {
+          ...S.select,
+          width: 90
+        },
+        "aria-label": lang === "en" ? "Currency" : "통화",
+        value: draft.currency,
+        onChange: ev => set({
+          currency: ev.target.value
+        })
+      }, /*#__PURE__*/React.createElement("option", {
+        value: "USD"
+      }, "USD"), /*#__PURE__*/React.createElement("option", {
+        value: "KHR"
+      }, "KHR"))), /*#__PURE__*/React.createElement("div", {
+        className: "form-row",
+        style: {
+          ...S.formRow,
+          marginTop: 10,
+          alignItems: "center"
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 14,
+          color: PALETTE.inkSoft
+        }
+      }, lang === "en" ? "Withholding" : "원천세"), /*#__PURE__*/React.createElement("select", {
+        style: {
+          ...S.select,
+          minWidth: 220
+        },
+        "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
+        value: draft.whtCategory || "",
+        onChange: ev => set({
+          whtCategory: ev.target.value
+        })
+      }, /*#__PURE__*/React.createElement("option", {
+        value: ""
+      }, lang === "en" ? "Not applicable" : "해당 없음"), WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+        key: c.id,
+        value: c.id
+      }, lang === "en" ? c.en : c.ko, " (", (c.rate * 100).toFixed(0), "%)"))), /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          flex: "1 1 200px"
+        },
+        "aria-label": lang === "en" ? "Note" : "메모",
+        placeholder: lang === "en" ? "Note (optional)" : "메모 (선택)",
+        value: draft.description || "",
+        onChange: ev => set({
+          description: ev.target.value
+        })
+      })), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          marginTop: 12,
+          flexWrap: "wrap",
+          alignItems: "center"
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonPrimary,
+        disabled: !(Number(draft.amount) > 0),
+        onClick: () => {
+          onUpdate(e.id, {
+            ...draft,
+            amount: Number(draft.amount) || 0,
+            vendor: (draft.vendor || "").trim()
+          });
+          setEditingId(null);
+          setDraft(null);
+        }
+      }, lang === "en" ? "Apply changes" : "수정 적용"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonGhost,
+        onClick: () => {
+          setEditingId(null);
+          setDraft(null);
+        }
+      }, lang === "en" ? "Cancel" : "취소"), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 13,
+          color: PALETTE.inkSoft
+        }
+      }, lang === "en" ? "Then press Save at the bottom to keep it." : "적용 후 하단 [저장]을 눌러야 기록됩니다.")));
     }
-  }, /*#__PURE__*/React.createElement("select", {
-    "aria-label": lang === "en" ? "Payment type" : "지급 유형",
-    style: S.selectSmall,
-    value: e.category,
-    onChange: ev => onUpdate(e.id, {
-      category: ev.target.value
-    })
-  }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
-    key: c.id,
-    value: c.id
-  }, lang === "en" ? c.en : c.ko))), /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceMeta
-  }, e.txDate ? `${e.txDate} · ` : "", e.vendor || (lang === "en" ? "Vendor unknown" : "거래처 미상"), " · ", e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`, e.isVatInvoice ? ` (VAT ${fmt(e.vatAmountKHR)} KHR)` : ""), e.description && /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceDesc
-  }, e.description), (() => {
-    const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
-    return shown ? /*#__PURE__*/React.createElement("div", {
-      style: S.evidenceSummary
-    }, shown) : null;
-  })()), /*#__PURE__*/React.createElement("span", {
-    style: S.miniMono
-  }, fmt(e.amountKHR), " KHR"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhostSmall,
-    onClick: () => onRemove(e.id)
-  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+    return /*#__PURE__*/React.createElement("div", {
+      key: e.id,
+      style: S.evidenceRow
+    }, e.thumbnail ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.thumbButton,
+      onClick: () => setViewing({
+        src: e.thumbnail,
+        caption
+      }),
+      "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
+    }, /*#__PURE__*/React.createElement("img", {
+      src: e.thumbnail,
+      alt: "",
+      style: S.thumbSmall
+    })) : null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 14.5,
+        fontWeight: 600,
+        color: PALETTE.ink
+      }
+    }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 400,
+        color: PALETTE.inkSoft
+      }
+    }, " · ", categoryLabel(e.category, lang))), /*#__PURE__*/React.createElement("div", {
+      style: S.evidenceMeta
+    }, e.txDate ? `${e.txDate} · ` : "", e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`, e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 증빙", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.description && /*#__PURE__*/React.createElement("div", {
+      style: S.evidenceDesc
+    }, e.description), (() => {
+      const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
+      return shown ? /*#__PURE__*/React.createElement("div", {
+        style: S.evidenceSummary
+      }, shown) : null;
+    })()), /*#__PURE__*/React.createElement("span", {
+      style: S.miniMono
+    }, fmt(e.amountKHR), " KHR"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall2,
+      onClick: () => {
+        setEditingId(e.id);
+        setDraft({
+          evidenceType: e.evidenceType || (e.isVatInvoice ? "vat" : "general"),
+          txDate: e.txDate || "",
+          category: e.category,
+          vendor: e.vendor || "",
+          amount: e.amount ?? "",
+          currency: e.currency || "USD",
+          whtCategory: e.whtCategory || "",
+          description: e.description || ""
+        });
+      }
+    }, lang === "en" ? "Edit" : "수정"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall,
+      "aria-label": lang === "en" ? "Delete receipt" : "증빙 삭제",
+      onClick: () => onRemove(e.id)
+    }, "✕"));
+  }), /*#__PURE__*/React.createElement("div", {
     style: S.divider
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Total expenses from receipts" : "증빙 기반 경비 합계",
@@ -4639,7 +4984,11 @@ function EvidencePanel({
     label: lang === "en" ? "Total input VAT from receipts" : "증빙 기반 매입세액 합계",
     value: totalVatKHR,
     bold: true
-  })), /*#__PURE__*/React.createElement("p", {
+  })), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+    src: viewing.src,
+    caption: viewing.caption,
+    onClose: () => setViewing(null)
+  }), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
   }, lang === "en" ? "Uploaded images are stored only as compressed thumbnails to save space. For GDT tax audits, keep original receipts (tax invoices, etc.) separately — scanned or physical — for 10 years." : "업로드된 이미지는 용량 절약을 위해 축소된 썸네일로만 저장됩니다. GDT 세무조사 대비를 위한 원본 증빙(세금계산서 등)은 회사 자체 보관함(스캔본/실물)에 별도로 10년간 보관하세요."));
 }
@@ -4776,6 +5125,9 @@ function WithholdingPanel({
   onRemove,
   onUpdate
 }) {
+  const [viewing, setViewing] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState(null);
   const [category, setCategory] = useState(WITHHOLDING_CATEGORIES[0].id);
   const [payee, setPayee] = useState("");
   const [amount, setAmount] = useState("");
@@ -5049,38 +5401,175 @@ function WithholdingPanel({
     style: {
       marginTop: 14
     }
-  }, items.map(w => /*#__PURE__*/React.createElement("div", {
-    key: w.id,
-    style: S.evidenceRow
-  }, w.thumbnail && /*#__PURE__*/React.createElement("img", {
-    src: w.thumbnail,
-    alt: "",
-    style: S.thumbSmall
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0
+  }, items.map(w => {
+    const caption = [w.payee, `${fmt(w.amountKHR)} KHR`].filter(Boolean).join(" · ");
+    if (editingId === w.id && draft) {
+      const set = patch => setDraft({
+        ...draft,
+        ...patch
+      });
+      return /*#__PURE__*/React.createElement("div", {
+        key: w.id,
+        style: S.evidenceEdit
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "form-row",
+        style: S.formRow
+      }, /*#__PURE__*/React.createElement("select", {
+        style: {
+          ...S.select,
+          minWidth: 220
+        },
+        "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
+        value: draft.category,
+        onChange: ev => set({
+          category: ev.target.value
+        })
+      }, WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+        key: c.id,
+        value: c.id
+      }, lang === "en" ? c.en : c.ko, " (", (c.rate * 100).toFixed(0), "%)"))), /*#__PURE__*/React.createElement("input", {
+        style: {
+          ...S.input,
+          flex: "1 1 180px"
+        },
+        "aria-label": lang === "en" ? "Payee" : "지급처",
+        placeholder: lang === "en" ? "Payee" : "지급처 (수취인)",
+        value: draft.payee,
+        onChange: ev => set({
+          payee: ev.target.value
+        })
+      }), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: {
+          ...S.modeToggleBtn,
+          ...(draft.mode === "net" ? S.modeToggleBtnActive : {})
+        },
+        onClick: () => set({
+          mode: draft.mode === "net" ? "gross" : "net"
+        })
+      }, draft.mode === "net" ? lang === "en" ? "Net (after WHT)" : "세후 (공제 후)" : lang === "en" ? "Gross (before WHT)" : "세전 (공제 전)"), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        inputMode: "decimal",
+        style: {
+          ...S.input,
+          width: 140
+        },
+        "aria-label": lang === "en" ? "Amount (USD)" : "금액 (USD)",
+        placeholder: "USD",
+        value: draft.amount,
+        onChange: ev => set({
+          amount: ev.target.value
+        })
+      })), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          marginTop: 12,
+          flexWrap: "wrap",
+          alignItems: "center"
+        }
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonPrimary,
+        disabled: !(Number(draft.amount) > 0),
+        onClick: () => {
+          const r = withholdingAmountsFromEntry({
+            amountUSD: draft.amount,
+            mode: draft.mode,
+            category: draft.category,
+            rate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
+          });
+          onUpdate(w.id, {
+            category: draft.category,
+            payee: draft.payee.trim(),
+            mode: draft.mode,
+            amount: Number(draft.amount) || 0,
+            amountKHR: r.grossKHR,
+            taxKHR: r.taxKHR,
+            rate: r.catRate
+          });
+          setEditingId(null);
+          setDraft(null);
+        }
+      }, lang === "en" ? "Apply changes" : "수정 적용"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonGhost,
+        onClick: () => {
+          setEditingId(null);
+          setDraft(null);
+        }
+      }, lang === "en" ? "Cancel" : "취소"), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 13,
+          color: PALETTE.inkSoft
+        }
+      }, lang === "en" ? "Then press Save at the bottom to keep it." : "적용 후 하단 [저장]을 눌러야 기록됩니다.")));
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13
-    }
-  }, w.payee, " ", /*#__PURE__*/React.createElement("span", {
-    style: S.evidenceMeta
-  }, "· ", withholdingLabel(w.category, lang), " (", ((w.rate || 0) * 100).toFixed(0), "%) · ", w.mode === "net" ? lang === "en" ? "net entry" : "세후입력" : lang === "en" ? "gross entry" : "세전입력", w.fromEvidenceId && ` · ${lang === "en" ? "from receipt" : "증빙 연동"}`)), /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceMeta
-  }, lang === "en" ? "Gross" : "세전", " ", fmt(w.amountKHR), " KHR ", lang === "en" ? "→ tax " : "→ 세액 ", fmt(w.taxKHR), " KHR ", lang === "en" ? "→ net " : "→ 세후 ", fmt((w.amountKHR || 0) - (w.taxKHR || 0)), " KHR"), w.description && /*#__PURE__*/React.createElement("div", {
-    style: S.evidenceDesc
-  }, w.description), (() => {
-    const shown = lang === "en" ? w.summaryEn || w.summaryKo : w.summaryKo || w.summaryEn;
-    return shown ? /*#__PURE__*/React.createElement("div", {
-      style: S.evidenceSummary
-    }, shown) : null;
-  })()), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhostSmall,
-    onClick: () => onRemove(w.id)
-  }, "✕")))), items.length > 0 && /*#__PURE__*/React.createElement("div", {
+    return /*#__PURE__*/React.createElement("div", {
+      key: w.id,
+      style: S.evidenceRow
+    }, w.thumbnail ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.thumbButton,
+      onClick: () => setViewing({
+        src: w.thumbnail,
+        caption
+      }),
+      "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
+    }, /*#__PURE__*/React.createElement("img", {
+      src: w.thumbnail,
+      alt: "",
+      style: S.thumbSmall
+    })) : null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13
+      }
+    }, w.payee, " ", /*#__PURE__*/React.createElement("span", {
+      style: S.evidenceMeta
+    }, "· ", withholdingLabel(w.category, lang), " (", ((w.rate || 0) * 100).toFixed(0), "%) · ", w.mode === "net" ? lang === "en" ? "net entry" : "세후입력" : lang === "en" ? "gross entry" : "세전입력", w.fromEvidenceId && ` · ${lang === "en" ? "from receipt" : "증빙 연동"}`)), /*#__PURE__*/React.createElement("div", {
+      style: S.evidenceMeta
+    }, lang === "en" ? "Gross" : "세전", " ", fmt(w.amountKHR), " KHR ", lang === "en" ? "→ tax " : "→ 세액 ", fmt(w.taxKHR), " KHR ", lang === "en" ? "→ net " : "→ 세후 ", fmt((w.amountKHR || 0) - (w.taxKHR || 0)), " KHR"), w.description && /*#__PURE__*/React.createElement("div", {
+      style: S.evidenceDesc
+    }, w.description), (() => {
+      const shown = lang === "en" ? w.summaryEn || w.summaryKo : w.summaryKo || w.summaryEn;
+      return shown ? /*#__PURE__*/React.createElement("div", {
+        style: S.evidenceSummary
+      }, shown) : null;
+    })()), w.fromEvidenceId ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12.5,
+        color: PALETTE.inkSoft,
+        maxWidth: 110,
+        textAlign: "right"
+      }
+    }, lang === "en" ? "Edit via the receipt" : "증빙에서 수정") : /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall2,
+      onClick: () => {
+        setEditingId(w.id);
+        setDraft({
+          category: w.category,
+          payee: w.payee || "",
+          mode: w.mode || "gross",
+          amount: w.amount != null ? Number(w.amount).toFixed(2) : ""
+        });
+      }
+    }, lang === "en" ? "Edit" : "수정"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall,
+      "aria-label": lang === "en" ? "Delete item" : "항목 삭제",
+      onClick: () => onRemove(w.id)
+    }, "✕"));
+  })), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+    src: viewing.src,
+    caption: viewing.caption,
+    onClose: () => setViewing(null)
+  }), items.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.draftTotal,
       marginTop: 10
@@ -8777,12 +9266,74 @@ const S = {
     border: `1px solid ${PALETTE.line}`
   },
   thumbSmall: {
-    width: 46,
-    height: 46,
+    width: 56,
+    height: 56,
     objectFit: "cover",
-    borderRadius: 5,
+    borderRadius: 8,
     border: `1px solid ${PALETTE.line}`,
+    flexShrink: 0,
+    display: "block"
+  },
+  thumbButton: {
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    cursor: "zoom-in",
+    borderRadius: 8,
     flexShrink: 0
+  },
+  evidenceEdit: {
+    padding: 14,
+    margin: "8px 0",
+    border: `1px solid ${PALETTE.teal}`,
+    borderRadius: 12,
+    background: "#FAFCFB"
+  },
+  viewerBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 100,
+    background: "rgba(12,18,24,0.97)",
+    display: "flex",
+    flexDirection: "column"
+  },
+  viewerBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 16px",
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: 600
+  },
+  viewerClose: {
+    background: "#fff",
+    color: PALETTE.ink,
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 16px",
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+    minHeight: 40,
+    flexShrink: 0
+  },
+  viewerStage: {
+    flex: 1,
+    minHeight: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 12px",
+    overflow: "auto"
+  },
+  viewerImg: {
+    maxWidth: "100%",
+    maxHeight: "100%",
+    objectFit: "contain",
+    borderRadius: 6,
+    background: "#fff"
   },
   evidenceRow: {
     display: "flex",

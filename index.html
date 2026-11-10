@@ -459,10 +459,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.10.2";
+const APP_RELEASE = "2026.11.10.3";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.10.3",
+  ko: ["연간 신고: 접대비·벌금·기부금을 월별 증빙에서 자동으로 모아요 (증빙 지급 유형에 벌금·기부금 추가)", "고정자산 대장 — 자산별 취득원가·제반비용·내용연수로 회계상·세무상 감가상각과 차이를 자동 계산해요"],
+  en: ["Annual filing: entertainment, fines and contributions are collected from the monthly receipts (new receipt types: Fines & penalties, Charitable contributions)", "Asset register — book and tax depreciation per asset from cost, related costs and useful life"]
+}, {
   version: "2026.11.10.2",
   ko: ["연간 신고 탭 추가 — [신고] 메뉴 안에서 월별 / 연간을 고르고, 연간 법인세 세무조정 → 검토 → 신고 완료 → 납부까지 기록해요", "Patent tax·재무제표 제출 등 연간 업무에 접수번호와 증빙 사진을 남길 수 있어요"],
   en: ["Annual filing tab — under Filing choose Monthly / Annual; record annual tax adjustments, review, filing and payment", "Keep a reference no. and photo for patent tax, financial statements and other annual filings"]
@@ -1140,6 +1144,14 @@ const EXPENSE_CATEGORIES = [{
   ko: "복리후생비",
   en: "Employee welfare"
 }, {
+  id: "fines",
+  ko: "벌금·가산세·과태료",
+  en: "Fines & penalties"
+}, {
+  id: "donation",
+  ko: "기부금",
+  en: "Charitable contributions"
+}, {
   id: "other",
   ko: "기타경비",
   en: "Other expenses"
@@ -1518,6 +1530,155 @@ function calcMonthly(f) {
     evidenceExpense: totalExpenseKHR
   };
 }
+
+/* ---------------- 고정자산 대장 · 감가상각 (회계상 / 세무상) ---------------- */
+// 세무상 상각: 1종 건물·구축물 정액 5% · 2종 컴퓨터·전자정보 장비 정률 50% · 3종 차량·사무가구·기기 정률 25% · 4종 기타 유형자산 정률 20% · 무형자산 정액(내용연수 또는 10%)
+const ASSET_CLASSES = [{
+  id: "c1",
+  ko: "1종 건물·구축물",
+  en: "Class 1 · Buildings & structures",
+  method: "sl",
+  rate: 0.05,
+  life: 20,
+  taxKo: "정액 5%",
+  taxEn: "Straight-line 5%"
+}, {
+  id: "c2",
+  ko: "2종 컴퓨터·전자정보 장비",
+  en: "Class 2 · Computers & IT equipment",
+  method: "db",
+  rate: 0.5,
+  life: 4,
+  taxKo: "정률 50%",
+  taxEn: "Declining 50%"
+}, {
+  id: "c3",
+  ko: "3종 차량·사무가구·기기",
+  en: "Class 3 · Vehicles, furniture, office equipment",
+  method: "db",
+  rate: 0.25,
+  life: 5,
+  taxKo: "정률 25%",
+  taxEn: "Declining 25%"
+}, {
+  id: "c4",
+  ko: "4종 기타 유형자산",
+  en: "Class 4 · Other tangible assets",
+  method: "db",
+  rate: 0.2,
+  life: 5,
+  taxKo: "정률 20%",
+  taxEn: "Declining 20%"
+}, {
+  id: "int",
+  ko: "무형자산",
+  en: "Intangible assets",
+  method: "sl",
+  rate: 0.1,
+  life: 10,
+  taxKo: "정액 (내용연수 또는 10%)",
+  taxEn: "Straight-line (life or 10%)"
+}, {
+  id: "land",
+  ko: "토지 (상각 안 함)",
+  en: "Land (not depreciated)",
+  method: "none",
+  rate: 0,
+  life: 0,
+  taxKo: "상각 안 함",
+  taxEn: "No depreciation"
+}];
+function assetClass(id) {
+  return ASSET_CLASSES.find(c => c.id === id) || ASSET_CLASSES[3];
+}
+function parseYm(s) {
+  const m = String(s || "").match(/^(\d{4})-(\d{2})/);
+  return m ? {
+    y: Number(m[1]),
+    idx: Number(m[1]) * 12 + Number(m[2]) - 1
+  } : null;
+}
+// 한 자산의 그 해 회계상·세무상 상각액 (KHR)
+function calcAssetDep(a, year) {
+  const cls = assetClass(a.cls);
+  const fx = a.ccy === "KHR" ? 1 : Number(a.fx) > 0 ? Number(a.fx) : DEFAULT_EXCHANGE_RATE;
+  const base = ((Number(a.cost) || 0) + (Number(a.related) || 0)) * fx;
+  const acq = parseYm(a.acquiredAt);
+  const zero = {
+    base,
+    bookDep: 0,
+    taxDep: 0,
+    diff: 0,
+    bookNbv: base,
+    taxWdv: base
+  };
+  if (!acq || !(base > 0)) return zero;
+  const disp = parseYm(a.disposedAt);
+  const dispIdx = disp ? disp.idx : Infinity; // 처분한 달부터는 상각하지 않는다
+  const yStart = year * 12,
+    yEnd = year * 12 + 12;
+  const within = (from, to) => Math.max(0, Math.min(to, yEnd) - Math.max(from, yStart));
+  const upto = (from, to) => Math.max(0, Math.min(to, yEnd) - from);
+  if (cls.method === "none") return {
+    ...zero,
+    bookNbv: dispIdx < yEnd ? 0 : base,
+    taxWdv: dispIdx < yEnd ? 0 : base
+  };
+  // 회계상: 정액법, 취득한 달부터 월할
+  const life = Number(a.bookLife) > 0 ? Number(a.bookLife) : cls.life;
+  const salvage = Math.min(Math.max((Number(a.salvage) || 0) * fx, 0), base);
+  const bookMonths = Math.round(life * 12);
+  const bookEnd = Math.min(acq.idx + bookMonths, dispIdx);
+  const bookMonthly = (base - salvage) / bookMonths;
+  const bookDep = bookMonthly * within(acq.idx, bookEnd);
+  const bookNbv = dispIdx < yEnd ? 0 : base - bookMonthly * upto(acq.idx, bookEnd);
+  // 세무상
+  let taxDep = 0,
+    taxWdv = base;
+  if (cls.method === "db") {
+    // 정률법: 취득한 해에도 1년분 전액 (연말 잔액 × 상각률). 처분한 해부터는 상각하지 않는다
+    if (acq.y > year) {
+      taxDep = 0;
+      taxWdv = base;
+    } else if (disp && disp.y <= year) {
+      taxDep = 0;
+      taxWdv = 0;
+    } else {
+      const open = base * Math.pow(1 - cls.rate, year - acq.y);
+      taxDep = open * cls.rate;
+      taxWdv = open - taxDep;
+    }
+  } else {
+    const taxLife = cls.id === "int" ? Number(a.taxLife) > 0 ? Number(a.taxLife) : 10 : 20;
+    const taxMonths = Math.round(taxLife * 12);
+    const taxEnd = Math.min(acq.idx + taxMonths, dispIdx);
+    const taxMonthly = base / taxMonths;
+    taxDep = taxMonthly * within(acq.idx, taxEnd);
+    taxWdv = dispIdx < yEnd ? 0 : base - taxMonthly * upto(acq.idx, taxEnd);
+  }
+  return {
+    base,
+    bookDep,
+    taxDep,
+    diff: bookDep - taxDep,
+    bookNbv,
+    taxWdv
+  };
+}
+function calcDepreciation(assets, year) {
+  const rows = (assets || []).map(a => ({
+    a,
+    ...calcAssetDep(a, year)
+  }));
+  const sum = k => rows.reduce((s, r) => s + r[k], 0);
+  return {
+    rows,
+    bookDep: sum("bookDep"),
+    taxDep: sum("taxDep"),
+    diff: sum("diff"),
+    count: rows.length
+  };
+}
 function calcAnnual(filingsForClient, year, af) {
   let revenue = 0,
     expenses = 0,
@@ -1525,6 +1686,21 @@ function calcAnnual(filingsForClient, year, af) {
     withholdingPaid = 0,
     nssfPaid = 0,
     monthsFiled = 0;
+  // 월별 증빙에서 지급 유형별로 자동 집계 (접대비·벌금·기부금) — 경비에 들어간 금액 그대로
+  const ev = {
+    entertainment: {
+      amount: 0,
+      count: 0
+    },
+    fines: {
+      amount: 0,
+      count: 0
+    },
+    donation: {
+      amount: 0,
+      count: 0
+    }
+  };
   for (let m = 1; m <= 12; m++) {
     const key = `${year}-${String(m).padStart(2, "0")}`;
     const f = filingsForClient?.[key];
@@ -1536,6 +1712,13 @@ function calcAnnual(filingsForClient, year, af) {
       withholdingPaid += monthly.withholdingTaxTotal;
       nssfPaid += monthly.nssfGrandTotal;
       monthsFiled++;
+      (f.evidence || []).forEach(e => {
+        const bucket = ev[e.category];
+        if (bucket) {
+          bucket.amount += Number(e.amountKHR) || 0;
+          bucket.count += 1;
+        }
+      });
     }
   }
   // 세무조정(연간 신고 탭에서 사무소가 입력) — 없으면 예전과 같은 간이 계산
@@ -1543,11 +1726,16 @@ function calcAnnual(filingsForClient, year, af) {
   const fx = Number(adj.fx) > 0 ? Number(adj.fx) : DEFAULT_EXCHANGE_RATE;
   const k = v => (Number(v) || 0) * (adj.ccy === "KHR" ? 1 : fx);
   const profit = revenue - expenses;
-  const donations = Math.max(k(adj.donations), 0);
+  const donations = ev.donation.amount + Math.max(k(adj.donations), 0);
   const donationLimit = Math.max(0, (profit + donations) * 0.05);
   const donationExcess = Math.max(0, donations - donationLimit);
   const otherAdj = (adj.others || []).reduce((sum, o) => sum + k(o.amount), 0);
-  const addBacks = k(adj.entertainment) + k(adj.fines) + k(adj.unsupported) + donationExcess + k(adj.interestExcess) + k(adj.depreciationDiff) + otherAdj;
+  // 감가상각: 자산 대장에서 회계상·세무상 상각액을 계산. 회계상 상각비가 경비에 없으면 세무상 상각액 전체를 뺀다
+  const dep = calcDepreciation(af && af.__assets, year);
+  const depAuto = dep.count ? adj.depBooked === false ? -dep.taxDep : dep.diff : 0;
+  const entertainment = ev.entertainment.amount + k(adj.entertainment);
+  const fines = ev.fines.amount + k(adj.fines);
+  const addBacks = entertainment + fines + k(adj.unsupported) + donationExcess + k(adj.interestExcess) + depAuto + k(adj.depreciationDiff) + otherAdj;
   const adjustedProfit = profit + addBacks;
   const lossUsed = Math.min(Math.max(k(adj.lossCF), 0), Math.max(adjustedProfit, 0));
   const taxable = Math.max(adjustedProfit - lossUsed, 0);
@@ -1577,7 +1765,12 @@ function calcAnnual(filingsForClient, year, af) {
     lossUsed,
     taxable,
     taxRate,
-    whtCredit
+    whtCredit,
+    ev,
+    entertainment,
+    fines,
+    dep,
+    depAuto
   };
 }
 
@@ -3578,7 +3771,79 @@ const KM_DICT = {
   "Add photo": "បន្ថែមរូបថត",
   "{0} (USD)": "{0} (USD)",
   "{0} (KHR)": "{0} (KHR)",
-  "Reference no.": "លេខយោង"
+  "Reference no.": "លេខយោង",
+  "Annual filing: entertainment, fines and contributions are collected from the monthly receipts (new receipt types: Fines & penalties, Charitable contributions)": "ប្រកាសប្រចាំឆ្នាំ៖ ចំណាយទទួលភ្ញៀវ ប្រាក់ពិន័យ និងវិភាគទាន ត្រូវប្រមូលពីបង្កាន់ដៃប្រចាំខែ (ប្រភេទបង្កាន់ដៃថ្មី៖ ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)",
+  "Asset register — book and tax depreciation per asset from cost, related costs and useful life": "បញ្ជីទ្រព្យសកម្ម — រំលស់តាមគណនេយ្យ និងតាមពន្ធ សម្រាប់ទ្រព្យនីមួយៗ ពីថ្លៃដើម ចំណាយពាក់ព័ន្ធ និងអាយុកាលប្រើប្រាស់",
+  "Fines & penalties": "ប្រាក់ពិន័យ និងទោសទណ្ឌ",
+  "Class 1 · Buildings & structures": "ថ្នាក់ទី 1 · អគារ និងសំណង់",
+  "Straight-line 5%": "រំលស់ថេរ 5%",
+  "Class 2 · Computers & IT equipment": "ថ្នាក់ទី 2 · កុំព្យូទ័រ និងឧបករណ៍ព័ត៌មានវិទ្យា",
+  "Declining 50%": "រំលស់ថយចុះ 50%",
+  "Class 3 · Vehicles, furniture, office equipment": "ថ្នាក់ទី 3 · យានយន្ត គ្រឿងសង្ហារឹម ឧបករណ៍ការិយាល័យ",
+  "Declining 25%": "រំលស់ថយចុះ 25%",
+  "Class 4 · Other tangible assets": "ថ្នាក់ទី 4 · ទ្រព្យរូបីផ្សេងៗ",
+  "Declining 20%": "រំលស់ថយចុះ 20%",
+  "Intangible assets": "ទ្រព្យអរូបី",
+  "Straight-line (life or 10%)": "រំលស់ថេរ (អាយុកាល ឬ 10%)",
+  "Land (not depreciated)": "ដី (មិនរំលស់)",
+  "No depreciation": "មិនរំលស់",
+  "Entertainment — extra, not in receipts": "ចំណាយទទួលភ្ញៀវ — បន្ថែម ក្រៅពីបង្កាន់ដៃ",
+  "Only amounts not in the monthly receipts": "តែចំនួនដែលមិនមានក្នុងបង្កាន់ដៃប្រចាំខែ",
+  "Fines & penalties — extra, not in receipts": "ប្រាក់ពិន័យ — បន្ថែម ក្រៅពីបង្កាន់ដៃ",
+  "Contributions — extra, not in receipts": "វិភាគទាន — បន្ថែម ក្រៅពីបង្កាន់ដៃ",
+  "Depreciation — extra adjustment": "រំលស់ — និយ័តកម្មបន្ថែម",
+  "Only differences not in the asset register. Negative if tax is larger": "តែភាពខុសគ្នាដែលមិនមានក្នុងបញ្ជីទ្រព្យ។ ដាក់អវិជ្ជមានបើតាមពន្ធធំជាង",
+  "Could not save. If you are signed in as a client, the office may need to update the server (v10).": "រក្សាទុកមិនបាន។ បើអ្នកចូលជាអតិថិជន ការិយាល័យប្រហែលត្រូវធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីនមេ (v10)។",
+  "Collected automatically": "ប្រមូលដោយស្វ័យប្រវត្តិ",
+  "Entertainment — {0} receipt(s) in monthly filings": "ចំណាយទទួលភ្ញៀវ — បង្កាន់ដៃ {0} ក្នុងការប្រកាសប្រចាំខែ",
+  "Fines & penalties — {0} receipt(s) in monthly filings": "ប្រាក់ពិន័យ — បង្កាន់ដៃ {0} ក្នុងការប្រកាសប្រចាំខែ",
+  "Contributions — {0} receipt(s) · over the limit": "វិភាគទាន — បង្កាន់ដៃ {0} · ផ្នែកលើសកម្រិត",
+  "Depreciation — tax depreciation of {0} asset(s)": "រំលស់ — រំលស់តាមពន្ធនៃទ្រព្យ {0}",
+  "Depreciation — book minus tax, {0} asset(s)": "រំលស់ — គណនេយ្យ ដក ពន្ធ ទ្រព្យ {0}",
+  "Receipts are picked up by their type in step 3 of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group.": "បង្កាន់ដៃត្រូវប្រមូលតាមប្រភេទក្នុងជំហានទី 3 នៃការប្រកាសប្រចាំខែ (ការទទួលភ្ញៀវ ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)។ បើបង្កាន់ដៃនៅខុសក្រុម សូមកែប្រភេទនៅទីនោះ។",
+  "Contributions {0} KHR · limit {1} KHR · added back {2} KHR": "វិភាគទាន {0} KHR · កម្រិត {1} KHR · បូកត្រឡប់ {2} KHR",
+  "This is a working calculation, not the official return. Depreciation comes from the asset register and the interest limit is entered as an amount you calculated; QIP incentives and other special rules are not applied. Check against the current Law on Taxation and GDT Prakas before filing.": "នេះជាការគណនាសម្រាប់ការងារ មិនមែនលិខិតប្រកាសផ្លូវការទេ។ រំលស់យកពីបញ្ជីទ្រព្យសកម្ម ហើយកម្រិតការប្រាក់បញ្ចូលជាចំនួនដែលអ្នកបានគណនា។ ការលើកទឹកចិត្ត QIP និងវិធានពិសេសផ្សេងៗមិនត្រូវបានអនុវត្តទេ។ សូមផ្ទៀងផ្ទាត់ជាមួយច្បាប់ស្តីពីសារពើពន្ធ និងប្រកាស GDT បច្ចុប្បន្ន មុនដាក់ប្រកាស។",
+  "Enter the asset name.": "សូមបញ្ចូលឈ្មោះទ្រព្យ។",
+  "Enter the acquisition date.": "សូមបញ្ចូលកាលបរិច្ឆេទទិញ។",
+  "Enter the acquisition cost.": "សូមបញ្ចូលថ្លៃដើម។",
+  "Delete “{0}” from the asset register?": "លុប “{0}” ចេញពីបញ្ជីទ្រព្យសកម្ម?",
+  "Fixed assets & depreciation": "ទ្រព្យសកម្មថេរ និងរំលស់",
+  "Book vs tax depreciation for {0}, per asset": "រំលស់តាមគណនេយ្យ និងតាមពន្ធ សម្រាប់ឆ្នាំ {0} តាមទ្រព្យនីមួយៗ",
+  "No assets registered yet. Add buildings, vehicles, computers and other assets to calculate the depreciation difference automatically.": "មិនទាន់មានទ្រព្យចុះបញ្ជី។ បន្ថែមអគារ យានយន្ត កុំព្យូទ័រ និងទ្រព្យផ្សេងៗ ដើម្បីគណនាភាពខុសគ្នានៃរំលស់ដោយស្វ័យប្រវត្តិ។",
+  "Cost incl. related (KHR)": "ថ្លៃដើមរួមចំណាយពាក់ព័ន្ធ (KHR)",
+  "Book dep.": "រំលស់គណនេយ្យ",
+  "Tax dep.": "រំលស់ពន្ធ",
+  "Difference": "ភាពខុសគ្នា",
+  "Tax value, year-end": "តម្លៃតាមពន្ធ ចុងឆ្នាំ",
+  "Delete {0}": "លុប {0}",
+  "Book depreciation is already included in the monthly expenses": "រំលស់តាមគណនេយ្យមានក្នុងចំណាយប្រចាំខែរួចហើយ",
+  "Adjustment = book − tax depreciation (the difference only).": "និយ័តកម្ម = រំលស់គណនេយ្យ − រំលស់ពន្ធ (តែភាពខុសគ្នា)។",
+  "Adjustment = − tax depreciation (the whole tax depreciation is deducted).": "និយ័តកម្ម = − រំលស់ពន្ធ (ដករំលស់តាមពន្ធទាំងមូល)។",
+  "+ Add asset": "+ បន្ថែមទ្រព្យ",
+  "Edit asset": "កែទ្រព្យ",
+  "New asset": "ទ្រព្យថ្មី",
+  "Asset name": "ឈ្មោះទ្រព្យ",
+  "e.g. Delivery van": "ឧ. រថយន្តដឹកជញ្ជូន",
+  "Tax class": "ថ្នាក់ពន្ធ",
+  "Tax method": "វិធីរំលស់តាមពន្ធ",
+  "Acquisition date": "កាលបរិច្ឆេទទិញ",
+  "Date put into use": "ថ្ងៃចាប់ផ្តើមប្រើ",
+  "Purchase price before VAT": "ថ្លៃទិញ មិនរួម អតប",
+  "Related costs": "ចំណាយពាក់ព័ន្ធ",
+  "Transport, installation, registration, import duty…": "ដឹកជញ្ជូន ដំឡើង ចុះបញ្ជី ពន្ធនាំចូល…",
+  "Rate at acquisition (1 USD = KHR)": "អត្រាពេលទិញ (1 USD = KHR)",
+  "Book useful life (years)": "អាយុកាលប្រើប្រាស់តាមគណនេយ្យ (ឆ្នាំ)",
+  "Straight-line, monthly from the acquisition month. Blank = {0} years.": "រំលស់ថេរ គិតតាមខែចាប់ពីខែទិញ។ ទុកទទេ = {0} ឆ្នាំ។",
+  "Residual value": "តម្លៃសេសសល់",
+  "Book only. Usually 0.": "តែគណនេយ្យ។ ជាធម្មតា 0។",
+  "Tax useful life (years)": "អាយុកាលប្រើប្រាស់តាមពន្ធ (ឆ្នាំ)",
+  "Blank = 10% a year": "ទុកទទេ = 10% ក្នុងមួយឆ្នាំ",
+  "Disposal date (if sold or scrapped)": "កាលបរិច្ឆេទលក់ចេញ (បើលក់ ឬបោះចោល)",
+  "No depreciation from that month": "មិនរំលស់ចាប់ពីខែនោះ",
+  "Save asset": "រក្សាទុកទ្រព្យ",
+  "Tax depreciation: declining-balance classes take a full year in the year of acquisition and none from the year of disposal; buildings and intangibles are straight-line by month. Gains or losses on disposal are not calculated — enter them under Other adjustments.": "រំលស់តាមពន្ធ៖ ថ្នាក់រំលស់ថយចុះគិតពេញមួយឆ្នាំក្នុងឆ្នាំទិញ ហើយមិនគិតចាប់ពីឆ្នាំលក់ចេញ អគារ និងទ្រព្យអរូបីគិតរំលស់ថេរតាមខែ។ ចំណេញ ឬខាតពីការលក់ចេញមិនត្រូវបានគណនាទេ — សូមបញ្ចូលក្នុងនិយ័តកម្មផ្សេងៗ។",
+  "Acquisition cost": "ថ្លៃដើម",
+  "Charitable contributions": "វិភាគទានសប្បុរសធម៌"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -3971,6 +4236,7 @@ function CambodiaTaxApp() {
     capitalGains: parsed.capitalGains || {},
     annual: parsed.annual || {},
     annualFilings: parsed.annualFilings || {},
+    assets: parsed.assets || {},
     settings: parsed.settings || {
       rate: DEFAULT_EXCHANGE_RATE,
       asOf: ""
@@ -4524,15 +4790,20 @@ function CambodiaTaxApp() {
       ...(data.annualFilings || {})
     };
     delete nextAnnualFilings[id];
+    const nextAssets = {
+      ...(data.assets || {})
+    };
+    delete nextAssets[id];
     const next = {
       ...data,
       clients: data.clients.filter(c => c.id !== id),
       filings: nextFilings,
       capitalGains: nextCapitalGains,
-      annualFilings: nextAnnualFilings
+      annualFilings: nextAnnualFilings,
+      assets: nextAssets
     };
     persist(next, {
-      paths: [["clients"], ["filings", id], ["capitalGains", id], ["annualFilings", id]]
+      paths: [["clients"], ["filings", id], ["capitalGains", id], ["annualFilings", id], ["assets", id]]
     });
     if (selectedClientId === id) setSelectedClientId(next.clients[0]?.id || null);
   };
@@ -4653,6 +4924,25 @@ function CambodiaTaxApp() {
     };
     persist(next, {
       paths: [["annual", clientId]]
+    });
+  };
+  // 연간 신고 계산에 그 고객사의 자산 대장을 함께 넘긴다 (저장되는 값에는 넣지 않는다)
+  const annualCtx = (clientId, year) => ({
+    ...(((data.annualFilings || {})[clientId] || {})[String(year)] || {}),
+    __assets: (data.assets || {})[clientId] || []
+  });
+  const saveAssets = (clientId, list) => {
+    const d = dataRef.current || data;
+    const next = {
+      ...d,
+      assets: {
+        ...(d.assets || {}),
+        [clientId]: list
+      }
+    };
+    return persist(next, {
+      optimistic: false,
+      paths: [["assets", clientId]]
     });
   };
   const saveAnnualFiling = (clientId, year, af) => {
@@ -5142,6 +5432,8 @@ function CambodiaTaxApp() {
     filingsForClient: data.filings[selectedClientId] || {},
     annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
     annualItems: (data.annual || {})[selectedClientId] || {},
+    assets: (data.assets || {})[selectedClientId] || [],
+    onSaveAssets: isClient ? null : list => saveAssets(selectedClientId, list),
     settings: data.settings,
     isClientView: isClient,
     onSave: af => saveAnnualFiling(selectedClientId, selectedYear, af),
@@ -5150,7 +5442,7 @@ function CambodiaTaxApp() {
     onDirtyChange: handleDirtyChange,
     serverOn: serverOn
   }), view === "annual" && /*#__PURE__*/React.createElement(AnnualView, {
-    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
+    annualFiling: annualCtx(selectedClientId, selectedYear),
     onGo: goView,
     clients: data.clients,
     selectedClient: selectedClient,
@@ -5169,7 +5461,7 @@ function CambodiaTaxApp() {
     selectedMonth: selectedMonth,
     setSelectedMonth: setSelectedMonth,
     filingsForClient: data.filings[selectedClientId] || {},
-    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
+    annualFiling: annualCtx(selectedClientId, selectedYear),
     filing: currentFiling
   }), view === "capitalgains" && /*#__PURE__*/React.createElement(CapitalGainsView, {
     clients: data.clients,
@@ -5189,7 +5481,7 @@ function CambodiaTaxApp() {
     setSelectedYear: setSelectedYear,
     selectedMonth: selectedMonth,
     setSelectedMonth: setSelectedMonth,
-    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)]
+    annualFiling: annualCtx(selectedClientId, selectedYear)
   }), view === "rates" && /*#__PURE__*/React.createElement(RatesView, null), view === "about" && /*#__PURE__*/React.createElement(AboutView, {
     onFound: info => {
       setUpdateInfo(info);
@@ -12111,16 +12403,16 @@ function AnnualView({
 /* ---------------- 연간 신고 (법인세 세무조정 → 검토 → 신고 → 납부) ---------------- */
 const ADJ_FIELDS = [{
   id: "entertainment",
-  ko: "접대·오락·유흥비",
-  en: "Entertainment & amusement",
-  noteKo: "전액 손금불산입",
-  noteEn: "Fully non-deductible"
+  ko: "접대·오락·유흥비 — 증빙 외 추가분",
+  en: "Entertainment — extra, not in receipts",
+  noteKo: "월별 증빙에 없는 금액만",
+  noteEn: "Only amounts not in the monthly receipts"
 }, {
   id: "fines",
-  ko: "벌금·가산세·과태료",
-  en: "Fines, penalties & late interest",
-  noteKo: "전액 손금불산입",
-  noteEn: "Fully non-deductible"
+  ko: "벌금·가산세·과태료 — 증빙 외 추가분",
+  en: "Fines & penalties — extra, not in receipts",
+  noteKo: "월별 증빙에 없는 금액만",
+  noteEn: "Only amounts not in the monthly receipts"
 }, {
   id: "unsupported",
   ko: "증빙 없는 비용",
@@ -12129,8 +12421,8 @@ const ADJ_FIELDS = [{
   noteEn: "No valid supporting document"
 }, {
   id: "donations",
-  ko: "기부금 (지출 총액)",
-  en: "Charitable contributions (total paid)",
+  ko: "기부금 — 증빙 외 추가분",
+  en: "Contributions — extra, not in receipts",
   noteKo: "한도(기부금 차감 전 이익의 5%) 초과분만 자동으로 더해요",
   noteEn: "Only the part over the limit (5% of profit before contributions) is added back"
 }, {
@@ -12141,10 +12433,10 @@ const ADJ_FIELDS = [{
   noteEn: "Excess you calculated"
 }, {
   id: "depreciationDiff",
-  ko: "감가상각 차이 (회계상 − 세무상)",
-  en: "Depreciation difference (book − tax)",
-  noteKo: "세무상이 더 크면 음수(−)로",
-  noteEn: "Negative if tax depreciation is larger",
+  ko: "감가상각 추가 조정",
+  en: "Depreciation — extra adjustment",
+  noteKo: "자산 대장에 없는 차이만. 세무상이 더 크면 음수(−)로",
+  noteEn: "Only differences not in the asset register. Negative if tax is larger",
   signed: true
 }];
 function AnnualFilingView({
@@ -12157,6 +12449,8 @@ function AnnualFilingView({
   filingsForClient,
   annualFiling,
   annualItems,
+  assets,
+  onSaveAssets,
   settings,
   isClientView,
   onSave,
@@ -12203,7 +12497,8 @@ function AnnualFilingView({
     adj: {
       ...adj,
       fx
-    }
+    },
+    __assets: assets
   });
   const locked = !!local.filed;
   const canEdit = !isClientView && !locked;
@@ -12228,7 +12523,7 @@ function AnnualFilingView({
     const ok = await onSave(next);
     if (ok === false) {
       setSaveState("failed");
-      setErr(en ? "Could not save. If you are signed in as a client, the office may need to update the server (v9)." : "저장하지 못했어요. 고객사 계정이라면 사무소 서버 코드(v9) 업데이트가 필요할 수 있어요.");
+      setErr(en ? "Could not save. If you are signed in as a client, the office may need to update the server (v10)." : "저장하지 못했어요. 고객사 계정이라면 사무소 서버 코드(v10) 업데이트가 필요할 수 있어요.");
       return false;
     }
     setSaveState("saved");
@@ -12470,7 +12765,18 @@ function AnnualFilingView({
     label: a.balance >= 0 ? en ? "Tax to pay with the annual return" : "연간 신고 때 납부할 세액" : en ? "Overpaid (credit)" : "초과 납부액 (공제·환급 대상)",
     value: Math.abs(a.balance),
     big: true
-  }))), /*#__PURE__*/React.createElement("section", {
+  }))), /*#__PURE__*/React.createElement(AssetPanel, {
+    assets: assets,
+    year: selectedYear,
+    canEdit: canEdit && !!onSaveAssets,
+    settings: settings,
+    dep: a.dep,
+    depBooked: adj.depBooked !== false,
+    onDepBooked: v => setAdj({
+      depBooked: v
+    }),
+    onSave: onSaveAssets
+  }), /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
       display: "flex",
@@ -12499,6 +12805,40 @@ function AnnualFilingView({
       color: PALETTE.inkSoft
     }
   }, isClientView ? en ? "Entered by Kohr & Co." : "사무소가 입력해요" : locked ? en ? "Filed — undo filed status to edit" : "신고 완료 — 고치려면 신고 완료를 취소하세요" : en ? "Office only. Amounts add to profit unless noted." : "사무소만 입력. 따로 표시가 없으면 이익에 더하는 금액이에요.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: PALETTE.paper,
+      borderRadius: 12,
+      padding: "10px 14px"
+    },
+    "aria-label": en ? "Collected automatically" : "자동 집계",
+    role: "group"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 700,
+      color: PALETTE.ink,
+      marginBottom: 2
+    }
+  }, en ? "Collected automatically" : "자동 집계"), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? `Entertainment — ${a.ev.entertainment.count} receipt(s) in monthly filings` : `접대·오락·유흥비 — 월별 증빙 ${a.ev.entertainment.count}건`,
+    value: a.ev.entertainment.amount
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? `Fines & penalties — ${a.ev.fines.count} receipt(s) in monthly filings` : `벌금·가산세·과태료 — 월별 증빙 ${a.ev.fines.count}건`,
+    value: a.ev.fines.amount
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? `Contributions — ${a.ev.donation.count} receipt(s) · over the limit` : `기부금 — 월별 증빙 ${a.ev.donation.count}건 · 한도 초과분`,
+    value: a.donationExcess
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: adj.depBooked === false ? en ? `Depreciation — tax depreciation of ${a.dep.count} asset(s)` : `감가상각 — 자산 ${a.dep.count}건의 세무상 상각액` : en ? `Depreciation — book minus tax, ${a.dep.count} asset(s)` : `감가상각 차이 — 자산 ${a.dep.count}건 (회계상 − 세무상)`,
+    value: a.depAuto
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.6,
+      marginTop: 4
+    }
+  }, en ? "Receipts are picked up by their type in step 3 of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group." : "월별 신고 3단계에서 증빙의 지급 유형(접대비 · 벌금·가산세·과태료 · 기부금)으로 모아요. 잘못 들어간 증빙은 그 달 3단계에서 유형을 고치면 돼요.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -12538,7 +12878,7 @@ function AnnualFilingView({
       fontSize: 13.5,
       color: PALETTE.inkSoft
     }
-  }, en ? `Contribution limit ${fmt(a.donationLimit)} KHR · added back ${fmt(a.donationExcess)} KHR` : `기부금 한도 ${fmt(a.donationLimit)} KHR · 한도 초과로 더한 금액 ${fmt(a.donationExcess)} KHR`), /*#__PURE__*/React.createElement("div", {
+  }, en ? `Contributions ${fmt(a.donations)} KHR · limit ${fmt(a.donationLimit)} KHR · added back ${fmt(a.donationExcess)} KHR` : `기부금 합계 ${fmt(a.donations)} KHR · 한도 ${fmt(a.donationLimit)} KHR · 한도 초과로 더한 금액 ${fmt(a.donationExcess)} KHR`), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -12781,7 +13121,417 @@ function AnnualFilingView({
       ...S.disclaimer,
       marginTop: 0
     }
-  }, en ? "This is a working calculation, not the official return. Depreciation and interest limits are entered as amounts you calculated; QIP incentives and other special rules are not applied. Check against the current Law on Taxation and GDT Prakas before filing." : "이 화면은 신고용 계산 자료이며 공식 신고서가 아니에요. 감가상각과 이자 한도는 직접 계산한 금액을 넣는 방식이고, QIP 감면 등 특례는 반영하지 않아요. 신고 전에 현행 세법과 GDT Prakas로 확인하세요.")));
+  }, en ? "This is a working calculation, not the official return. Depreciation comes from the asset register and the interest limit is entered as an amount you calculated; QIP incentives and other special rules are not applied. Check against the current Law on Taxation and GDT Prakas before filing." : "이 화면은 신고용 계산 자료이며 공식 신고서가 아니에요. 감가상각은 자산 대장으로 계산하고 이자 한도는 직접 계산한 금액을 넣어요. QIP 감면 등 특례는 반영하지 않아요. 신고 전에 현행 세법과 GDT Prakas로 확인하세요.")));
+}
+function AssetPanel({
+  assets,
+  year,
+  canEdit,
+  settings,
+  depBooked,
+  onDepBooked,
+  onSave,
+  dep
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const blank = () => ({
+    id: "",
+    name: "",
+    cls: "c3",
+    acquiredAt: `${year}-01-01`,
+    cost: "",
+    related: "",
+    ccy: "USD",
+    fx: Number((settings || {}).rate) || DEFAULT_EXCHANGE_RATE,
+    bookLife: "",
+    salvage: "",
+    taxLife: "",
+    disposedAt: "",
+    memo: ""
+  });
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const list = assets || [];
+  const cls = form ? assetClass(form.cls) : null;
+  const set = patch => setForm({
+    ...form,
+    ...patch
+  });
+  const save = async () => {
+    if (!form.name.trim()) {
+      setErr(en ? "Enter the asset name." : "자산 이름을 넣어 주세요.");
+      return;
+    }
+    if (!parseYm(form.acquiredAt)) {
+      setErr(en ? "Enter the acquisition date." : "취득일을 넣어 주세요.");
+      return;
+    }
+    if (!((Number(form.cost) || 0) + (Number(form.related) || 0) > 0)) {
+      setErr(en ? "Enter the acquisition cost." : "취득원가를 넣어 주세요.");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    const item = {
+      ...form,
+      name: form.name.trim(),
+      id: form.id || uid()
+    };
+    const next = form.id ? list.map(x => x.id === form.id ? item : x) : [...list, item];
+    const ok = await onSave(next);
+    setBusy(false);
+    if (ok === false) setErr(en ? "Could not save. Check the connection and try again." : "저장하지 못했어요. 연결을 확인하고 다시 해 주세요.");else setForm(null);
+  };
+  const remove = async a => {
+    if (!window.confirm(en ? `Delete “${a.name}” from the asset register?` : `자산 대장에서 “${a.name}”을(를) 지울까요?`)) return;
+    await onSave(list.filter(x => x.id !== a.id));
+  };
+  const field = (id, label, node, note) => /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.stackLabel,
+      flex: "1 1 200px"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, label), node, note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, note));
+  const num = (id, key, ph) => /*#__PURE__*/React.createElement("input", {
+    id: `asset-${id}`,
+    type: "number",
+    inputMode: "decimal",
+    style: S.input,
+    value: form[key] ?? "",
+    placeholder: ph || "0",
+    onChange: e => set({
+      [key]: e.target.value
+    })
+  });
+  const th = {
+    textAlign: "right",
+    padding: "8px 10px",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: PALETTE.inkSoft,
+    whiteSpace: "nowrap",
+    borderBottom: "1px solid #E3E7EB"
+  };
+  const td = {
+    textAlign: "right",
+    padding: "9px 10px",
+    fontSize: 13.5,
+    color: PALETTE.ink,
+    whiteSpace: "nowrap",
+    fontFamily: FONT.mono,
+    borderBottom: "1px solid #EEF1F4"
+  };
+  return /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    },
+    "aria-label": en ? "Fixed assets & depreciation" : "고정자산·감가상각"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "baseline"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Fixed assets & depreciation" : "고정자산·감가상각"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, en ? `Book vs tax depreciation for ${year}, per asset` : `${year}년 회계상·세무상 상각액 (자산별)`)), list.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "No assets registered yet. Add buildings, vehicles, computers and other assets to calculate the depreciation difference automatically." : "등록된 자산이 없어요. 건물·차량·컴퓨터 등을 등록하면 감가상각 차이가 자동으로 계산돼요.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      borderCollapse: "collapse",
+      width: "100%",
+      minWidth: 760
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    style: {
+      ...th,
+      textAlign: "left"
+    }
+  }, en ? "Asset" : "자산"), /*#__PURE__*/React.createElement("th", {
+    style: th
+  }, en ? "Cost incl. related (KHR)" : "취득가액·제반비용 (KHR)"), /*#__PURE__*/React.createElement("th", {
+    style: th
+  }, en ? "Book dep." : "회계상 상각"), /*#__PURE__*/React.createElement("th", {
+    style: th
+  }, en ? "Tax dep." : "세무상 상각"), /*#__PURE__*/React.createElement("th", {
+    style: th
+  }, en ? "Difference" : "차이"), /*#__PURE__*/React.createElement("th", {
+    style: th
+  }, en ? "Tax value, year-end" : "세무상 기말 잔액"), canEdit && /*#__PURE__*/React.createElement("th", {
+    style: th
+  }))), /*#__PURE__*/React.createElement("tbody", null, dep.rows.map(r => {
+    const c = assetClass(r.a.cls);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: r.a.id
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...td,
+        textAlign: "left",
+        fontFamily: FONT.body,
+        whiteSpace: "normal",
+        minWidth: 200
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontWeight: 600
+      }
+    }, r.a.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 12.5,
+        color: PALETTE.inkSoft
+      }
+    }, en ? c.en : c.ko, " · ", String(r.a.acquiredAt || "").slice(0, 7), r.a.disposedAt ? ` → ${String(r.a.disposedAt).slice(0, 7)}` : "", " · ", en ? "book" : "회계", " ", Number(r.a.bookLife) > 0 ? r.a.bookLife : c.life, en ? "y" : "년", " · ", en ? "tax" : "세무", " ", en ? c.taxEn : c.taxKo)), /*#__PURE__*/React.createElement("td", {
+      style: td
+    }, fmt(r.base)), /*#__PURE__*/React.createElement("td", {
+      style: td
+    }, fmt(r.bookDep)), /*#__PURE__*/React.createElement("td", {
+      style: td
+    }, fmt(r.taxDep)), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...td,
+        color: r.diff < 0 ? PALETTE.red : PALETTE.ink
+      }
+    }, fmt(r.diff)), /*#__PURE__*/React.createElement("td", {
+      style: td
+    }, fmt(r.taxWdv)), canEdit && /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...td,
+        fontFamily: FONT.body
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall2,
+      onClick: () => {
+        setErr("");
+        setForm({
+          ...blank(),
+          ...r.a
+        });
+      }
+    }, en ? "Edit" : "수정"), " ", /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      style: S.buttonGhostSmall2,
+      "aria-label": en ? `Delete ${r.a.name}` : `${r.a.name} 삭제`,
+      onClick: () => remove(r.a)
+    }, en ? "Delete" : "삭제")));
+  }), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      textAlign: "left",
+      fontFamily: FONT.body,
+      fontWeight: 700,
+      borderBottom: "none"
+    }
+  }, en ? "Total" : "합계"), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      borderBottom: "none"
+    }
+  }), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      fontWeight: 700,
+      borderBottom: "none"
+    }
+  }, fmt(dep.bookDep)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      fontWeight: 700,
+      borderBottom: "none"
+    }
+  }, fmt(dep.taxDep)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      fontWeight: 700,
+      borderBottom: "none"
+    }
+  }, fmt(dep.diff)), /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      borderBottom: "none"
+    }
+  }), canEdit && /*#__PURE__*/React.createElement("td", {
+    style: {
+      ...td,
+      borderBottom: "none"
+    }
+  }))))), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "flex-start",
+      fontSize: 14.5,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    id: "dep-booked",
+    type: "checkbox",
+    checked: depBooked,
+    disabled: !canEdit,
+    onChange: e => onDepBooked(e.target.checked),
+    style: {
+      marginTop: 4
+    }
+  }), /*#__PURE__*/React.createElement("span", null, en ? "Book depreciation is already included in the monthly expenses" : "회계상 감가상각비가 월별 경비에 이미 들어 있음", /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
+    }
+  }, depBooked ? en ? "Adjustment = book − tax depreciation (the difference only)." : "조정액 = 회계상 − 세무상 (차이만 조정해요)." : en ? "Adjustment = − tax depreciation (the whole tax depreciation is deducted)." : "조정액 = − 세무상 상각액 (세무상 상각액 전체를 비용으로 빼요)."))), canEdit && !form && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhostSmall2,
+      alignSelf: "flex-start"
+    },
+    onClick: () => {
+      setErr("");
+      setForm(blank());
+    }
+  }, en ? "+ Add asset" : "+ 자산 추가"), canEdit && form && /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: "1px solid #D8DEE4",
+      borderRadius: 12,
+      padding: 14,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14.5,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, form.id ? en ? "Edit asset" : "자산 수정" : en ? "New asset" : "새 자산"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, field("name", en ? "Asset name" : "자산 이름", /*#__PURE__*/React.createElement("input", {
+    id: "asset-name",
+    style: S.input,
+    value: form.name,
+    placeholder: en ? "e.g. Delivery van" : "예: 배송 차량",
+    onChange: e => set({
+      name: e.target.value
+    })
+  })), field("cls", en ? "Tax class" : "세무상 자산 종류", /*#__PURE__*/React.createElement("select", {
+    id: "asset-cls",
+    style: S.select,
+    value: form.cls,
+    onChange: e => set({
+      cls: e.target.value
+    })
+  }, ASSET_CLASSES.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, en ? c.en : c.ko))), `${en ? "Tax method" : "세무상 상각"}: ${en ? cls.taxEn : cls.taxKo}`), field("acq", en ? "Acquisition date" : "취득일", /*#__PURE__*/React.createElement("input", {
+    id: "asset-acq",
+    type: "date",
+    style: S.input,
+    value: form.acquiredAt || "",
+    onChange: e => set({
+      acquiredAt: e.target.value
+    })
+  }), en ? "Date put into use" : "사용을 시작한 날")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, field("cost", `${en ? "Acquisition cost" : "취득원가"} (${form.ccy})`, num("cost", "cost"), en ? "Purchase price before VAT" : "매입가 (VAT 제외)"), field("related", `${en ? "Related costs" : "제반비용"} (${form.ccy})`, num("related", "related"), en ? "Transport, installation, registration, import duty…" : "운반·설치·등록비, 관세 등 취득에 든 비용"), field("ccy", en ? "Currency" : "통화", /*#__PURE__*/React.createElement("select", {
+    id: "asset-ccy",
+    style: S.select,
+    value: form.ccy,
+    onChange: e => set({
+      ccy: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"), /*#__PURE__*/React.createElement("option", {
+    value: "KHR"
+  }, "KHR"))), form.ccy === "USD" && field("fx", en ? "Rate at acquisition (1 USD = KHR)" : "취득 당시 환율 (1 USD = KHR)", num("fx", "fx"))), cls.method !== "none" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, field("life", en ? "Book useful life (years)" : "회계상 내용연수 (년)", num("life", "bookLife", String(cls.life)), en ? `Straight-line, monthly from the acquisition month. Blank = ${cls.life} years.` : `정액법, 취득한 달부터 월할. 비우면 ${cls.life}년.`), field("salvage", `${en ? "Residual value" : "잔존가치"} (${form.ccy})`, num("salvage", "salvage"), en ? "Book only. Usually 0." : "회계상만 적용. 보통 0."), cls.id === "int" && field("taxlife", en ? "Tax useful life (years)" : "세무상 내용연수 (년)", num("taxlife", "taxLife", "10"), en ? "Blank = 10% a year" : "비우면 연 10%"), field("disp", en ? "Disposal date (if sold or scrapped)" : "처분일 (매각·폐기한 경우)", /*#__PURE__*/React.createElement("input", {
+    id: "asset-disp",
+    type: "date",
+    style: S.input,
+    value: form.disposedAt || "",
+    onChange: e => set({
+      disposedAt: e.target.value
+    })
+  }), en ? "No depreciation from that month" : "그 달부터 상각하지 않아요")), field("memo", en ? "Note (optional)" : "메모 (선택)", /*#__PURE__*/React.createElement("input", {
+    id: "asset-memo",
+    style: S.input,
+    value: form.memo || "",
+    onChange: e => set({
+      memo: e.target.value
+    })
+  })), err && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.red
+    }
+  }, err), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: busy,
+    onClick: save
+  }, busy ? en ? "Saving…" : "저장 중…" : en ? "Save asset" : "자산 저장"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    disabled: busy,
+    onClick: () => setForm(null)
+  }, en ? "Cancel" : "취소"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.6
+    }
+  }, en ? "Tax depreciation: declining-balance classes take a full year in the year of acquisition and none from the year of disposal; buildings and intangibles are straight-line by month. Gains or losses on disposal are not calculated — enter them under Other adjustments." : "세무상 상각: 정률법 자산은 취득한 해에 1년분 전액, 처분한 해부터는 상각하지 않아요. 건물과 무형자산은 정액법으로 월할 계산해요. 처분손익은 계산하지 않으니 기타 조정에 넣어 주세요."));
 }
 function AnnualItemRow({
   it,
@@ -14459,7 +15209,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v9-annual';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v10-assets';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -14668,7 +15418,9 @@ function clientView(data, clientId) {
   if (data.annual && data.annual[clientId]) annual[clientId] = data.annual[clientId];
   var annualFilings = {};
   if (data.annualFilings && data.annualFilings[clientId]) annualFilings[clientId] = data.annualFilings[clientId];
-  return { clients: own, filings: filings, capitalGains: gains, annual: annual, annualFilings: annualFilings, settings: data.settings || {} };
+  var assets = {};
+  if (data.assets && data.assets[clientId]) assets[clientId] = data.assets[clientId];
+  return { clients: own, filings: filings, capitalGains: gains, annual: annual, annualFilings: annualFilings, assets: assets, settings: data.settings || {} };
 }
 
 // 고객사가 보낸 월별 신고 자료에서 사무소만 정할 수 있는 항목(신고 완료·접수번호·보완 요청)은 기존 값으로 되돌린다.
@@ -15163,6 +15915,8 @@ function writeAudit(before, after, patch, auth, actor, now) {
       Object.keys(nb).forEach(function (id) { if (!na[id]) parts.push('고객사 등록: ' + nb[id].name); else if (JSON.stringify(na[id]) !== JSON.stringify(nb[id])) parts.push('정보 수정: ' + nb[id].name); });
       Object.keys(na).forEach(function (id) { if (!nb[id]) parts.push('고객사 삭제: ' + na[id].name); });
       what = parts.join(' · ') || '고객사 목록 저장';
+    } else if (path[0] === 'assets') {
+      cid = path[1]; what = '고정자산 대장 수정';
     } else if (path[0] === 'annual') {
       cid = path[1]; what = '연간 일정 체크';
     } else if (path[0] === 'annualFilings' && path.length === 3) {

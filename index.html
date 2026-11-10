@@ -459,10 +459,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.10.1";
+const APP_RELEASE = "2026.11.10.2";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.10.2",
+  ko: ["연간 신고 탭 추가 — [신고] 메뉴 안에서 월별 / 연간을 고르고, 연간 법인세 세무조정 → 검토 → 신고 완료 → 납부까지 기록해요", "Patent tax·재무제표 제출 등 연간 업무에 접수번호와 증빙 사진을 남길 수 있어요"],
+  en: ["Annual filing tab — under Filing choose Monthly / Annual; record annual tax adjustments, review, filing and payment", "Keep a reference no. and photo for patent tax, financial statements and other annual filings"]
+}, {
   version: "2026.11.10.1",
   ko: ["크메르어(ខ្មែរ) 화면 추가 — 언어 버튼에서 한국어 · English · ខ្មែរ 중에 고를 수 있어요"],
   en: ["Khmer (ខ្មែរ) added — choose 한국어 · English · ខ្មែរ with the language buttons"]
@@ -1514,7 +1518,7 @@ function calcMonthly(f) {
     evidenceExpense: totalExpenseKHR
   };
 }
-function calcAnnual(filingsForClient, year) {
+function calcAnnual(filingsForClient, year, af) {
   let revenue = 0,
     expenses = 0,
     pptPaid = 0,
@@ -1534,11 +1538,25 @@ function calcAnnual(filingsForClient, year) {
       monthsFiled++;
     }
   }
+  // 세무조정(연간 신고 탭에서 사무소가 입력) — 없으면 예전과 같은 간이 계산
+  const adj = af && af.adj || {};
+  const fx = Number(adj.fx) > 0 ? Number(adj.fx) : DEFAULT_EXCHANGE_RATE;
+  const k = v => (Number(v) || 0) * (adj.ccy === "KHR" ? 1 : fx);
   const profit = revenue - expenses;
-  const incomeTax = profit > 0 ? profit * 0.2 : 0;
-  const minTax = revenue * 0.01;
+  const donations = Math.max(k(adj.donations), 0);
+  const donationLimit = Math.max(0, (profit + donations) * 0.05);
+  const donationExcess = Math.max(0, donations - donationLimit);
+  const otherAdj = (adj.others || []).reduce((sum, o) => sum + k(o.amount), 0);
+  const addBacks = k(adj.entertainment) + k(adj.fines) + k(adj.unsupported) + donationExcess + k(adj.interestExcess) + k(adj.depreciationDiff) + otherAdj;
+  const adjustedProfit = profit + addBacks;
+  const lossUsed = Math.min(Math.max(k(adj.lossCF), 0), Math.max(adjustedProfit, 0));
+  const taxable = Math.max(adjustedProfit - lossUsed, 0);
+  const taxRate = adj.taxRate !== undefined && adj.taxRate !== "" && Number(adj.taxRate) >= 0 ? Number(adj.taxRate) / 100 : 0.2;
+  const incomeTax = taxable * taxRate;
+  const minTax = adj.minTaxExempt ? 0 : revenue * 0.01;
   const annualToiDue = Math.max(incomeTax, minTax);
-  const balance = annualToiDue - pptPaid;
+  const whtCredit = Math.max(k(adj.whtCredit), 0);
+  const balance = annualToiDue - pptPaid - whtCredit;
   return {
     revenue,
     expenses,
@@ -1550,7 +1568,16 @@ function calcAnnual(filingsForClient, year) {
     withholdingPaid,
     nssfPaid,
     balance,
-    monthsFiled
+    monthsFiled,
+    donations,
+    donationLimit,
+    donationExcess,
+    addBacks,
+    adjustedProfit,
+    lossUsed,
+    taxable,
+    taxRate,
+    whtCredit
   };
 }
 
@@ -1580,7 +1607,7 @@ function calcIncomeStatement(f) {
 }
 
 // 연간 손익계산서: 월별 입력분을 급여를 포함한 발생주의 방식으로 합산, 세금은 연간 ToI 확정세액을 반영
-function calcAnnualIncomeStatement(filingsForClient, year) {
+function calcAnnualIncomeStatement(filingsForClient, year, af) {
   let revenue = 0,
     cogs = 0,
     payroll = 0,
@@ -1607,7 +1634,7 @@ function calcAnnualIncomeStatement(filingsForClient, year) {
   }
   const grossProfit = revenue - cogs;
   const operatingProfit = grossProfit - payroll - opex;
-  const annualTax = calcAnnual(filingsForClient, year);
+  const annualTax = calcAnnual(filingsForClient, year, af);
   const netIncome = operatingProfit - annualTax.annualToiDue;
   return {
     revenue,
@@ -2354,12 +2381,13 @@ const NAV = [{
   hintKo: "이번 달 할 일",
   hintEn: "This month's to-dos"
 }, {
-  id: "monthly",
-  ko: "월별 신고",
-  en: "Monthly filing",
-  tabEn: "Filing",
-  hintKo: "매출·급여·증빙 입력",
-  hintEn: "Sales, payroll, receipts"
+  id: "filing",
+  icon: "monthly",
+  ko: "신고",
+  en: "Filing",
+  hintKo: "월별·연간 신고",
+  hintEn: "Monthly & annual filing",
+  children: ["monthly", "annualtoi"]
 }, {
   id: "reports",
   ko: "보고서",
@@ -2382,6 +2410,14 @@ const NAV = [{
   children: ["rates", "activity", "backend", "about"]
 }];
 const SUBVIEW_LABELS = {
+  monthly: {
+    ko: "월별 신고",
+    en: "Monthly"
+  },
+  annualtoi: {
+    ko: "연간 신고",
+    en: "Annual"
+  },
   draft: {
     ko: "신고서 작성안",
     en: "Filing draft"
@@ -3466,7 +3502,83 @@ const KM_DICT = {
   "매입 VAT 인보이스 (Purchase VAT invoices)": "វិក្កយបត្រទិញ អតប (Purchase VAT invoices)",
   "급여대장·근무일수 (Payroll sheet)": "បញ្ជីប្រាក់បៀវត្ស (Payroll sheet)",
   "은행 거래내역서 (Bank statement)": "របាយការណ៍ធនាគារ (Bank statement)",
-  "임차료·용역비 청구서 (Rent & service bills)": "វិក្កយបត្រថ្លៃឈ្នួល និងសេវា (Rent & service bills)"
+  "임차료·용역비 청구서 (Rent & service bills)": "វិក្កយបត្រថ្លៃឈ្នួល និងសេវា (Rent & service bills)",
+  "Annual filing tab — under Filing choose Monthly / Annual; record annual tax adjustments, review, filing and payment": "ផ្ទាំងប្រកាសប្រចាំឆ្នាំ — ក្នុង «ប្រកាសពន្ធ» ជ្រើស ប្រចាំខែ / ប្រចាំឆ្នាំ កត់ត្រានិយ័តកម្មពន្ធប្រចាំឆ្នាំ ការពិនិត្យ ការដាក់ប្រកាស និងការបង់ពន្ធ",
+  "Keep a reference no. and photo for patent tax, financial statements and other annual filings": "រក្សាលេខយោង និងរូបថត សម្រាប់ពន្ធប៉ាតង់ របាយការណ៍ហិរញ្ញវត្ថុ និងការងារប្រចាំឆ្នាំផ្សេងៗ",
+  "Monthly & annual filing": "ប្រកាសប្រចាំខែ និងប្រចាំឆ្នាំ",
+  "Open annual filing": "បើកការប្រកាសប្រចាំឆ្នាំ",
+  "Tax adjustments (net)": "និយ័តកម្មពន្ធ (សុទ្ធ)",
+  "Loss carried forward used": "ខាតយោងដែលបានប្រើ",
+  "Taxable profit": "ប្រាក់ចំណេញជាប់ពន្ធ",
+  "Tax on Income ({0}%)": "ពន្ធលើប្រាក់ចំណូល ({0}%)",
+  "Less: withholding tax credit": "ដក៖ ឥណទានពន្ធកាត់ទុក",
+  "※ Tax adjustments, loss carryforward and the minimum-tax exemption come from Filing › Annual. QIP incentives are not applied — verify against the latest GDT Prakas and tax law before actual filing.": "※ និយ័តកម្មពន្ធ ខាតយោង និងការលើកលែងពន្ធអប្បបរមា យកពី ប្រកាសពន្ធ › ប្រចាំឆ្នាំ។ ការលើកទឹកចិត្ត QIP មិនត្រូវបានគិតទេ — សូមផ្ទៀងផ្ទាត់ជាមួយប្រកាស GDT និងច្បាប់ពន្ធចុងក្រោយ មុនដាក់ប្រកាសពិត។",
+  "Entertainment & amusement": "ចំណាយទទួលភ្ញៀវ និងកម្សាន្ត",
+  "Fully non-deductible": "មិនអាចកាត់កងបានទាំងស្រុង",
+  "Fines, penalties & late interest": "ប្រាក់ពិន័យ ទោសទណ្ឌ និងការប្រាក់យឺត",
+  "Expenses without documents": "ចំណាយគ្មានឯកសារ",
+  "No valid supporting document": "គ្មានឯកសារគាំទ្រត្រឹមត្រូវ",
+  "Charitable contributions (total paid)": "វិភាគទានសប្បុរសធម៌ (ចំនួនបង់សរុប)",
+  "Only the part over the limit (5% of profit before contributions) is added back": "បូកត្រឡប់តែផ្នែកលើសកម្រិត (5% នៃចំណេញមុនដកវិភាគទាន)",
+  "Interest over the limit": "ការប្រាក់លើសកម្រិត",
+  "Excess you calculated": "ចំនួនលើសដែលអ្នកបានគណនា",
+  "Depreciation difference (book − tax)": "ភាពខុសគ្នានៃរំលស់ (គណនេយ្យ − ពន្ធ)",
+  "Negative if tax depreciation is larger": "ដាក់អវិជ្ជមាន បើរំលស់តាមពន្ធធំជាង",
+  "Annual filing": "ប្រកាសប្រចាំឆ្នាំ",
+  "FY{0} annual": "ប្រចាំឆ្នាំ {0}",
+  "Could not save. If you are signed in as a client, the office may need to update the server (v9).": "រក្សាទុកមិនបាន។ បើអ្នកចូលជាអតិថិជន ការិយាល័យប្រហែលត្រូវធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីនមេ (v9)។",
+  "In preparation": "កំពុងរៀបចំ",
+  "Annual Tax on Income: adjustments, review, filing and payment": "ពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំ៖ និយ័តកម្ម ពិនិត្យ ដាក់ប្រកាស និងបង់ពន្ធ",
+  "FY{0}": "ឆ្នាំ {0}",
+  "Due {0}, {1}": "ផុតកំណត់ {0}, {1}",
+  "Only {0} of 12 months have data for {1}. The figures below cover those months only.": "មានទិន្នន័យតែ {0} ខែក្នុង 12 ខែ សម្រាប់ឆ្នាំ {1}។ តួលេខខាងក្រោមគ្របដណ្តប់តែខែទាំងនោះ។",
+  "Kohr & Co. asked for changes — see the messages below, then request review again.": "Kohr & Co. ស្នើឱ្យកែ — មើលសារខាងក្រោម រួចស្នើសុំពិនិត្យម្តងទៀត។",
+  "Totals from monthly filings": "សរុបពីការប្រកាសប្រចាំខែ",
+  "Accounting profit": "ចំណេញតាមគណនេយ្យ",
+  "Prepayments already paid (monthly 1%)": "ប្រាក់រំដោះដែលបានបង់រួច (1% ប្រចាំខែ)",
+  "Annual tax calculation": "ការគណនាពន្ធប្រចាំឆ្នាំ",
+  "Minimum tax (exempt)": "ពន្ធអប្បបរមា (លើកលែង)",
+  "Annual tax (higher of the two)": "ពន្ធប្រចាំឆ្នាំ (យកចំនួនខ្ពស់ជាង)",
+  "Less: prepayments paid": "ដក៖ ប្រាក់រំដោះដែលបានបង់",
+  "Tax to pay with the annual return": "ពន្ធត្រូវបង់ជាមួយលិខិតប្រកាសប្រចាំឆ្នាំ",
+  "Overpaid (credit)": "បង់លើស (ឥណទាន)",
+  "Tax adjustments": "និយ័តកម្មពន្ធ",
+  "Entered by Kohr & Co.": "បញ្ចូលដោយ Kohr & Co.",
+  "Filed — undo filed status to edit": "បានដាក់ប្រកាស — បោះបង់ស្ថានភាពដាក់ប្រកាសដើម្បីកែ",
+  "Office only. Amounts add to profit unless noted.": "តែការិយាល័យប៉ុណ្ណោះ។ ចំនួនទាំងនេះបូកចូលចំណេញ លើកលែងតែមានបញ្ជាក់។",
+  "Adjustment currency": "រូបិយប័ណ្ណនិយ័តកម្ម",
+  "Exchange rate (1 USD = KHR)": "អត្រាប្តូរប្រាក់ (1 USD = KHR)",
+  "Used to convert the amounts below": "ប្រើដើម្បីបម្លែងចំនួនខាងក្រោម",
+  "Contribution limit {0} KHR · added back {1} KHR": "កម្រិតវិភាគទាន {0} KHR · បូកត្រឡប់ {1} KHR",
+  "Other adjustments (+ adds to profit, − reduces)": "និយ័តកម្មផ្សេងៗ (+ បូកចូលចំណេញ − ដកចេញ)",
+  "Other adjustment {0} description": "ពិពណ៌នានិយ័តកម្មផ្សេងៗទី {0}",
+  "What it is": "ជាអ្វី",
+  "Other adjustment {0} amount": "ចំនួននិយ័តកម្មផ្សេងៗទី {0}",
+  "+ Add adjustment": "+ បន្ថែមនិយ័តកម្ម",
+  "Loss carried forward to use": "ខាតយោងដែលត្រូវប្រើ",
+  "Losses can be carried forward 5 years": "ខាតអាចយោងបាន 5 ឆ្នាំ",
+  "Withholding tax credit": "ឥណទានពន្ធកាត់ទុក",
+  "Tax withheld from this company by others": "ពន្ធដែលអ្នកដទៃកាត់ទុកពីក្រុមហ៊ុននេះ",
+  "Tax rate (%)": "អត្រាពន្ធ (%)",
+  "Standard 20%. Change only for special cases.": "ស្តង់ដារ 20%។ ប្តូរតែករណីពិសេស។",
+  "Exempt from minimum tax (proper accounting records kept)": "លើកលែងពន្ធអប្បបរមា (រក្សាបញ្ជីគណនេយ្យត្រឹមត្រូវ)",
+  "Save adjustments": "រក្សាទុកនិយ័តកម្ម",
+  "Review requested — Kohr & Co. will check the year and file the annual return.": "បានស្នើសុំពិនិត្យ — Kohr & Co. នឹងពិនិត្យឆ្នាំនេះ ហើយដាក់លិខិតប្រកាសប្រចាំឆ្នាំ។",
+  "When all 12 months are entered and the year-end documents are sent, request the annual review.": "ពេលបញ្ចូលគ្រប់ 12 ខែ និងផ្ញើឯកសារបិទឆ្នាំរួច សូមស្នើសុំពិនិត្យប្រចាំឆ្នាំ។",
+  "Request annual review": "ស្នើសុំពិនិត្យប្រចាំឆ្នាំ",
+  "After filing the annual return on GDT e-Filing, enter the reference no. above and mark as filed. The year then locks.": "ក្រោយដាក់លិខិតប្រកាសប្រចាំឆ្នាំលើ GDT e-Filing បញ្ចូលលេខយោងខាងលើ ហើយសម្គាល់ថាបានដាក់ប្រកាស។ ឆ្នាំនោះនឹងត្រូវចាក់សោ។",
+  "Mark annual return as filed": "សម្គាល់ថាបានដាក់ប្រកាសប្រចាំឆ្នាំ",
+  "Other annual filings": "ការងារប្រចាំឆ្នាំផ្សេងៗ",
+  "Other annual filings in {0}": "ការងារប្រចាំឆ្នាំផ្សេងៗក្នុងឆ្នាំ {0}",
+  "Updated by Kohr & Co.": "ធ្វើបច្ចុប្បន្នភាពដោយ Kohr & Co.",
+  "Tap the status to change it": "ចុចលើស្ថានភាពដើម្បីប្តូរ",
+  "This is a working calculation, not the official return. Depreciation and interest limits are entered as amounts you calculated; QIP incentives and other special rules are not applied. Check against the current Law on Taxation and GDT Prakas before filing.": "នេះជាការគណនាសម្រាប់ការងារ មិនមែនលិខិតប្រកាសផ្លូវការទេ។ រំលស់ និងកម្រិតការប្រាក់ បញ្ចូលជាចំនួនដែលអ្នកបានគណនា ការលើកទឹកចិត្ត QIP និងវិធានពិសេសផ្សេងៗមិនត្រូវបានអនុវត្តទេ។ សូមផ្ទៀងផ្ទាត់ជាមួយច្បាប់ស្តីពីសារពើពន្ធ និងប្រកាស GDT បច្ចុប្បន្ន មុនដាក់ប្រកាស។",
+  "{0} reference no.": "លេខយោង {0}",
+  "Change photo": "ប្តូររូបថត",
+  "Add photo": "បន្ថែមរូបថត",
+  "{0} (USD)": "{0} (USD)",
+  "{0} (KHR)": "{0} (KHR)",
+  "Reference no.": "លេខយោង"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -3858,6 +3970,7 @@ function CambodiaTaxApp() {
     filings: parsed.filings || {},
     capitalGains: parsed.capitalGains || {},
     annual: parsed.annual || {},
+    annualFilings: parsed.annualFilings || {},
     settings: parsed.settings || {
       rate: DEFAULT_EXCHANGE_RATE,
       asOf: ""
@@ -4407,14 +4520,19 @@ function CambodiaTaxApp() {
       ...data.capitalGains
     };
     delete nextCapitalGains[id];
+    const nextAnnualFilings = {
+      ...(data.annualFilings || {})
+    };
+    delete nextAnnualFilings[id];
     const next = {
       ...data,
       clients: data.clients.filter(c => c.id !== id),
       filings: nextFilings,
-      capitalGains: nextCapitalGains
+      capitalGains: nextCapitalGains,
+      annualFilings: nextAnnualFilings
     };
     persist(next, {
-      paths: [["clients"], ["filings", id], ["capitalGains", id]]
+      paths: [["clients"], ["filings", id], ["capitalGains", id], ["annualFilings", id]]
     });
     if (selectedClientId === id) setSelectedClientId(next.clients[0]?.id || null);
   };
@@ -4505,27 +4623,54 @@ function CambodiaTaxApp() {
     return r.rows || [];
   };
   const backupNow = async () => gasRequest(backendRef.current, "backupNow", {});
+  // 연간 일정 항목: 상태(s)·접수번호(ref)·증빙 사진을 함께 보관. value 가 문자열이면 상태만 바꾼다
   const setAnnual = (clientId, year, itemId, value) => {
+    const d = dataRef.current || data;
     const cur = {
-      ...((data.annual || {})[clientId] || {})
+      ...((d.annual || {})[clientId] || {})
     };
     const y = {
       ...(cur[year] || {})
     };
-    if (value) y[itemId] = {
-      s: value,
+    const patch = typeof value === "string" ? {
+      s: value
+    } : value || {};
+    const merged = {
+      ...(y[itemId] || {}),
+      ...patch,
       at: new Date().toISOString()
-    };else delete y[itemId];
+    };
+    if (!merged.s) delete merged.s;
+    if (!merged.ref) delete merged.ref;
+    if (merged.s || merged.ref || merged.proofThumb) y[itemId] = merged;else delete y[itemId];
     cur[year] = y;
     const next = {
-      ...data,
+      ...d,
       annual: {
-        ...(data.annual || {}),
+        ...(d.annual || {}),
         [clientId]: cur
       }
     };
     persist(next, {
       paths: [["annual", clientId]]
+    });
+  };
+  const saveAnnualFiling = (clientId, year, af) => {
+    const d = dataRef.current || data;
+    const mine = {
+      ...((d.annualFilings || {})[clientId] || {}),
+      [String(year)]: af
+    };
+    const next = {
+      ...d,
+      annualFilings: {
+        ...(d.annualFilings || {}),
+        [clientId]: mine
+      }
+    };
+    return persist(next, {
+      optimistic: false,
+      paths: [["annualFilings", clientId, String(year)]]
     });
   };
   const setClientPassword = async (clientId, password) => {
@@ -4601,7 +4746,7 @@ function CambodiaTaxApp() {
     } catch (e) {/* 무시 */}
   };
   const goNav = n => {
-    if (n.id === "monthly" && view !== "monthly") setMonthlyStartStep(1);
+    if (n.id === "filing" && view !== "monthly") setMonthlyStartStep(1);
     const last = lastSubRef.current[n.id];
     goView(n.children ? n.children.includes(last) ? last : n.children[0] : n.id);
   };
@@ -4730,7 +4875,7 @@ function CambodiaTaxApp() {
         ...(active ? S.navItemActive : {})
       }
     }, /*#__PURE__*/React.createElement(Icon, {
-      name: n.id,
+      name: n.icon || n.id,
       size: 20
     }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.en : n.ko));
   })), /*#__PURE__*/React.createElement("div", {
@@ -4824,7 +4969,7 @@ function CambodiaTaxApp() {
       onClick: () => goNav(n),
       className: active ? "active" : ""
     }, /*#__PURE__*/React.createElement(Icon, {
-      name: n.id,
+      name: n.icon || n.id,
       size: 22
     }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? n.tabEn || n.en : n.ko));
   })), /*#__PURE__*/React.createElement("main", {
@@ -4987,7 +5132,26 @@ function CambodiaTaxApp() {
     onGo: goView,
     canManageClients: !isClient,
     onUploadImage: serverOn ? (dataUrl, name, kind) => uploadImage(selectedClientId, mKey, kind || "evidence", dataUrl, name) : null
+  }), view === "annualtoi" && /*#__PURE__*/React.createElement(AnnualFilingView, {
+    clients: data.clients,
+    selectedClient: selectedClient,
+    selectedClientId: selectedClientId,
+    setSelectedClientId: setSelectedClientId,
+    selectedYear: selectedYear,
+    setSelectedYear: setSelectedYear,
+    filingsForClient: data.filings[selectedClientId] || {},
+    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
+    annualItems: (data.annual || {})[selectedClientId] || {},
+    settings: data.settings,
+    isClientView: isClient,
+    onSave: af => saveAnnualFiling(selectedClientId, selectedYear, af),
+    onSetItem: isClient ? null : (year, itemId, patch) => setAnnual(selectedClientId, year, itemId, patch),
+    onUploadImage: serverOn ? (dataUrl, name, kind) => uploadImage(selectedClientId, `FY${selectedYear}`, kind || "annual", dataUrl, name) : null,
+    onDirtyChange: handleDirtyChange,
+    serverOn: serverOn
   }), view === "annual" && /*#__PURE__*/React.createElement(AnnualView, {
+    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
+    onGo: goView,
     clients: data.clients,
     selectedClient: selectedClient,
     selectedClientId: selectedClientId,
@@ -5005,6 +5169,7 @@ function CambodiaTaxApp() {
     selectedMonth: selectedMonth,
     setSelectedMonth: setSelectedMonth,
     filingsForClient: data.filings[selectedClientId] || {},
+    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)],
     filing: currentFiling
   }), view === "capitalgains" && /*#__PURE__*/React.createElement(CapitalGainsView, {
     clients: data.clients,
@@ -5023,7 +5188,8 @@ function CambodiaTaxApp() {
     selectedYear: selectedYear,
     setSelectedYear: setSelectedYear,
     selectedMonth: selectedMonth,
-    setSelectedMonth: setSelectedMonth
+    setSelectedMonth: setSelectedMonth,
+    annualFiling: ((data.annualFilings || {})[selectedClientId] || {})[String(selectedYear)]
   }), view === "rates" && /*#__PURE__*/React.createElement(RatesView, null), view === "about" && /*#__PURE__*/React.createElement(AboutView, {
     onFound: info => {
       setUpdateInfo(info);
@@ -5775,7 +5941,8 @@ function Dashboard({
     clients: rows.map(r => r.c),
     annual: data.annual || {},
     isClient: isClient,
-    onSet: onSetAnnual
+    onSet: onSetAnnual,
+    onGo: onGo
   }), (!guideHidden || data.clients.length === 0) && guide, remindOpen && /*#__PURE__*/React.createElement(ReminderModal, {
     rows: notReady,
     year: selectedYear,
@@ -6017,7 +6184,8 @@ function AnnualPanel({
   clients,
   annual,
   isClient,
-  onSet
+  onSet,
+  onGo
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -6083,9 +6251,17 @@ function AnnualPanel({
   }, en ? "Annual deadlines" : "연간 일정"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 13,
-      color: PALETTE.inkSoft
+      color: PALETTE.inkSoft,
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap"
     }
-  }, en ? "For a December year-end" : "12월 결산 법인 기준")), /*#__PURE__*/React.createElement("div", {
+  }, en ? "For a December year-end" : "12월 결산 법인 기준", onGo && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    onClick: () => onGo("annualtoi")
+  }, en ? "Open annual filing" : "연간 신고 열기"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -8650,7 +8826,8 @@ function AdminReviewPanel({
   onRequestChanges,
   busy,
   recipient,
-  context
+  context,
+  againText
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -8732,7 +8909,7 @@ function AdminReviewPanel({
     recipient: recipient,
     subject: context.subject,
     disabled: !note.trim() || busy,
-    text: note.trim() ? `${context.header}\n${en ? "Please fix the following and press Request review again in step 4:" : "아래 내용을 보완한 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요:"}\n${note.trim()}\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}` : "",
+    text: note.trim() ? `${context.header}\n${againText || (en ? "Please fix the following and press Request review again in step 4:" : "아래 내용을 보완한 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요:")}\n${note.trim()}\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}` : "",
     onRecord: () => {
       const t = note;
       setNote("");
@@ -11822,7 +11999,9 @@ function AnnualView({
   setSelectedClientId,
   selectedYear,
   setSelectedYear,
-  filingsForClient
+  filingsForClient,
+  annualFiling,
+  onGo
 }) {
   const lang = useLang();
   if (clients.length === 0) {
@@ -11834,7 +12013,7 @@ function AnnualView({
       text: lang === "en" ? "Please register a client under 'Clients' first." : "먼저 '고객사 관리'에서 고객사를 등록하세요."
     }));
   }
-  const a = calcAnnual(filingsForClient, selectedYear);
+  const a = calcAnnual(filingsForClient, selectedYear, annualFiling);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
     eyebrow: lang === "en" ? "04 — Annual ToI" : "04 — 연간 ToI",
     title: lang === "en" ? "Annual Income Tax (ToI) Summary" : "연간 소득세(ToI) 집계",
@@ -11879,12 +12058,22 @@ function AnnualView({
     label: lang === "en" ? "Annual profit (estimated)" : "연 이익 (추정)",
     value: a.profit,
     bold: true
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Tax adjustments (net)" : "세무조정 합계",
+    value: a.addBacks
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Loss carried forward used" : "이월결손금 공제",
+    value: -a.lossUsed
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Taxable profit" : "과세소득",
+    value: a.taxable,
+    bold: true
   })), /*#__PURE__*/React.createElement("div", {
     style: S.panel
   }, /*#__PURE__*/React.createElement("div", {
     style: S.panelTitle
   }, lang === "en" ? "ToI vs Minimum Tax Comparison" : "ToI vs 최저세 비교"), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Profit tax (profit × 20%)" : "이윤세 (이익 × 20%)",
+    label: lang === "en" ? `Tax on Income (${Math.round(a.taxRate * 1000) / 10}%)` : `법인세 (${Math.round(a.taxRate * 1000) / 10}%)`,
     value: a.incomeTax
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Minimum tax (revenue × 1%)" : "최저세 (매출 × 1%)",
@@ -11898,6 +12087,9 @@ function AnnualView({
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Less: prepaid PPT already paid" : "기납부 선납이윤세(PPT) 차감",
     value: -a.pptPaid
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Less: withholding tax credit" : "차감: 원천징수 세액공제",
+    value: -a.whtCredit
   }), /*#__PURE__*/React.createElement("div", {
     style: S.divider
   }), /*#__PURE__*/React.createElement(NumberRow, {
@@ -11906,7 +12098,842 @@ function AnnualView({
     big: true
   }))), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
-  }, lang === "en" ? "※ This is a simplified estimate. QIP incentives, loss carryforwards, dependent deductions, minimum tax exemption conditions, etc. are not reflected — verify against the latest GDT Prakas and tax law before actual filing." : "※ 간이 추정치입니다. QIP 감면, 이월결손금, 부양가족 공제, 최소세 면제요건 등은 반영되지 않았으니 실제 신고 전 최신 GDT Prakas 및 세법을 기준으로 검증하세요."));
+  }, lang === "en" ? "※ Tax adjustments, loss carryforward and the minimum-tax exemption come from Filing › Annual. QIP incentives are not applied — verify against the latest GDT Prakas and tax law before actual filing." : "※ 세무조정·이월결손금·최저한세 면제는 [신고 › 연간 신고]에서 입력한 값을 반영해요. QIP 감면은 반영하지 않으니 실제 신고 전 최신 GDT Prakas 및 세법으로 검증하세요."), onGo && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhostSmall2,
+      marginTop: 10
+    },
+    onClick: () => onGo("annualtoi")
+  }, lang === "en" ? "Open annual filing" : "연간 신고 열기"));
+}
+
+/* ---------------- 연간 신고 (법인세 세무조정 → 검토 → 신고 → 납부) ---------------- */
+const ADJ_FIELDS = [{
+  id: "entertainment",
+  ko: "접대·오락·유흥비",
+  en: "Entertainment & amusement",
+  noteKo: "전액 손금불산입",
+  noteEn: "Fully non-deductible"
+}, {
+  id: "fines",
+  ko: "벌금·가산세·과태료",
+  en: "Fines, penalties & late interest",
+  noteKo: "전액 손금불산입",
+  noteEn: "Fully non-deductible"
+}, {
+  id: "unsupported",
+  ko: "증빙 없는 비용",
+  en: "Expenses without documents",
+  noteKo: "적격 증빙이 없는 비용",
+  noteEn: "No valid supporting document"
+}, {
+  id: "donations",
+  ko: "기부금 (지출 총액)",
+  en: "Charitable contributions (total paid)",
+  noteKo: "한도(기부금 차감 전 이익의 5%) 초과분만 자동으로 더해요",
+  noteEn: "Only the part over the limit (5% of profit before contributions) is added back"
+}, {
+  id: "interestExcess",
+  ko: "이자비용 한도 초과분",
+  en: "Interest over the limit",
+  noteKo: "직접 계산한 초과액",
+  noteEn: "Excess you calculated"
+}, {
+  id: "depreciationDiff",
+  ko: "감가상각 차이 (회계상 − 세무상)",
+  en: "Depreciation difference (book − tax)",
+  noteKo: "세무상이 더 크면 음수(−)로",
+  noteEn: "Negative if tax depreciation is larger",
+  signed: true
+}];
+function AnnualFilingView({
+  clients,
+  selectedClient,
+  selectedClientId,
+  setSelectedClientId,
+  selectedYear,
+  setSelectedYear,
+  filingsForClient,
+  annualFiling,
+  annualItems,
+  settings,
+  isClientView,
+  onSave,
+  onSetItem,
+  onUploadImage,
+  onDirtyChange,
+  serverOn
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const saved = annualFiling || {};
+  const savedKey = JSON.stringify(saved);
+  const [local, setLocal] = useState(saved);
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState("idle");
+  const [err, setErr] = useState("");
+  const ctxKey = `${selectedClientId}-${selectedYear}`;
+  useEffect(() => {
+    setLocal(saved);
+    setDirty(false);
+    setSaveState("idle");
+    setErr(""); /* eslint-disable-next-line */
+  }, [ctxKey]);
+  useEffect(() => {
+    if (!dirty) setLocal(saved); /* 다른 기기에서 바뀐 내용 반영 */ /* eslint-disable-next-line */
+  }, [savedKey]);
+  useEffect(() => {
+    if (!onDirtyChange) return undefined;
+    onDirtyChange(dirty, () => window.confirm(en ? "You have unsaved changes. Leaving now will discard them. Continue?" : "저장하지 않은 변경 내용이 있어요. 지금 나가면 사라져요. 계속할까요?"));
+    return () => onDirtyChange(false, null);
+  }, [dirty, en, onDirtyChange]);
+  if (clients.length === 0) {
+    return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+      title: en ? "Annual filing" : "연간 신고",
+      sub: ""
+    }), /*#__PURE__*/React.createElement(EmptyState, {
+      text: en ? "Please register a client under 'Clients' first." : "먼저 '고객사 관리'에서 고객사를 등록하세요."
+    }));
+  }
+  const adj = local.adj || {};
+  const fx = Number(adj.fx) > 0 ? Number(adj.fx) : Number((settings || {}).rate) || DEFAULT_EXCHANGE_RATE;
+  const a = calcAnnual(filingsForClient, selectedYear, {
+    ...local,
+    adj: {
+      ...adj,
+      fx
+    }
+  });
+  const locked = !!local.filed;
+  const canEdit = !isClientView && !locked;
+  const messages = local.messages || [];
+  const clientName = selectedClient?.name || "";
+  const yearText = en ? `FY${selectedYear} annual` : `${selectedYear}년 연간`;
+  const setAdj = patch => {
+    setLocal({
+      ...local,
+      adj: {
+        ...adj,
+        fx,
+        ...patch
+      }
+    });
+    setDirty(true);
+  };
+  const commit = async next => {
+    setLocal(next);
+    setSaveState("saving");
+    setErr("");
+    const ok = await onSave(next);
+    if (ok === false) {
+      setSaveState("failed");
+      setErr(en ? "Could not save. If you are signed in as a client, the office may need to update the server (v9)." : "저장하지 못했어요. 고객사 계정이라면 사무소 서버 코드(v9) 업데이트가 필요할 수 있어요.");
+      return false;
+    }
+    setSaveState("saved");
+    setDirty(false);
+    return true;
+  };
+  const newMsg = text => ({
+    id: uid(),
+    from: isClientView ? "client" : "admin",
+    text: text.trim(),
+    at: new Date().toISOString()
+  });
+  const requestReview = () => commit({
+    ...local,
+    reviewStatus: "submitted",
+    submittedAt: new Date().toISOString()
+  });
+  const requestChanges = note => commit({
+    ...local,
+    reviewStatus: "changes",
+    reviewedAt: new Date().toISOString(),
+    messages: [...messages, newMsg(note)]
+  });
+  const sendMessage = text => commit({
+    ...local,
+    messages: [...messages, newMsg(text)]
+  });
+  const toggleFiled = async () => {
+    const nowFiled = !local.filed;
+    const ok = await commit({
+      ...local,
+      filed: nowFiled,
+      filedAt: new Date().toISOString(),
+      ...(nowFiled ? {
+        reviewStatus: "approved",
+        reviewedAt: new Date().toISOString()
+      } : {})
+    });
+    if (ok && onSetItem) onSetItem(selectedYear + 1, "toi", {
+      s: nowFiled ? "done" : ""
+    });
+  };
+  const recipient = isClientView ? {
+    telegram: OFFICE_CONTACT.telegram,
+    email: OFFICE_CONTACT.email,
+    label: en ? "Kim Yong-yun, Kohr & Co." : OFFICE_CONTACT.name
+  } : {
+    telegram: selectedClient?.telegram || "",
+    email: selectedClient?.email || "",
+    label: selectedClient?.contactName || clientName
+  };
+  const context = {
+    header: isClientView ? `[${clientName} · ${yearText}]` : `[Kohr & Co. → ${clientName} · ${yearText}]`,
+    subject: `${isClientView ? `[${clientName}]` : `[Kohr & Co.] ${clientName}`} ${yearText} ${en ? "tax filing" : "법인세 신고"}`
+  };
+  const status = local.filed ? "filed" : local.reviewStatus === "submitted" ? "submitted" : local.reviewStatus === "changes" ? "changes" : "";
+  const STATUS = {
+    filed: {
+      t: en ? "Filed" : "신고 완료",
+      bg: PALETTE.tealTint,
+      fg: PALETTE.tealDeep
+    },
+    submitted: {
+      t: en ? "Review requested" : "검토 요청됨",
+      bg: "#E8F0FB",
+      fg: "#1F4E8C"
+    },
+    changes: {
+      t: en ? "Changes requested" : "보완 요청",
+      bg: "#FBEDEA",
+      fg: PALETTE.red
+    },
+    "": {
+      t: en ? "In preparation" : "준비 중",
+      bg: "#FFF7E6",
+      fg: PALETTE.brassText
+    }
+  }[status];
+  const due = new Date(selectedYear + 1, 2, 31);
+  const others = adj.others || [];
+  const ccy = adj.ccy === "KHR" ? "KHR" : "USD";
+  const adjInput = (id, label, note, value, onChange) => /*#__PURE__*/React.createElement("label", {
+    key: id,
+    style: {
+      ...S.stackLabel,
+      flex: "1 1 260px"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("input", {
+    id: `adj-${id}`,
+    type: "number",
+    inputMode: "decimal",
+    style: S.input,
+    value: value ?? "",
+    placeholder: "0",
+    disabled: !canEdit,
+    onChange: e => onChange(e.target.value)
+  }), note && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, note));
+  const itemsYear = selectedYear + 1;
+  const itemState = id => ((annualItems || {})[itemsYear] || {})[id] || {};
+  const ITEM_LABEL = {
+    "": en ? "To do" : "할 일",
+    done: en ? "Done" : "완료",
+    na: en ? "N/A" : "해당 없음"
+  };
+  const cycle = {
+    "": "done",
+    done: "na",
+    na: ""
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: en ? "Annual filing" : "연간 신고",
+    sub: en ? "Annual Tax on Income: adjustments, review, filing and payment" : "연간 법인세(ToI): 세무조정 → 검토 → 신고 → 납부"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.selectorRow,
+    className: "selector-row"
+  }, /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Client" : "고객사",
+    style: S.select,
+    value: selectedClientId || "",
+    onChange: e => setSelectedClientId(e.target.value)
+  }, clients.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, c.name))), /*#__PURE__*/React.createElement("select", {
+    "aria-label": en ? "Fiscal year" : "사업연도",
+    style: S.select,
+    value: selectedYear,
+    onChange: e => setSelectedYear(Number(e.target.value))
+  }, yearOptions(selectedYear).map(y => /*#__PURE__*/React.createElement("option", {
+    key: y,
+    value: y
+  }, en ? `FY${y}` : `${y}년`))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      background: STATUS.bg,
+      color: STATUS.fg
+    }
+  }, STATUS.t), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? `Due ${fmtMonthDay(due, lang)}, ${selectedYear + 1}` : `마감 ${selectedYear + 1}년 3월 31일`)), a.monthsFiled < 12 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.noticeTeal,
+      background: "#FFF7E6",
+      borderColor: "#E9C46A",
+      color: PALETTE.brassText
+    }
+  }, en ? `Only ${a.monthsFiled} of 12 months have data for ${selectedYear}. The figures below cover those months only.` : `${selectedYear}년 12개월 중 ${a.monthsFiled}개월만 입력돼 있어요. 아래 금액은 입력된 달만 합친 값이에요.`), status === "changes" && isClientView && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...S.noticeTeal,
+      background: "#FBEDEA",
+      borderColor: PALETTE.red,
+      color: PALETTE.red
+    }
+  }, en ? "Kohr & Co. asked for changes — see the messages below, then request review again." : "사무소에서 보완을 요청했어요. 아래 메시지를 확인하고 다시 검토 요청을 눌러 주세요."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, local.filed && /*#__PURE__*/React.createElement(PaymentPanel, {
+    key: `af-${ctxKey}`,
+    local: local,
+    due: Math.max(a.balance, 0),
+    isClientView: isClientView,
+    commit: commit,
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "annual") : null,
+    busy: saveState === "saving"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.twoCol,
+    className: "two-col-grid"
+  }, /*#__PURE__*/React.createElement("section", {
+    style: S.panel,
+    "aria-label": en ? "Totals from monthly filings" : "월별 신고 합계"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.panelTitle
+  }, en ? "Totals from monthly filings" : "월별 신고 합계"), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Annual revenue" : "연 매출액",
+    value: a.revenue
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Annual expenses" : "연 경비",
+    value: a.expenses
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.divider
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Accounting profit" : "회계상 이익",
+    value: a.profit,
+    bold: true
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Prepayments already paid (monthly 1%)" : "기납부 선납이윤세 (매달 1%)",
+    value: a.pptPaid
+  })), /*#__PURE__*/React.createElement("section", {
+    style: S.panel,
+    "aria-label": en ? "Annual tax calculation" : "연간 세액 계산"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: S.panelTitle
+  }, en ? "Annual tax calculation" : "연간 세액 계산"), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Accounting profit" : "회계상 이익",
+    value: a.profit
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Tax adjustments (net)" : "세무조정 합계",
+    value: a.addBacks
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Loss carried forward used" : "이월결손금 공제",
+    value: -a.lossUsed
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Taxable profit" : "과세소득",
+    value: a.taxable,
+    bold: true
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.divider
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? `Tax on Income (${Math.round(a.taxRate * 1000) / 10}%)` : `법인세 (${Math.round(a.taxRate * 1000) / 10}%)`,
+    value: a.incomeTax
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: adj.minTaxExempt ? en ? "Minimum tax (exempt)" : "최저한세 (면제)" : en ? "Minimum tax (revenue × 1%)" : "최저한세 (매출 × 1%)",
+    value: a.minTax
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Annual tax (higher of the two)" : "연간 세액 (둘 중 큰 금액)",
+    value: a.annualToiDue,
+    bold: true
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Less: prepayments paid" : "차감: 기납부 선납이윤세",
+    value: -a.pptPaid
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: en ? "Less: withholding tax credit" : "차감: 원천징수 세액공제",
+    value: -a.whtCredit
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.divider
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: a.balance >= 0 ? en ? "Tax to pay with the annual return" : "연간 신고 때 납부할 세액" : en ? "Overpaid (credit)" : "초과 납부액 (공제·환급 대상)",
+    value: Math.abs(a.balance),
+    big: true
+  }))), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    },
+    "aria-label": en ? "Tax adjustments" : "세무조정"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "baseline"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Tax adjustments" : "세무조정"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, isClientView ? en ? "Entered by Kohr & Co." : "사무소가 입력해요" : locked ? en ? "Filed — undo filed status to edit" : "신고 완료 — 고치려면 신고 완료를 취소하세요" : en ? "Office only. Amounts add to profit unless noted." : "사무소만 입력. 따로 표시가 없으면 이익에 더하는 금액이에요.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.stackLabel,
+      flex: "0 1 180px"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Amounts are in" : "입력 통화"), /*#__PURE__*/React.createElement("select", {
+    id: "adj-ccy",
+    "aria-label": en ? "Adjustment currency" : "세무조정 통화",
+    style: S.select,
+    value: ccy,
+    disabled: !canEdit,
+    onChange: e => setAdj({
+      ccy: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"), /*#__PURE__*/React.createElement("option", {
+    value: "KHR"
+  }, "KHR"))), ccy === "USD" && adjInput("fx", en ? "Exchange rate (1 USD = KHR)" : "환율 (1 USD = KHR)", en ? "Used to convert the amounts below" : "아래 금액을 리엘로 바꿀 때 써요", adj.fx ?? fx, v => setAdj({
+    fx: v
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, ADJ_FIELDS.map(f => adjInput(f.id, `${en ? f.en : f.ko} (${ccy})`, en ? f.noteEn : f.noteKo, adj[f.id], v => setAdj({
+    [f.id]: v
+  })))), a.donations > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? `Contribution limit ${fmt(a.donationLimit)} KHR · added back ${fmt(a.donationExcess)} KHR` : `기부금 한도 ${fmt(a.donationLimit)} KHR · 한도 초과로 더한 금액 ${fmt(a.donationExcess)} KHR`), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, en ? "Other adjustments (+ adds to profit, − reduces)" : "기타 조정 (+는 이익에 더하고, −는 빼요)"), others.map((o, i) => /*#__PURE__*/React.createElement("div", {
+    key: o.id,
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? `Other adjustment ${i + 1} description` : `기타 조정 ${i + 1} 설명`,
+    style: {
+      ...S.input,
+      flex: "2 1 220px"
+    },
+    value: o.label || "",
+    disabled: !canEdit,
+    placeholder: en ? "What it is" : "내용",
+    onChange: e => setAdj({
+      others: others.map(x => x.id === o.id ? {
+        ...x,
+        label: e.target.value
+      } : x)
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? `Other adjustment ${i + 1} amount` : `기타 조정 ${i + 1} 금액`,
+    type: "number",
+    inputMode: "decimal",
+    style: {
+      ...S.input,
+      flex: "1 1 140px"
+    },
+    value: o.amount ?? "",
+    disabled: !canEdit,
+    placeholder: "0",
+    onChange: e => setAdj({
+      others: others.map(x => x.id === o.id ? {
+        ...x,
+        amount: e.target.value
+      } : x)
+    })
+  }), canEdit && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    onClick: () => setAdj({
+      others: others.filter(x => x.id !== o.id)
+    })
+  }, en ? "Delete" : "삭제"))), canEdit && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.buttonGhostSmall2,
+      alignSelf: "flex-start"
+    },
+    onClick: () => setAdj({
+      others: [...others, {
+        id: uid(),
+        label: "",
+        amount: ""
+      }]
+    })
+  }, en ? "+ Add adjustment" : "+ 조정 추가"), !canEdit && others.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "None" : "없음")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, adjInput("lossCF", `${en ? "Loss carried forward to use" : "공제할 이월결손금"} (${ccy})`, en ? "Losses can be carried forward 5 years" : "결손금은 5년간 이월할 수 있어요", adj.lossCF, v => setAdj({
+    lossCF: v
+  })), adjInput("whtCredit", `${en ? "Withholding tax credit" : "원천징수 세액공제"} (${ccy})`, en ? "Tax withheld from this company by others" : "다른 곳에서 이 회사 몫으로 원천징수한 세액", adj.whtCredit, v => setAdj({
+    whtCredit: v
+  })), adjInput("taxRate", en ? "Tax rate (%)" : "세율 (%)", en ? "Standard 20%. Change only for special cases." : "기본 20%. 특례가 있을 때만 바꾸세요.", adj.taxRate ?? 20, v => setAdj({
+    taxRate: v
+  }))), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "flex-start",
+      fontSize: 14.5,
+      color: PALETTE.ink
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    id: "adj-mintax",
+    type: "checkbox",
+    checked: !!adj.minTaxExempt,
+    disabled: !canEdit,
+    onChange: e => setAdj({
+      minTaxExempt: e.target.checked
+    }),
+    style: {
+      marginTop: 4
+    }
+  }), /*#__PURE__*/React.createElement("span", null, en ? "Exempt from minimum tax (proper accounting records kept)" : "최저한세 면제 (적정 회계장부 유지)")), canEdit && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: !dirty || saveState === "saving",
+    onClick: () => commit(local)
+  }, saveState === "saving" ? en ? "Saving…" : "저장 중…" : en ? "Save adjustments" : "세무조정 저장"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: dirty ? PALETTE.brassText : PALETTE.inkSoft
+    }
+  }, dirty ? en ? "Unsaved changes" : "저장하지 않은 변경 있음" : saveState === "saved" ? en ? "Saved" : "저장됨" : ""))), err && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      ...S.noticeTeal,
+      background: "#FBEDEA",
+      borderColor: PALETTE.red,
+      color: PALETTE.red,
+      marginBottom: 0
+    }
+  }, err), isClientView && !local.filed && /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      gap: 12,
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14.5,
+      color: PALETTE.ink,
+      flex: "1 1 260px"
+    }
+  }, status === "submitted" ? en ? "Review requested — Kohr & Co. will check the year and file the annual return." : "검토 요청을 했어요. 사무소가 확인하고 연간 신고를 해요." : en ? "When all 12 months are entered and the year-end documents are sent, request the annual review." : "12개월 자료와 결산 서류를 모두 보냈으면 연간 검토를 요청해 주세요."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonPrimary,
+    disabled: saveState === "saving",
+    onClick: requestReview
+  }, status === "submitted" ? en ? "Requested ✓ · request again" : "요청함 ✓ · 다시 요청" : en ? "Request annual review" : "연간 검토 요청")), !isClientView && /*#__PURE__*/React.createElement(AdminReviewPanel, {
+    local: local,
+    onRef: v => {
+      setLocal({
+        ...local,
+        filedRef: v
+      });
+      setDirty(true);
+    },
+    onRequestChanges: requestChanges,
+    busy: saveState === "saving",
+    recipient: recipient,
+    context: context,
+    againText: en ? "Please fix the following and press Request annual review again:" : "아래 내용을 보완한 뒤 [연간 검토 요청]을 다시 눌러 주세요:"
+  }), /*#__PURE__*/React.createElement(MessagesPanel, {
+    messages: messages,
+    isClientView: isClientView,
+    onSend: sendMessage,
+    busy: saveState === "saving",
+    recipient: recipient,
+    context: context
+  }), !isClientView && /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      gap: 12,
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft,
+      flex: "1 1 260px"
+    }
+  }, local.filed ? `${en ? "Filed" : "신고 완료"} · ${new Date(local.filedAt).toLocaleDateString(en ? "en-US" : "ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  })}${local.filedRef ? ` · ${en ? "GDT ref" : "국세청 접수번호"} ${local.filedRef}` : ""}` : en ? "After filing the annual return on GDT e-Filing, enter the reference no. above and mark as filed. The year then locks." : "e-Filing에서 연간 신고를 마친 뒤 위에 접수번호를 넣고 신고 완료로 표시하세요. 그 연도는 잠겨요."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: local.filed ? S.buttonGhost : S.buttonPrimary,
+    disabled: saveState === "saving",
+    onClick: toggleFiled
+  }, local.filed ? en ? "Undo filed status" : "신고 완료 취소" : en ? "Mark annual return as filed" : "연간 신고 완료로 표시")), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    },
+    "aria-label": en ? "Other annual filings" : "그 밖의 연간 업무"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "baseline"
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      margin: 0,
+      fontSize: 16,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? `Other annual filings in ${itemsYear}` : `${itemsYear}년에 할 그 밖의 연간 업무`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, isClientView ? en ? "Updated by Kohr & Co." : "사무소가 표시해요" : en ? "Tap the status to change it" : "상태를 누르면 바뀌어요")), ANNUAL_ITEMS.filter(it => it.id !== "toi").map((it, i) => /*#__PURE__*/React.createElement(AnnualItemRow, {
+    key: `${ctxKey}-${it.id}`,
+    it: it,
+    year: itemsYear,
+    st: itemState(it.id),
+    first: i === 0,
+    isClientView: isClientView,
+    label: ITEM_LABEL,
+    onChange: patch => onSetItem && onSetItem(itemsYear, it.id, patch),
+    onCycle: () => onSetItem && onSetItem(itemsYear, it.id, {
+      s: cycle[itemState(it.id).s || ""]
+    }),
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "annual") : null
+  }))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.disclaimer,
+      marginTop: 0
+    }
+  }, en ? "This is a working calculation, not the official return. Depreciation and interest limits are entered as amounts you calculated; QIP incentives and other special rules are not applied. Check against the current Law on Taxation and GDT Prakas before filing." : "이 화면은 신고용 계산 자료이며 공식 신고서가 아니에요. 감가상각과 이자 한도는 직접 계산한 금액을 넣는 방식이고, QIP 감면 등 특례는 반영하지 않아요. 신고 전에 현행 세법과 GDT Prakas로 확인하세요.")));
+}
+function AnnualItemRow({
+  it,
+  year,
+  st,
+  first,
+  isClientView,
+  label,
+  onChange,
+  onCycle,
+  onUploadImage
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  const [ref, setRef] = useState(st.ref || "");
+  const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState(false);
+  const fileRef = useRef(null);
+  useEffect(() => {
+    setRef(st.ref || "");
+  }, [st.ref]);
+  const s = st.s || "";
+  const pick = async file => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const [thumb, hi] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
+      let drive = {};
+      if (onUploadImage) {
+        const info = await onUploadImage(hi, `${it.id}_${year}`);
+        if (info && info.url) drive = {
+          proofDriveUrl: info.url
+        };
+      }
+      onChange({
+        proofThumb: thumb,
+        ...drive
+      });
+    } catch (e) {/* 사진을 못 읽으면 그대로 둔다 */}
+    setBusy(false);
+  };
+  const dueText = fmtMonthDay(new Date(year, it.m - 1, it.d), lang).replace(/ \(.\)$/, "").replace(/^\w{3}, /, "");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: first ? "none" : "1px solid #EEF1F4",
+      padding: "12px 0",
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: "1 1 220px",
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 15,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, en ? it.en : it.ko), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 12.5,
+      color: PALETTE.inkSoft
+    }
+  }, dueText, " · ", en ? it.noteEn : it.noteKo)), isClientView ? /*#__PURE__*/React.createElement(React.Fragment, null, st.ref && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Ref" : "접수번호", " ", st.ref), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...S.statusBadge,
+      background: s === "done" ? PALETTE.tealTint : s === "na" ? "#F1F3F5" : "#FFF7E6",
+      color: s === "done" ? PALETTE.tealDeep : s === "na" ? PALETTE.inkSoft : PALETTE.brassText
+    }
+  }, label[s])) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    "aria-label": en ? `${it.en} reference no.` : `${it.ko} 접수번호`,
+    style: {
+      ...S.input,
+      flex: "0 1 190px",
+      minWidth: 120
+    },
+    value: ref,
+    placeholder: en ? "Reference no." : "접수번호",
+    onChange: e => setRef(e.target.value),
+    onBlur: () => {
+      if ((st.ref || "") !== ref.trim()) onChange({
+        ref: ref.trim()
+      });
+    }
+  }), /*#__PURE__*/React.createElement("input", {
+    ref: fileRef,
+    type: "file",
+    accept: "image/*",
+    hidden: true,
+    onChange: e => {
+      pick(e.target.files && e.target.files[0]);
+      e.target.value = "";
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    disabled: busy,
+    onClick: () => fileRef.current && fileRef.current.click()
+  }, busy ? en ? "Saving…" : "저장 중…" : st.proofThumb ? en ? "Change photo" : "사진 바꾸기" : en ? "Add photo" : "증빙 사진"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: en ? "Tap to change: To do → Done → N/A" : "누를 때마다: 할 일 → 완료 → 해당 없음",
+    style: {
+      ...S.buttonGhostSmall2,
+      minWidth: 84,
+      background: s === "done" ? PALETTE.tealTint : s === "na" ? "#F1F3F5" : "#fff",
+      color: s === "done" ? PALETTE.tealDeep : s === "na" ? PALETTE.inkSoft : PALETTE.ink
+    },
+    onClick: onCycle
+  }, label[s])), st.proofThumb && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-label": en ? "View photo large" : "사진 크게 보기",
+    onClick: () => setViewing(true),
+    style: {
+      border: "1px solid #D8DEE4",
+      borderRadius: 8,
+      padding: 0,
+      background: "#fff",
+      cursor: "pointer",
+      lineHeight: 0
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: st.proofThumb,
+    alt: "",
+    style: {
+      width: 44,
+      height: 44,
+      objectFit: "cover",
+      borderRadius: 7
+    }
+  })), st.proofDriveUrl && !isClientView && /*#__PURE__*/React.createElement("a", {
+    href: st.proofDriveUrl,
+    target: "_blank",
+    rel: "noreferrer",
+    style: {
+      fontSize: 13,
+      color: PALETTE.teal
+    }
+  }, en ? "Original on Drive" : "Drive 원본"), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+    src: st.proofThumb,
+    caption: en ? it.en : it.ko,
+    onClose: () => setViewing(false)
+  }));
 }
 
 /* ---------------- Income statement (손익계산서) ---------------- */
@@ -11921,7 +12948,8 @@ function IncomeStatementView({
   selectedMonth,
   setSelectedMonth,
   filingsForClient,
-  filing
+  filing,
+  annualFiling
 }) {
   const [mode, setMode] = useState("monthly"); // monthly | annual
   const [currency, setCurrency] = useState("KHR"); // KHR | USD
@@ -11936,7 +12964,7 @@ function IncomeStatementView({
     }));
   }
   const monthlyIS = calcIncomeStatement(filing);
-  const annualIS = calcAnnualIncomeStatement(filingsForClient, selectedYear);
+  const annualIS = calcAnnualIncomeStatement(filingsForClient, selectedYear, annualFiling);
   const monthlyNet = monthlyIS.operatingProfit - monthlyIS.ppt;
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
     eyebrow: lang === "en" ? "05 — Income Statement" : "05 — 손익계산서",
@@ -12511,7 +13539,8 @@ function DraftView({
   selectedYear,
   setSelectedYear,
   selectedMonth,
-  setSelectedMonth
+  setSelectedMonth,
+  annualFiling
 }) {
   const [mode, setMode] = useState("p101"); // p101 | payslip | annual
   const [showGdt, setShowGdt] = useState(true); // GDT 공식 항목명 병기 여부
@@ -12534,7 +13563,7 @@ function DraftView({
     employees: []
   };
   const calc = calcMonthly(filing);
-  const annual = calcAnnual(clientFilings, selectedYear);
+  const annual = calcAnnual(clientFilings, selectedYear, annualFiling);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
     eyebrow: lang === "en" ? "07 — Filing Draft" : "07 — 신고서 작성안",
     title: lang === "en" ? "Filing Draft Preview" : "신고서 작성안 미리보기",
@@ -13430,7 +14459,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v8-docs';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v9-annual';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -13637,7 +14666,9 @@ function clientView(data, clientId) {
   if (data.capitalGains && data.capitalGains[clientId]) gains[clientId] = data.capitalGains[clientId];
   var annual = {};
   if (data.annual && data.annual[clientId]) annual[clientId] = data.annual[clientId];
-  return { clients: own, filings: filings, capitalGains: gains, annual: annual, settings: data.settings || {} };
+  var annualFilings = {};
+  if (data.annualFilings && data.annualFilings[clientId]) annualFilings[clientId] = data.annualFilings[clientId];
+  return { clients: own, filings: filings, capitalGains: gains, annual: annual, annualFilings: annualFilings, settings: data.settings || {} };
 }
 
 // 고객사가 보낸 월별 신고 자료에서 사무소만 정할 수 있는 항목(신고 완료·접수번호·보완 요청)은 기존 값으로 되돌린다.
@@ -13668,6 +14699,13 @@ function guardClientFiling(prev, next) {
   out.messages = mergeMessages(prev && prev.messages, next.messages, 'client');
   var pay2 = mergePayment(prev && prev.payment, next.payment);
   if (pay2) out.payment = pay2; else delete out.payment;
+  return out;
+}
+// 연간 신고: 고객사는 검토 요청·메시지·납부 기록만 할 수 있다. 세무조정(adj)은 사무소만 바꾼다.
+function guardClientAnnual(prev, next) {
+  if (next === undefined || next === null) throw new Error('FORBIDDEN');
+  var out = guardClientFiling(prev, next);
+  if (prev && prev.adj !== undefined) out.adj = prev.adj; else delete out.adj;
   return out;
 }
 // 납부 정보: 고객사도 입력할 수 있지만, 사무소가 '납부 확인'한 뒤에는 바꿀 수 없다. 확인 표시는 사무소만.
@@ -13708,8 +14746,12 @@ function applyPatch(base, patch, onlyClient) {
       continue;
     }
     if (onlyClient) {
-      var okPath = (path[0] === 'filings' || path[0] === 'capitalGains') && path[1] === onlyClient;
+      var okPath = (path[0] === 'filings' || path[0] === 'capitalGains' || (path[0] === 'annualFilings' && path.length === 3)) && path[1] === onlyClient;
       if (!okPath) throw new Error('FORBIDDEN');
+      if (path[0] === 'annualFilings') {
+        var prevA = (data.annualFilings && data.annualFilings[onlyClient] && data.annualFilings[onlyClient][path[2]]) || null;
+        p = { path: path, value: guardClientAnnual(prevA, p.value) };
+      }
       if (path[0] === 'filings' && path.length === 3) {
         var prev = (data.filings && data.filings[onlyClient] && data.filings[onlyClient][path[2]]) || null;
         p = { path: path, value: guardClientFiling(prev, p.value) };
@@ -14123,6 +15165,19 @@ function writeAudit(before, after, patch, auth, actor, now) {
       what = parts.join(' · ') || '고객사 목록 저장';
     } else if (path[0] === 'annual') {
       cid = path[1]; what = '연간 일정 체크';
+    } else if (path[0] === 'annualFilings' && path.length === 3) {
+      cid = path[1]; target = path[2] + ' 연간';
+      var af0 = (before.annualFilings && before.annualFilings[cid] && before.annualFilings[cid][path[2]]) || {};
+      var af1 = (after.annualFilings && after.annualFilings[cid] && after.annualFilings[cid][path[2]]) || {};
+      var w = [];
+      if (!af0.filed && af1.filed) w.push('연간 신고 완료' + (af1.filedRef ? ' (접수번호 ' + af1.filedRef + ')' : ''));
+      if (af0.filed && !af1.filed) w.push('연간 신고 완료 취소');
+      if (af1.reviewStatus !== af0.reviewStatus && af1.reviewStatus === 'submitted') w.push('연간 검토 요청');
+      if (af1.reviewStatus !== af0.reviewStatus && af1.reviewStatus === 'changes') w.push('연간 보완 요청');
+      if (JSON.stringify(af0.adj || {}) !== JSON.stringify(af1.adj || {})) w.push('세무조정 수정');
+      if ((af1.messages || []).length > (af0.messages || []).length) w.push('메시지');
+      if (JSON.stringify(af0.payment || {}) !== JSON.stringify(af1.payment || {})) w.push(af1.payment && af1.payment.confirmedAt && !(af0.payment && af0.payment.confirmedAt) ? '납부 확인' : '납부 기록');
+      what = w.join(' · ') || '연간 신고 저장';
     } else {
       cid = path[0] === 'filings' || path[0] === 'capitalGains' ? path[1] : '';
       what = path.join('/') + ' 저장';
@@ -14169,7 +15224,7 @@ function saveImageToDrive(sheet, wsId, u) {
   var row = findRow(sheet, wsId);
   var data = row ? readData(sheet, row).data : null;
   var cname = safeName(clientNameOf(data, String(u.clientId || '')) || 'unknown');
-  var KIND_FOLDER = { payment: '납부 증빙', sales: '매출 인보이스', purchase: '매입 인보이스', payroll: '급여 자료' };
+  var KIND_FOLDER = { payment: '납부 증빙', sales: '매출 인보이스', purchase: '매입 인보이스', payroll: '급여 자료', annual: '연간 신고' };
   var folder = subFolder(subFolder(subFolder(rootFolder(), KIND_FOLDER[u.kind] || '영수증'), cname), safeName(u.month || 'etc'));
   var ext = m[1] === 'image/png' ? '.png' : '.jpg';
   var blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], safeName(u.name || ('receipt-' + new Date().getTime())) + ext);

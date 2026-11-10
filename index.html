@@ -459,10 +459,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.10";
+const APP_RELEASE = "2026.11.10.1";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.10.1",
+  ko: ["크메르어(ខ្មែរ) 화면 추가 — 언어 버튼에서 한국어 · English · ខ្មែរ 중에 고를 수 있어요"],
+  en: ["Khmer (ខ្មែរ) added — choose 한국어 · English · ខ្មែរ with the language buttons"]
+}, {
   version: "2026.11.04.10",
   ko: ["사무소 텔레그램 ID 표시를 @KOHRKYY로 바꿨어요"],
   en: ["Office Telegram ID now shown as @KOHRKYY"]
@@ -2550,6 +2554,1109 @@ function fitAllText(root) {
     }
   }
 }
+// ── 크메르어 표시 ─────────────────────────────────────────────────────────────
+// 화면 로직은 영어로 돌리고, 화면에 그려진 영어 글자를 크메르어로 바꿔 보여 준다 (사전에 없는 글자는 영어 그대로).
+/*KM_DICT_START*/
+const KM_DICT = {
+  "Office Telegram ID now shown as @KOHRKYY": "Telegram ID របស់ការិយាល័យឥឡូវបង្ហាញជា @KOHRKYY",
+  "Sales & purchase invoices by photo — in step 1 the date, party, amount and VATTIN are filled in for you": "វិក្កយបត្រលក់ និងទិញ តាមរូបថត — ក្នុងជំហានទី 1 កាលបរិច្ឆេទ ដៃគូ ចំនួនទឹកប្រាក់ និង VATTIN ត្រូវបានបំពេញឱ្យ",
+  "Payroll sheets & payslips by photo — in step 2 names and salaries are read into a table": "បញ្ជីប្រាក់បៀវត្ស និងប័ណ្ណប្រាក់ខែ តាមរូបថត — ក្នុងជំហានទី 2 ឈ្មោះ និងប្រាក់ខែត្រូវបានអានចូលតារាង",
+  "Everything read can be edited before and after you add it": "អ្វីដែលអានបានទាំងអស់ អាចកែបានទាំងមុន និងក្រោយពេលបញ្ចូល",
+  "Fixed cut-off text in English — text now shrinks to fit narrow boxes and buttons": "បានជួសជុលអក្សរដាច់ក្នុងភាសាអង់គ្លេស — អក្សររួមតូចឱ្យសមនឹងប្រអប់ និងប៊ូតុងតូចៗ",
+  "GDT deadlines now show both — paper filing the 20th · e-Filing the 25th": "កាលកំណត់ GDT ឥឡូវបង្ហាញទាំងពីរ — ដាក់ជាក្រដាសថ្ងៃទី 20 · e-Filing ថ្ងៃទី 25",
+  "Record tax payments — date, amount and a photo of the payment receipt in step 4 of filed months": "កត់ត្រាការបង់ពន្ធ — កាលបរិច្ឆេទ ចំនួនទឹកប្រាក់ និងរូបថតបង្កាន់ដៃបង់ប្រាក់ ក្នុងជំហានទី 4 នៃខែដែលបានដាក់ប្រកាស",
+  "Supplier VATTIN on VAT invoices (read from the photo) — warns if missing": "VATTIN អ្នកផ្គត់ផ្គង់លើវិក្កយបត្រ អតប (អានពីរូបថត) — ព្រមានបើខ្វះ",
+  "Monthly document checklist (each client can have its own list)": "បញ្ជីត្រួតពិនិត្យឯកសារប្រចាំខែ (អតិថិជនម្នាក់ៗអាចមានបញ្ជីផ្ទាល់ខ្លួន)",
+  "Annual deadlines on Home — annual ToI, patent tax (31 March) and more": "កាលកំណត់ប្រចាំឆ្នាំក្នុង Home — ពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំ ពន្ធប៉ាតង់ (31 មីនា) និងផ្សេងទៀត",
+  "Contact Kohr & Co. on Telegram — write in step 4 and Telegram opens with the message filled in (email also works)": "ទាក់ទង Kohr & Co. តាម Telegram — សរសេរក្នុងជំហានទី 4 ហើយ Telegram បើកឡើងដោយមានសារស្រាប់ (អ៊ីមែលក៏បាន)",
+  "After requesting review, tap Send on Telegram to let the office know": "ក្រោយស្នើសុំពិនិត្យ ចុច «ផ្ញើតាម Telegram» ដើម្បីប្រាប់ការិយាល័យ",
+  "Request review — when everything is entered, press Done · Request review in step 4": "ស្នើសុំពិនិត្យ — ពេលបញ្ចូលអស់ហើយ ចុច «រួចរាល់ · ស្នើសុំពិនិត្យ» ក្នុងជំហានទី 4",
+  "Messages — talk with Kohr & Co. for each month; change requests show on Home": "សារ — និយាយជាមួយ Kohr & Co. សម្រាប់ខែនីមួយៗ សំណើកែបង្ហាញក្នុង Home",
+  "Filed months are locked so they can’t be changed by mistake": "ខែដែលបានដាក់ប្រកាសត្រូវចាក់សោ ដើម្បីកុំឱ្យកែដោយច្រឡំ",
+  "Payroll: dependent allowance (KHR 150,000 each), non-resident 20%, fringe-benefit tax 20%": "ប្រាក់បៀវត្ស៖ ប្រាក់បន្ធូរសម្រាប់អ្នកនៅក្នុងបន្ទុក (150,000 រៀលក្នុងម្នាក់) អនិវាសនជន 20% ពន្ធលើអត្ថប្រយោជន៍បន្ថែម 20%",
+  "Use it like an app on iPhone — Safari Share → Add to Home Screen": "ប្រើដូចកម្មវិធីលើ iPhone — Safari Share → Add to Home Screen",
+  "Download the user manual (PDF) inside the app — Settings › App info, Home guide, sign-in screen": "ទាញយកសៀវភៅណែនាំ (PDF) ក្នុងកម្មវិធី — ការកំណត់ › ព័ត៌មានកម្មវិធី ការណែនាំក្នុង Home និងអេក្រង់ចូលប្រើ",
+  "Updates are announced with a pop-up like this one": "បច្ចុប្បន្នភាពត្រូវបានជូនដំណឹងដោយផ្ទាំងដូចនេះ",
+  "Each client signs in with its own password and sees only its own company": "អតិថិជនម្នាក់ៗចូលប្រើដោយពាក្យសម្ងាត់របស់ខ្លួន ហើយឃើញតែក្រុមហ៊ុនរបស់ខ្លួន",
+  "New design: deadline card on Home, 4-step bar, large amount fields": "រចនាថ្មី៖ កាតកាលកំណត់ក្នុង Home របារ 4 ជំហាន ប្រអប់ចំនួនទឹកប្រាក់ធំ",
+  "Receipt camera button first, with the reading shown as a card": "ប៊ូតុងកាមេរ៉ាបង្កាន់ដៃនៅមុខគេ ហើយលទ្ធផលអានបង្ហាញជាកាត",
+  "Layout adapts to phones and tablets; new Log out button": "ប្លង់សម្របតាមទូរសព្ទ និងថេប្លេត មានប៊ូតុងចាកចេញថ្មី",
+  "New versions are announced with a pop-up like this one": "កំណែថ្មីត្រូវបានជូនដំណឹងដោយផ្ទាំងដូចនេះ",
+  "Filed": "បានដាក់ប្រកាស",
+  "Due today": "ផុតកំណត់ថ្ងៃនេះ",
+  "{0} days overdue": "ហួសកំណត់ {0} ថ្ងៃ",
+  "GDT filing & payment due {0}-{1}-20 (paper) / -25 (e-Filing) · NSSF by the 15th": "ដាក់ប្រកាស និងបង់ពន្ធ GDT ត្រឹម {0}-{1}-20 (ក្រដាស) / -25 (e-Filing) · ប.ស.ស. ត្រឹមថ្ងៃទី 15",
+  "paper {0} · e‑Filing {1}": "ក្រដាស {0} · e‑Filing {1}",
+  "today": "ថ្ងៃនេះ",
+  "{0}d late": "យឺត {0} ថ្ងៃ",
+  "Paper {0} · e-Filing {1}": "ក្រដាស {0} · e-Filing {1}",
+  "D-{0}": "នៅសល់ {0} ថ្ងៃ",
+  "due today": "ផុតកំណត់ថ្ងៃនេះ",
+  "Purchase Tax Invoice (materials/goods)": "វិក្កយបត្រអាករទិញ (វត្ថុធាតុ/ទំនិញ)",
+  "Rent": "ថ្លៃឈ្នួល",
+  "Service fees (non-payroll)": "ថ្លៃសេវា (មិនមែនប្រាក់បៀវត្ស)",
+  "Telecom": "ទូរគមនាគមន៍",
+  "Electricity / Water": "អគ្គិសនី / ទឹក",
+  "Supplies": "សម្ភារៈប្រើប្រាស់",
+  "Vehicle maintenance": "ថែទាំយានយន្ត",
+  "Entertainment": "ការទទួលភ្ញៀវ",
+  "Travel & transportation": "ធ្វើដំណើរ និងដឹកជញ្ជូន",
+  "Commission / fees": "កម្រៃជើងសា / ថ្លៃសេវា",
+  "Employee welfare": "សុខុមាលភាពបុគ្គលិក",
+  "Other expenses": "ចំណាយផ្សេងៗ",
+  "Rental (property/equipment)": "ការជួល (អចលនទ្រព្យ/ឧបករណ៍)",
+  "Service / consulting fee (resident)": "ថ្លៃសេវា / ប្រឹក្សា (និវាសនជន)",
+  "Interest (resident, excl. bank payments)": "ការប្រាក់ (និវាសនជន មិនរួមការបង់ឱ្យធនាគារ)",
+  "Royalty (resident)": "សួយសារ (និវាសនជន)",
+  "Non-resident payment (service/interest/royalty/dividend)": "ការបង់ឱ្យអនិវាសនជន (សេវា/ការប្រាក់/សួយសារ/ភាគលាភ)",
+  "Shares / investment assets": "ភាគហ៊ុន / ទ្រព្យវិនិយោគ",
+  "Lease": "ភតិសន្យា",
+  "Business goodwill": "កេរ្តិ៍ឈ្មោះអាជីវកម្ម",
+  "Intellectual property": "កម្មសិទ្ធិបញ្ញា",
+  "Foreign currency": "រូបិយប័ណ្ណបរទេស",
+  "Immovable property (land/building)": "អចលនទ្រព្យ (ដី/អគារ)",
+  "Annual Tax on Income return & payment": "លិខិតប្រកាស និងបង់ពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំ",
+  "For last year, within 3 months of year-end": "សម្រាប់ឆ្នាំមុន ក្នុងរយៈពេល 3 ខែក្រោយបិទឆ្នាំ",
+  "Patent tax renewal": "បន្តពន្ធប៉ាតង់",
+  "By 31 March every year": "ត្រឹមថ្ងៃទី 31 មីនា រៀងរាល់ឆ្នាំ",
+  "Foreign work permit renewal (MLVT)": "បន្តប័ណ្ណការងារជនបរទេស (ក្រសួងការងារ)",
+  "If you employ foreigners": "បើអ្នកជួលជនបរទេស",
+  "Financial statements to ACAR": "របាយការណ៍ហិរញ្ញវត្ថុទៅ ACAR",
+  "Unaudited by 15 Apr; audited by 15 Jul": "មិនធ្វើសវនកម្ម ត្រឹម 15 មេសា ធ្វើសវនកម្ម ត្រឹម 15 កក្កដា",
+  "Self-declared labor inspection (H1)": "ការត្រួតពិនិត្យការងារដោយខ្លួនឯង (ឆមាសទី 1)",
+  "Online with MLVT": "តាមអនឡាញជាមួយក្រសួងការងារ",
+  "Self-declared labor inspection (H2)": "ការត្រួតពិនិត្យការងារដោយខ្លួនឯង (ឆមាសទី 2)",
+  "Bank e-Payment (ABA, ACLEDA…)": "ធនាគារ e-Payment (ABA, ACLEDA…)",
+  "GDT / bank counter": "បញ្ជរ GDT / ធនាគារ",
+  "Paid by Kohr & Co.": "បង់ដោយ Kohr & Co.",
+  "Other": "ផ្សេងៗ",
+  "This is an iPhone HEIC photo, which this browser can't open. Take a screenshot of the photo, or set the camera to 'Most Compatible' (JPEG), and upload again.": "នេះជារូបថត HEIC របស់ iPhone ដែលកម្មវិធីរុករកនេះបើកមិនបាន។ សូមថតអេក្រង់រូបនោះ ឬកំណត់កាមេរ៉ាជា 'Most Compatible' (JPEG) រួចបង្ហោះម្តងទៀត។",
+  "The server rejected the request (passphrase). Lock and reopen with the correct passphrase.": "ម៉ាស៊ីនមេបដិសេធសំណើ (ពាក្យសម្ងាត់)។ សូមចាកចេញ រួចចូលម្តងទៀតដោយពាក្យសម្ងាត់ត្រឹមត្រូវ។",
+  "Couldn't reach the AI service — the preview window or network blocks it. Open the app (or the GitHub page) and try again.": "មិនអាចភ្ជាប់ទៅសេវា AI បានទេ — បណ្តាញត្រូវបានរារាំង។ សូមបើកកម្មវិធី (ឬទំព័រ GitHub) រួចសាកម្តងទៀត។",
+  "The AI reply couldn't be read. Press Retry.": "មិនអាចអានចម្លើយរបស់ AI បានទេ។ សូមចុច «សាកម្តងទៀត»។",
+  "The AI service is busy. Wait a few seconds and press Retry.": "សេវា AI កំពុងជាប់រវល់។ សូមរង់ចាំបន្តិច រួចចុច «សាកម្តងទៀត»។",
+  "date is in the future": "កាលបរិច្ឆេទនៅអនាគត",
+  "date is over a year old": "កាលបរិច្ឆេទចាស់ជាងមួយឆ្នាំ",
+  "image is hard to read": "រូបភាពពិបាកអាន",
+  "currency looks wrong for this number": "រូបិយប័ណ្ណមើលទៅមិនត្រូវនឹងលេខនេះ",
+  "USD and KHR totals don't match the rate": "ចំនួនសរុប USD និង KHR មិនត្រូវនឹងអត្រាប្តូរប្រាក់",
+  "Client TIN (tax ID) is not registered.": "មិនទាន់ចុះលេខ TIN របស់អតិថិជន។",
+  "No data has been entered for this period yet.": "មិនទាន់មានទិន្នន័យបញ្ចូលសម្រាប់ខែនេះទេ។",
+  "Purchases exceed revenue — check whether this qualifies for VAT refund/carryforward.": "ការទិញលើសចំណូល — សូមពិនិត្យថាតើអាចស្នើសុំបង្វិល ឬយោងឥណទាន អតប បានឬទេ។",
+  "Employee {0}'s name is empty.": "ឈ្មោះបុគ្គលិកទី {0} នៅទទេ។",
+  "Employee {0}": "បុគ្គលិកទី {0}",
+  "{0}'s gross salary has not been entered.": "មិនទាន់បញ្ចូលប្រាក់ខែដុលរបស់ {0}។",
+  "Duplicate employee names found: {0}": "មានឈ្មោះបុគ្គលិកស្ទួន៖ {0}",
+  "8 or more employees but NSSF is set to 'not registered' — registration is mandatory at this size; please confirm.": "មានបុគ្គលិក 8 នាក់ឡើង ប៉ុន្តែ ប.ស.ស. កំណត់ថា 'មិនបានចុះបញ្ជី' — ទំហំនេះត្រូវតែចុះបញ្ជី សូមបញ្ជាក់។",
+  "Withholding item {0}'s payee is empty.": "អ្នកទទួលប្រាក់នៃពន្ធកាត់ទុកទី {0} នៅទទេ។",
+  "Withholding item {0}'s payment amount has not been entered.": "មិនទាន់បញ្ចូលចំនួនទឹកប្រាក់បង់នៃពន្ធកាត់ទុកទី {0}។",
+  "{0} VAT invoice(s) have no valid supplier VATTIN — the input VAT credit may be refused. ({1})": "វិក្កយបត្រ អតប {0} គ្មាន VATTIN អ្នកផ្គត់ផ្គង់ត្រឹមត្រូវ — ឥណទាន អតប ធាតុចូលអាចត្រូវបដិសេធ។ ({1})",
+  "Revenue changed {0}% from last month — check for missing documentation.": "ចំណូលប្រែប្រួល {0}% ធៀបនឹងខែមុន — សូមពិនិត្យក្រែងខ្វះឯកសារ។",
+  "Marked as filed, but there are still unresolved errors.": "បានសម្គាល់ថាដាក់ប្រកាសរួច ប៉ុន្តែនៅមានកំហុសមិនទាន់ដោះស្រាយ។",
+  "Home": "ទំព័រដើម",
+  "This month's to-dos": "កិច្ចការខែនេះ",
+  "Monthly filing": "ប្រកាសប្រចាំខែ",
+  "Filing": "ប្រកាសពន្ធ",
+  "Sales, payroll, receipts": "ការលក់ ប្រាក់បៀវត្ស បង្កាន់ដៃ",
+  "Reports": "របាយការណ៍",
+  "Drafts, P&L, annual": "សេចក្តីព្រាង ចំណេញ-ខាត ប្រចាំឆ្នាំ",
+  "Clients": "អតិថិជន",
+  "Add & manage": "បន្ថែម និងគ្រប់គ្រង",
+  "Settings": "ការកំណត់",
+  "Rates, server, app info": "អត្រា ម៉ាស៊ីនមេ ព័ត៌មានកម្មវិធី",
+  "Filing draft": "សេចក្តីព្រាងលិខិតប្រកាស",
+  "Income statement": "របាយការណ៍ចំណេញ-ខាត",
+  "Annual ToI": "ពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំ",
+  "Capital gains tax": "ពន្ធលើចំណេញមូលធន",
+  "Tax rates": "អត្រាពន្ធ",
+  "Activity & backup": "កំណត់ត្រា និងបម្រុងទុក",
+  "Server connection": "ការភ្ជាប់ម៉ាស៊ីនមេ",
+  "App info & updates": "ព័ត៌មានកម្មវិធី និងបច្ចុប្បន្នភាព",
+  "Saved": "បានរក្សាទុក",
+  "Sign in required": "ត្រូវចូលប្រើ",
+  "Save failed — please try again": "រក្សាទុកមិនបាន — សូមសាកម្តងទៀត",
+  "Backend connected": "បានភ្ជាប់ម៉ាស៊ីនមេ",
+  "Connected — sign in required": "បានភ្ជាប់ — ត្រូវចូលប្រើ",
+  "Connection failed": "ភ្ជាប់មិនបាន",
+  "Client passwords need the shared server connection (not available in review mode).": "ពាក្យសម្ងាត់អតិថិជនត្រូវការការភ្ជាប់ម៉ាស៊ីនមេរួម (មិនមានក្នុងរបៀបសាកល្បង)។",
+  "Use at least 6 characters.": "សូមប្រើយ៉ាងតិច 6 តួ។",
+  "That is the office passphrase — choose another.": "នោះជាពាក្យសម្ងាត់ការិយាល័យ — សូមជ្រើសមួយផ្សេង។",
+  "Another client already uses this password — choose another.": "អតិថិជនផ្សេងកំពុងប្រើពាក្យសម្ងាត់នេះ — សូមជ្រើសមួយផ្សេង។",
+  "Cambodia Tax Filing": "កម្មវិធីប្រកាសពន្ធកម្ពុជា",
+  "Log out": "ចាកចេញ",
+  "Main menu": "ម៉ឺនុយមេ",
+  "Sync problem": "បញ្ហាសមកាលកម្ម",
+  "Review mode (this device only)": "របៀបសាកល្បង (តែឧបករណ៍នេះ)",
+  "Shared data connected": "បានភ្ជាប់ទិន្នន័យរួម",
+  "Not connected": "មិនបានភ្ជាប់",
+  "Client account": "គណនីអតិថិជន",
+  "Office (admin) account": "គណនីការិយាល័យ (អ្នកគ្រប់គ្រង)",
+  "Synced ": "សមកាលកម្ម ",
+  "Sign out": "ចាកចេញ",
+  "Sync error: ": "កំហុសសមកាលកម្ម៖ ",
+  "🧪 Review mode — saved on this device only, not synced.": "🧪 របៀបសាកល្បង — រក្សាទុកតែលើឧបករណ៍នេះ មិនសមកាលកម្មទេ។",
+  "Data found on this device only": "រកឃើញទិន្នន័យដែលមានតែលើឧបករណ៍នេះ",
+  "Not yet in the shared sheet: {0} client(s), {1} monthly filing(s), {2} capital-gains entr(ies). Merge them so every device sees them? Existing shared data is never overwritten.": "មិនទាន់មានក្នុងសន្លឹករួម៖ អតិថិជន {0} ការប្រកាសប្រចាំខែ {1} ចំណេញមូលធន {2}។ បញ្ចូលគ្នាដើម្បីឱ្យគ្រប់ឧបករណ៍មើលឃើញ? ទិន្នន័យរួមដែលមានស្រាប់មិនត្រូវបានសរសេរជាន់ទេ។",
+  "Merge into shared data": "បញ្ចូលទៅទិន្នន័យរួម",
+  "Not now": "មិនមែនឥឡូវ",
+  "A new version (v1.0.{0}) is available": "មានកំណែថ្មី (v1.0.{0})",
+  "You have v1.0.{0}. Download, then tap the notification to install — your data stays.": "អ្នកមាន v1.0.{0}។ ទាញយក រួចចុចលើការជូនដំណឹងដើម្បីដំឡើង — ទិន្នន័យរបស់អ្នកនៅដដែល។",
+  "Get update": "ទាញយកបច្ចុប្បន្នភាព",
+  "Later": "ពេលក្រោយ",
+  "Not started": "មិនទាន់ចាប់ផ្តើម",
+  "Start": "ចាប់ផ្តើម",
+  "In progress": "កំពុងបញ្ចូល",
+  "Continue": "បន្ត",
+  "Review requested": "បានស្នើសុំពិនិត្យ",
+  "View": "មើល",
+  "Review": "ពិនិត្យ",
+  "Changes requested": "បានស្នើឱ្យកែ",
+  "Fix": "កែ",
+  "All filed": "ដាក់ប្រកាសអស់ហើយ",
+  "Filings for {0}/{1}": "ការប្រកាសសម្រាប់ {0}/{1}",
+  "Filed {0}": "ដាក់ប្រកាស {0}",
+  "paid ✓": "បានបង់ ✓",
+  "paid": "បានបង់",
+  "not paid": "មិនទាន់បង់",
+  "Not started yet": "មិនទាន់ចាប់ផ្តើម",
+  "docs {0}/{1}": "ឯកសារ {0}/{1}",
+  "Changes requested — see messages": "បានស្នើឱ្យកែ — មើលសារ",
+  "None": "គ្មាន",
+  "No TIN": "គ្មាន TIN",
+  "{0} item(s)": "{0} ចំណុច",
+  "Remind ({0})": "រំលឹក ({0})",
+  "Filed {0} / {1}": "ដាក់ប្រកាស {0} / {1}",
+  "Review {0} · ": "ពិនិត្យ {0} · ",
+  "In progress {0} · Not started {1}": "កំពុងបញ្ចូល {0} · មិនទាន់ចាប់ផ្តើម {1}",
+  "{0} of {1} filed": "ដាក់ប្រកាស {0} លើ {1}",
+  "How to use": "របៀបប្រើ",
+  "Hide": "លាក់",
+  "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps, then press Save.": "រៀងរាល់ខែ បើក «ប្រកាសប្រចាំខែ» ហើយបញ្ចូលការលក់ ប្រាក់បៀវត្ស និងបង្កាន់ដៃជា 4 ជំហាន រួចចុច «រក្សាទុក»។",
+  "Snap receipts as you get them — the date and amount are read automatically.": "ថតបង្កាន់ដៃភ្លាមៗពេលទទួលបាន — កាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ត្រូវបានអានដោយស្វ័យប្រវត្តិ។",
+  "When done, press Request review in step 4. Kohr & Co. checks it, asks for changes if needed, and files with the GDT.": "ពេលរួចរាល់ ចុច «ស្នើសុំពិនិត្យ» ក្នុងជំហានទី 4។ Kohr & Co. ពិនិត្យ ស្នើឱ្យកែបើចាំបាច់ ហើយដាក់ប្រកាសទៅ GDT។",
+  "Each month have ready: sales invoices, payroll (incl. dependents), purchase receipts/VAT invoices, rent and service bills.": "រៀងរាល់ខែ សូមត្រៀម៖ វិក្កយបត្រលក់ បញ្ជីប្រាក់បៀវត្ស (រួមអ្នកនៅក្នុងបន្ទុក) បង្កាន់ដៃទិញ/វិក្កយបត្រ អតប វិក្កយបត្រថ្លៃឈ្នួល និងសេវា។",
+  "Add your client companies under Clients.": "បន្ថែមក្រុមហ៊ុនអតិថិជនក្នុង «អតិថិជន»។",
+  "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps.": "រៀងរាល់ខែ បើក «ប្រកាសប្រចាំខែ» ហើយបញ្ចូលការលក់ ប្រាក់បៀវត្ស និងបង្កាន់ដៃជា 4 ជំហាន។",
+  "Clients press Request review when ready — review those first, send change requests or file.": "អតិថិជនចុច «ស្នើសុំពិនិត្យ» ពេលរួចរាល់ — ពិនិត្យអ្នកទាំងនោះមុនគេ ផ្ញើសំណើកែ ឬដាក់ប្រកាស។",
+  "After filing on GDT e-Filing, enter the reference no. and mark as filed — the month locks for the client.": "ក្រោយដាក់ប្រកាសលើ GDT e-Filing បញ្ចូលលេខយោង ហើយសម្គាល់ថាបានដាក់ប្រកាស — ខែនោះត្រូវចាក់សោសម្រាប់អតិថិជន។",
+  "Add the first client": "បន្ថែមអតិថិជនដំបូង",
+  "GDT {0} · NSSF {1} {2}": "GDT {0} · ប.ស.ស. {1} {2}",
+  "Previous month": "ខែមុន",
+  "Next month": "ខែបន្ទាប់",
+  "This month's to-do": "កិច្ចការខែនេះ",
+  "To-do by client": "កិច្ចការតាមអតិថិជន",
+  "Add client": "បន្ថែមអតិថិជន",
+  "Snap a receipt now": "ថតបង្កាន់ដៃឥឡូវ",
+  "reads date & amount for you": "អានកាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ឱ្យអ្នក",
+  "GDT filing & payment": "ដាក់ប្រកាស និងបង់ពន្ធ GDT",
+  "Paper": "ក្រដាស",
+  "NSSF payment": "បង់ ប.ស.ស. (NSSF)",
+  " · {0} awaiting review": " · {0} រង់ចាំពិនិត្យ",
+  " · paid {0}": " · បានបង់ {0}",
+  "Progress by client": "វឌ្ឍនភាពតាមអតិថិជន",
+  "Needs attention first": "ត្រូវយកចិត្តទុកដាក់មុនគេ",
+  "Review requests first": "សំណើពិនិត្យមុនគេ",
+  "Client": "អតិថិជន",
+  "Status": "ស្ថានភាព",
+  "Progress": "វឌ្ឍនភាព",
+  "Tax due (KHR)": "ពន្ធត្រូវបង់ (KHR)",
+  "To check": "ត្រូវពិនិត្យ",
+  "Action": "សកម្មភាព",
+  "{0}/4 steps · docs {1}/{2}": "{0}/4 ជំហាន · ឯកសារ {1}/{2}",
+  "Total for {0}/{1}": "សរុបសម្រាប់ {0}/{1}",
+  "Who changed what and when. Data is also backed up to Google Drive once a day.": "អ្នកណាបានកែអ្វី នៅពេលណា។ ទិន្នន័យក៏ត្រូវបានបម្រុងទុកទៅ Google Drive មួយថ្ងៃម្តង។",
+  "Available when connected to the shared server.": "ប្រើបានពេលភ្ជាប់ម៉ាស៊ីនមេរួម។",
+  "My name (recorded with my changes)": "ឈ្មោះខ្ញុំ (កត់ត្រាជាមួយការកែរបស់ខ្ញុំ)",
+  "My name": "ឈ្មោះខ្ញុំ",
+  "e.g. Ashton": "ឧ. Ashton",
+  "Saved on this device only. Office staff share the admin password, so this tells you who did what.": "រក្សាទុកតែលើឧបករណ៍នេះ។ បុគ្គលិកការិយាល័យប្រើពាក្យសម្ងាត់រួមគ្នា ដូច្នេះឈ្មោះនេះប្រាប់ថាអ្នកណាបានធ្វើអ្វី។",
+  "Backing up…": "កំពុងបម្រុងទុក…",
+  "Back up now": "បម្រុងទុកឥឡូវ",
+  "Saved: ": "បានរក្សាទុក៖ ",
+  "Change log": "កំណត់ត្រាការផ្លាស់ប្តូរ",
+  "Filter by client": "ច្រោះតាមអតិថិជន",
+  "All clients": "អតិថិជនទាំងអស់",
+  "Refresh": "ផ្ទុកឡើងវិញ",
+  "No changes recorded yet.": "មិនទាន់មានការផ្លាស់ប្តូរត្រូវបានកត់ត្រាទេ។",
+  "To do": "ត្រូវធ្វើ",
+  "Done": "រួចរាល់",
+  "N/A": "មិនពាក់ព័ន្ធ",
+  "Today": "ថ្ងៃនេះ",
+  "Annual deadlines": "កាលកំណត់ប្រចាំឆ្នាំ",
+  "For a December year-end": "សម្រាប់ឆ្នាំសារពើពន្ធបញ្ចប់ខែធ្នូ",
+  "All done": "រួចរាល់ទាំងអស់",
+  "{0} left": "នៅសល់ {0}",
+  "Tap to change: To do → Done → N/A": "ចុចដើម្បីប្តូរ៖ ត្រូវធ្វើ → រួចរាល់ → មិនពាក់ព័ន្ធ",
+  "Filed · not paid": "បានដាក់ប្រកាស · មិនទាន់បង់",
+  "Remind clients": "រំលឹកអតិថិជន",
+  "{0}/{1} · {2} client(s) not ready": "{0}/{1} · អតិថិជន {2} មិនទាន់រួចរាល់",
+  "Close": "បិទ",
+  "Message language": "ភាសារបស់សារ",
+  "Include deadlines": "បញ្ចូលថ្ងៃផុតកំណត់",
+  " · no contact saved": " · គ្មានទំនាក់ទំនងរក្សាទុក",
+  "Copied ✓": "បានចម្លង ✓",
+  "Copy": "ចម្លង",
+  "Email": "អ៊ីមែល",
+  "Telegram (pick chat)": "Telegram (ជ្រើសការសន្ទនា)",
+  "Show": "បង្ហាញ",
+  "Generate": "បង្កើត",
+  "Check the Telegram ID or email address.": "សូមពិនិត្យ Telegram ID ឬអាសយដ្ឋានអ៊ីមែល។",
+  "Set a client password of at least 6 characters (or press Generate).": "សូមកំណត់ពាក្យសម្ងាត់អតិថិជនយ៉ាងតិច 6 តួ (ឬចុច «បង្កើត»)។",
+  "Could not save the client. Check the connection and try again.": "រក្សាទុកអតិថិជនមិនបាន។ សូមពិនិត្យការភ្ជាប់ រួចសាកម្តងទៀត។",
+  "Client added, but the password was not set: ": "បានបន្ថែមអតិថិជន ប៉ុន្តែមិនបានកំណត់ពាក្យសម្ងាត់៖ ",
+  " Set it from the list below.": " សូមកំណត់ពីបញ្ជីខាងក្រោម។",
+  "Added “{0}”. Give the client this password: {1}": "បានបន្ថែម “{0}”។ សូមផ្តល់ពាក្យសម្ងាត់នេះដល់អតិថិជន៖ {1}",
+  "Added “{0}”.": "បានបន្ថែម “{0}”។",
+  "Company name is required.": "ត្រូវបញ្ចូលឈ្មោះក្រុមហ៊ុន។",
+  "Telegram ID looks wrong (e.g. @KOHRKYY or +85512345678).": "Telegram ID មើលទៅមិនត្រឹមត្រូវ (ឧ. @KOHRKYY ឬ +85512345678)។",
+  "Email address looks wrong.": "អាសយដ្ឋានអ៊ីមែលមើលទៅមិនត្រឹមត្រូវ។",
+  "Could not save. Check the connection and try again.": "រក្សាទុកមិនបាន។ សូមពិនិត្យការភ្ជាប់ រួចសាកម្តងទៀត។",
+  "Saved.": "បានរក្សាទុក។",
+  "Contact person": "អ្នកទំនាក់ទំនង",
+  "e.g. Ms. Sokha (Accounting)": "ឧ. អ្នកស្រី សុខា (គណនេយ្យ)",
+  "Telegram ID or phone": "Telegram ID ឬលេខទូរសព្ទ",
+  "Saved. New password: {0}": "បានរក្សាទុក។ ពាក្យសម្ងាត់ថ្មី៖ {0}",
+  "Client login removed.": "បានដកសិទ្ធិចូលប្រើរបស់អតិថិជន។",
+  "Register client companies. Each client gets its own password and can see and edit only its own company.": "ចុះឈ្មោះក្រុមហ៊ុនអតិថិជន។ អតិថិជនម្នាក់ៗមានពាក្យសម្ងាត់ផ្ទាល់ខ្លួន ហើយអាចមើល និងកែតែក្រុមហ៊ុនរបស់ខ្លួនប៉ុណ្ណោះ។",
+  "Add a client": "បន្ថែមអតិថិជន",
+  "Company name": "ឈ្មោះក្រុមហ៊ុន",
+  "TIN (Tax ID)": "TIN (លេខអត្តសញ្ញាណកម្មសារពើពន្ធ)",
+  "Business type": "ប្រភេទអាជីវកម្ម",
+  "e.g. F&B, Trading": "ឧ. ម្ហូបអាហារ ពាណិជ្ជកម្ម",
+  "Client password (6+ characters)": "ពាក្យសម្ងាត់អតិថិជន (6 តួឡើង)",
+  "Client password": "ពាក្យសម្ងាត់អតិថិជន",
+  "Password for this client": "ពាក្យសម្ងាត់សម្រាប់អតិថិជននេះ",
+  "Available when connected to the shared server (not in review mode).": "ប្រើបានពេលភ្ជាប់ម៉ាស៊ីនមេរួម (មិនមែនក្នុងរបៀបសាកល្បង)។",
+  "Saving…": "កំពុងរក្សាទុក…",
+  "Add": "បន្ថែម",
+  "The client signs in with this password instead of the office passphrase.": "អតិថិជនចូលប្រើដោយពាក្យសម្ងាត់នេះ ជំនួសពាក្យសម្ងាត់ការិយាល័យ។",
+  "No clients registered.": "មិនទាន់មានអតិថិជនចុះឈ្មោះ។",
+  "TIN not registered": "មិនទាន់ចុះ TIN",
+  "Type not set": "មិនទាន់កំណត់ប្រភេទ",
+  "No Telegram or email yet — add it with Edit": "មិនទាន់មាន Telegram ឬអ៊ីមែល — បន្ថែមតាម «កែព័ត៌មាន»",
+  "Client login on": "អតិថិជនអាចចូលប្រើ",
+  "No password — client can't sign in": "គ្មានពាក្យសម្ងាត់ — អតិថិជនចូលមិនបាន",
+  "Edit info": "កែព័ត៌មាន",
+  "Change password": "ប្តូរពាក្យសម្ងាត់",
+  "Set password": "កំណត់ពាក្យសម្ងាត់",
+  "Delete": "លុប",
+  "Edit {0}": "កែ {0}",
+  "Company name (edit)": "ឈ្មោះក្រុមហ៊ុន (កែ)",
+  "TIN (edit)": "TIN (កែ)",
+  "Format looks unusual (e.g. K001-901234567).": "ទម្រង់មើលទៅមិនធម្មតា (ឧ. K001-901234567)។",
+  "Business type (edit)": "ប្រភេទអាជីវកម្ម (កែ)",
+  "Monthly documents to prepare (one per line)": "ឯកសារប្រចាំខែត្រូវត្រៀម (មួយបន្ទាត់មួយ)",
+  "Monthly documents": "ឯកសារប្រចាំខែ",
+  "Shown to the client as a checklist in step 4 every month.": "បង្ហាញដល់អតិថិជនជាបញ្ជីត្រួតពិនិត្យក្នុងជំហានទី 4 រៀងរាល់ខែ។",
+  "Save changes": "រក្សាទុកការកែ",
+  "Cancel": "បោះបង់",
+  "New password for {0}": "ពាក្យសម្ងាត់ថ្មីសម្រាប់ {0}",
+  "New password (6+ characters)": "ពាក្យសម្ងាត់ថ្មី (6 តួឡើង)",
+  "Save password": "រក្សាទុកពាក្យសម្ងាត់",
+  "Block client login": "បិទសិទ្ធិចូលប្រើរបស់អតិថិជន",
+  "Delete this client permanently?": "លុបអតិថិជននេះជាអចិន្ត្រៃយ៍?",
+  "{0} monthly filing(s) and {1} capital-gains record(s) will be removed from every device. This cannot be undone. Type “{2}” to confirm.": "ការប្រកាសប្រចាំខែ {0} និងកំណត់ត្រាចំណេញមូលធន {1} នឹងត្រូវលុបចេញពីគ្រប់ឧបករណ៍។ មិនអាចត្រឡប់វិញបានទេ។ វាយ “{2}” ដើម្បីបញ្ជាក់។",
+  "Type the company name": "វាយឈ្មោះក្រុមហ៊ុន",
+  "Delete permanently": "លុបជាអចិន្ត្រៃយ៍",
+  "You have unsaved changes. Leaving now will discard them. Continue?": "អ្នកមានការកែមិនទាន់រក្សាទុក។ បើចាកចេញឥឡូវ វានឹងបាត់។ បន្តឬ?",
+  "Add a client first under 'Clients'.": "សូមបន្ថែមអតិថិជនជាមុនក្នុង «អតិថិជន»។",
+  "Sales & purchases": "ការលក់ និងការទិញ",
+  "Sales": "ការលក់",
+  "Payroll": "ប្រាក់បៀវត្ស",
+  "Receipts & WHT": "បង្កាន់ដៃ និងពន្ធកាត់ទុក",
+  "Receipts": "បង្កាន់ដៃ",
+  "Review & file": "ពិនិត្យ និងដាក់ប្រកាស",
+  "Save failed — entries kept. Press Save again.": "រក្សាទុកមិនបាន — ទិន្នន័យនៅរក្សា។ សូមចុច «រក្សាទុក» ម្តងទៀត។",
+  "Unsaved changes": "មានការកែមិនទាន់រក្សាទុក",
+  "Saved · {0}": "បានរក្សាទុក · {0}",
+  "{0}/{1} · due {2}": "{0}/{1} · ផុតកំណត់ {2}",
+  "filed": "បានដាក់ប្រកាស",
+  "Change": "ប្តូរ",
+  "Month": "ខែ",
+  "Month {0}": "ខែ {0}",
+  "Year": "ឆ្នាំ",
+  "Steps": "ជំហាន",
+  " (done)": " (រួច)",
+  "Discard changes": "បោះបង់ការកែ",
+  "Updated elsewhere": "មានការកែពីកន្លែងផ្សេង",
+  "Someone else saved this filing while you were editing. Your edits are kept on screen and have not been overwritten. Saving now will replace their version — check with them first, or discard your changes to load theirs.": "មាននរណាម្នាក់បានរក្សាទុកការប្រកាសនេះ ខណៈអ្នកកំពុងកែ។ ការកែរបស់អ្នកនៅលើអេក្រង់ ហើយមិនត្រូវបានសរសេរជាន់ទេ។ បើរក្សាទុកឥឡូវ នឹងជំនួសកំណែរបស់គេ — សូមសួរគេជាមុន ឬបោះបង់ការកែរបស់អ្នកដើម្បីផ្ទុកកំណែរបស់គេ។",
+  "Kohr & Co. asked for changes": "Kohr & Co. ស្នើឱ្យកែ",
+  "You asked for changes": "អ្នកបានស្នើឱ្យកែ",
+  "Fix it, then press Request review again in step 4.": "សូមកែ រួចចុច «ស្នើសុំពិនិត្យ» ម្តងទៀតក្នុងជំហានទី 4។",
+  "This month has been filed, so it can’t be changed. Send a message in step 4 if something needs fixing.": "ខែនេះបានដាក់ប្រកាសរួច ដូច្នេះមិនអាចកែបានទេ។ បើមានអ្វីត្រូវកែ សូមផ្ញើសារក្នុងជំហានទី 4។",
+  "{0} item(s) to check — see step 4": "{0} ចំណុចត្រូវពិនិត្យ — មើលជំហានទី 4",
+  "This month's sales and purchases": "ការលក់ និងការទិញខែនេះ",
+  "Enter USD amounts before VAT. VAT and riel are calculated for you.": "បញ្ចូលចំនួនជា USD មិនរួម អតប។ អតប និងរៀល គណនាឱ្យដោយស្វ័យប្រវត្តិ។",
+  "Exchange rate": "អត្រាប្តូរប្រាក់",
+  "Sales (USD, before VAT)": "ការលក់ (USD មិនរួម អតប)",
+  "Incl. VAT 10%": "រួម អតប 10%",
+  ": total": "៖ សរុប",
+  "VAT 10%": "អតប 10%",
+  "Purchases": "ការទិញ",
+  "— only those without an uploaded invoice": "— តែអ្វីដែលគ្មានវិក្កយបត្របង្ហោះ",
+  "Purchases without an uploaded invoice (USD, before VAT)": "ការទិញដែលគ្មានវិក្កយបត្របង្ហោះ (USD មិនរួម អតប)",
+  "Input VAT credit": "ឥណទាន អតប ធាតុចូល",
+  "— without receipts": "— គ្មានបង្កាន់ដៃ",
+  "Other expenses without receipts (USD)": "ចំណាយផ្សេងៗគ្មានបង្កាន់ដៃ (USD)",
+  "Sells alcohol or tobacco it produced or imported? (Public Lighting Tax)": "លក់ស្រា ឬថ្នាំជក់ដែលផលិត ឬនាំចូលដោយខ្លួនឯង? (អាករបំភ្លឺសាធារណៈ)",
+  "First-supply value of alcohol/tobacco (USD)": "តម្លៃផ្គត់ផ្គង់លើកដំបូងនៃស្រា/ថ្នាំជក់ (USD)",
+  "PLT: {0} KHR × 5% = {1} KHR": "អាករបំភ្លឺសាធារណៈ៖ {0} KHR × 5% = {1} KHR",
+  "Add each employee's monthly salary in USD. Choose Gross (before tax) or Net (take-home); salary tax is calculated for you. No employees? Skip to the next step.": "បញ្ចូលប្រាក់ខែប្រចាំខែរបស់បុគ្គលិកម្នាក់ៗជា USD។ ជ្រើស Gross (មុនកាត់ពន្ធ) ឬ Net (ទទួលបានពិត) ពន្ធលើប្រាក់បៀវត្សគណនាឱ្យ។ គ្មានបុគ្គលិក? រំលងទៅជំហានបន្ទាប់។",
+  "Carried forward from the most recent previous month with payroll data — check the names and amounts for this month, then press Save.": "យកមកពីខែចុងក្រោយដែលមានទិន្នន័យប្រាក់បៀវត្ស — សូមពិនិត្យឈ្មោះ និងចំនួនសម្រាប់ខែនេះ រួចចុច «រក្សាទុក»។",
+  "Employee name": "ឈ្មោះបុគ្គលិក",
+  "Switch between gross/net entry": "ប្តូររវាងការបញ្ចូល Gross/Net",
+  "Net": "Net",
+  "Gross": "Gross",
+  "Net salary (USD)": "ប្រាក់ខែ Net (USD)",
+  "Gross salary (USD)": "ប្រាក់ខែ Gross (USD)",
+  "Remove employee": "ដកបុគ្គលិកចេញ",
+  "Pre-tax": "មុនកាត់ពន្ធ",
+  "− Tax": "− ពន្ធ",
+  "= Net pay": "= ប្រាក់ទទួលបាន",
+  "Net amount entered — gross salary calculated automatically by reversing the tax brackets.": "បានបញ្ចូលចំនួន Net — ប្រាក់ខែ Gross គណនាដោយស្វ័យប្រវត្តិ ដោយគិតបញ្ច្រាសតាមថ្នាក់ពន្ធ។",
+  "Non-working spouse; children under 14, or under 25 in full-time study": "សហព័ទ្ធមិនធ្វើការ កូនអាយុក្រោម 14 ឆ្នាំ ឬក្រោម 25 ឆ្នាំបើសិក្សាពេញម៉ោង",
+  "Dependents": "អ្នកនៅក្នុងបន្ទុក",
+  "Number of dependents": "ចំនួនអ្នកនៅក្នុងបន្ទុក",
+  "Non-resident (20% flat)": "អនិវាសនជន (ថេរ 20%)",
+  "Fringe benefits": "អត្ថប្រយោជន៍បន្ថែម",
+  "Fringe benefits (USD)": "អត្ថប្រយោជន៍បន្ថែម (USD)",
+  "Non-resident: 20% of gross, no dependent allowance.": "អនិវាសនជន៖ 20% នៃប្រាក់ខែដុល គ្មានការបន្ធូរសម្រាប់អ្នកនៅក្នុងបន្ទុក។",
+  "Dependent allowance {0} KHR deducted before tax.": "ប្រាក់បន្ធូរសម្រាប់អ្នកនៅក្នុងបន្ទុក {0} KHR ត្រូវកាត់មុនគិតពន្ធ។",
+  "Fringe benefit tax (20%, paid by employer): {0} KHR": "ពន្ធលើអត្ថប្រយោជន៍បន្ថែម (20% បង់ដោយនិយោជក)៖ {0} KHR",
+  "+ Add employee": "+ បន្ថែមបុគ្គលិក",
+  "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register.": "ថតរូបបង្កាន់ដៃ ឬវិក្កយបត្រនីមួយៗ។ កាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ត្រូវបានអានដោយស្វ័យប្រវត្តិ — សូមពិនិត្យ ជ្រើសប្រភេទ រួចចុះបញ្ជី។",
+  "Tax due to the GDT for {0}/{1}": "ពន្ធត្រូវបង់ទៅ GDT សម្រាប់ {0}/{1}",
+  "≈ {0} · due {1}": "≈ {0} · ផុតកំណត់ {1}",
+  "VAT payable": "អតប ត្រូវបង់",
+  "Prepayment Profit Tax (1% of sales)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (1% នៃការលក់)",
+  "Public Lighting Tax (5%)": "អាករបំភ្លឺសាធារណៈ (5%)",
+  "Salary tax ({0} staff)": "ពន្ធលើប្រាក់បៀវត្ស (បុគ្គលិក {0})",
+  "Fringe benefit tax (20%)": "ពន្ធលើអត្ថប្រយោជន៍បន្ថែម (20%)",
+  "Withholding tax (ToW)": "ពន្ធកាត់ទុក (ToW)",
+  "NSSF (separate, by {0})": "ប.ស.ស. (ដាច់ដោយឡែក ត្រឹម {0})",
+  "Show the full calculation": "បង្ហាញការគណនាពេញលេញ",
+  "Revenue (KHR equivalent)": "ចំណូល (គិតជា KHR)",
+  "Output VAT (10%)": "អតប ធាតុចេញ (10%)",
+  "Purchases (KHR equivalent)": "ការទិញ (គិតជា KHR)",
+  "Input VAT credit (purchases + receipts)": "ឥណទាន អតប ធាតុចូល (ការទិញ + បង្កាន់ដៃ)",
+  "Total expenses this month (for annual ToI)": "ចំណាយសរុបខែនេះ (សម្រាប់ពន្ធប្រចាំឆ្នាំ)",
+  "Check before filing": "ពិនិត្យមុនដាក់ប្រកាស",
+  "Sales & purchases entered": "បានបញ្ចូលការលក់ និងការទិញ",
+  "No sales or purchases entered": "មិនទាន់បញ្ចូលការលក់ ឬការទិញ",
+  "Payroll {0} · receipts {1} · withholding {2}": "ប្រាក់បៀវត្ស {0} · បង្កាន់ដៃ {1} · ពន្ធកាត់ទុក {2}",
+  "Enter": "បញ្ចូល",
+  "View the filing draft (P101)": "មើលសេចក្តីព្រាងលិខិតប្រកាស (P101)",
+  "Review requested. Let Kohr & Co. know?": "បានស្នើសុំពិនិត្យ។ ប្រាប់ Kohr & Co. ទេ?",
+  "Filed · {0}{1}": "បានដាក់ប្រកាស · {0}{1}",
+  " · GDT ref {0}": " · លេខយោង GDT {0}",
+  "Review requested — Kohr & Co. will check and file. You can still fix entries and request again.": "បានស្នើសុំពិនិត្យ — Kohr & Co. នឹងពិនិត្យ និងដាក់ប្រកាស។ អ្នកនៅអាចកែ ហើយស្នើម្តងទៀតបាន។",
+  "When everything is entered, press Request review. Kohr & Co. files with the GDT.": "ពេលបញ្ចូលអស់ហើយ ចុច «ស្នើសុំពិនិត្យ»។ Kohr & Co. ដាក់ប្រកាសទៅ GDT។",
+  "Fix the {0} error(s) above before marking as filed.": "សូមកែកំហុស {0} ខាងលើ មុនសម្គាល់ថាបានដាក់ប្រកាស។",
+  "Press the button below after filing on GDT e-Filing.": "ចុចប៊ូតុងខាងក្រោម ក្រោយដាក់ប្រកាសលើ GDT e-Filing។",
+  "Save failed — entries kept": "រក្សាទុកមិនបាន — ទិន្នន័យនៅរក្សា",
+  "Tax due this month": "ពន្ធត្រូវបង់ខែនេះ",
+  "Previous step": "ជំហានមុន",
+  "Retry save": "សាករក្សាទុកម្តងទៀត",
+  "Save": "រក្សាទុក",
+  "Next: {0}": "បន្ទាប់៖ {0}",
+  "Requested ✓ · request again": "បានស្នើ ✓ · ស្នើម្តងទៀត",
+  "Done · Request review": "រួចរាល់ · ស្នើសុំពិនិត្យ",
+  "Undo filed status": "បោះបង់ស្ថានភាពដាក់ប្រកាស",
+  "Save & mark as filed": "រក្សាទុក និងសម្គាល់ថាបានដាក់ប្រកាស",
+  "Mark as filed": "សម្គាល់ថាបានដាក់ប្រកាស",
+  "Documents this month": "ឯកសារខែនេះ",
+  "Tick what you have sent or uploaded. Saved with Save or Request review.": "គូសអ្វីដែលអ្នកបានផ្ញើ ឬបង្ហោះ។ រក្សាទុកជាមួយ «រក្សាទុក» ឬ «ស្នើសុំពិនិត្យ»។",
+  "Could not load the photo.": "ផ្ទុករូបថតមិនបាន។",
+  "Enter the amount paid.": "សូមបញ្ចូលចំនួនទឹកប្រាក់ដែលបានបង់។",
+  "Tax payment": "ការបង់ពន្ធ",
+  "Paid · confirmed by office": "បានបង់ · ការិយាល័យបានបញ្ជាក់",
+  "Paid": "បានបង់",
+  "Not paid yet": "មិនទាន់បង់",
+  "Amount to pay": "ចំនួនត្រូវបង់",
+  "View payment receipt": "មើលបង្កាន់ដៃបង់ប្រាក់",
+  "difference": "ភាពខុសគ្នា",
+  "Ref": "យោង",
+  "No receipt photo yet": "មិនទាន់មានរូបថតបង្កាន់ដៃ",
+  "Original on Drive": "ឯកសារដើមលើ Drive",
+  "Edit payment": "កែការបង់ប្រាក់",
+  "Undo confirmation": "បោះបង់ការបញ្ជាក់",
+  "Confirm payment": "បញ្ជាក់ការបង់ប្រាក់",
+  "Date paid": "ថ្ងៃបង់",
+  "Amount paid (KHR)": "ចំនួនបានបង់ (KHR)",
+  "How": "វិធីបង់",
+  "Payment method": "វិធីបង់ប្រាក់",
+  "Reference no. (optional)": "លេខយោង (ជាជម្រើស)",
+  "Payment reference": "លេខយោងការបង់ប្រាក់",
+  "Bank transaction no.": "លេខប្រតិបត្តិការធនាគារ",
+  "Payment receipt": "បង្កាន់ដៃបង់ប្រាក់",
+  "Payment receipt photo": "រូបថតបង្កាន់ដៃបង់ប្រាក់",
+  "Change receipt photo": "ប្តូររូបថតបង្កាន់ដៃ",
+  "Add payment receipt photo": "បន្ថែមរូបថតបង្កាន់ដៃបង់ប្រាក់",
+  "Mark as paid": "សម្គាល់ថាបានបង់",
+  "Pay the GDT by the deadline (bank e-Payment or counter), then record it here with the receipt photo.": "បង់ពន្ធទៅ GDT ឱ្យទាន់កាលកំណត់ (ធនាគារ e-Payment ឬបញ្ជរ) រួចកត់ត្រានៅទីនេះជាមួយរូបថតបង្កាន់ដៃ។",
+  "Office review": "ការពិនិត្យរបស់ការិយាល័យ",
+  "Client requested review · {0}": "អតិថិជនបានស្នើសុំពិនិត្យ · {0}",
+  "Change request sent": "បានផ្ញើសំណើកែ",
+  "Not requested yet": "មិនទាន់ស្នើ",
+  "GDT e-Filing reference no. (optional)": "លេខយោង GDT e-Filing (ជាជម្រើស)",
+  "e.g. reference shown after e-Filing": "ឧ. លេខយោងដែលបង្ហាញក្រោយ e-Filing",
+  "Ask the client to fix something": "ស្នើឱ្យអតិថិជនកែអ្វីមួយ",
+  "e.g. Please upload the October bank statement.": "ឧ. សូមបង្ហោះរបាយការណ៍ធនាគារខែតុលា។",
+  "Send change request:": "ផ្ញើសំណើកែ៖",
+  "App": "កម្មវិធី",
+  "Save in app": "រក្សាទុកក្នុងកម្មវិធី",
+  "Send on Telegram": "ផ្ញើតាម Telegram",
+  "Email instead": "ប្រើអ៊ីមែលជំនួស",
+  "Send by email": "ផ្ញើតាមអ៊ីមែល",
+  "Messages": "សារ",
+  "Contact Kohr & Co.": "ទាក់ទង Kohr & Co.",
+  "Contact the client": "ទាក់ទងអតិថិជន",
+  "New message": "សារថ្មី",
+  "Question or note for Kohr & Co.": "សំណួរ ឬកំណត់ចំណាំសម្រាប់ Kohr & Co.",
+  "Message to the client": "សារទៅអតិថិជន",
+  "No Telegram or email for this client yet — add it under Clients › Edit info. For now the message is only kept in the app.": "មិនទាន់មាន Telegram ឬអ៊ីមែលសម្រាប់អតិថិជននេះ — បន្ថែមក្នុង អតិថិជន › កែព័ត៌មាន។ ឥឡូវនេះ សាររក្សាទុកតែក្នុងកម្មវិធី។",
+  "Opens Telegram (or email) with the message filled in — press Send there. A copy is kept here, and what’s on screen is saved.": "បើក Telegram (ឬអ៊ីមែល) ដោយមានសារស្រាប់ — សូមចុច Send នៅទីនោះ។ មួយច្បាប់រក្សាទុកនៅទីនេះ ហើយទិន្នន័យលើអេក្រង់ក៏ត្រូវបានរក្សាទុក។",
+  "Only image files (JPG, PNG).": "តែឯកសាររូបភាព (JPG, PNG) ប៉ុណ្ណោះ។",
+  "Enter the amount before VAT.": "សូមបញ្ចូលចំនួនមិនរួម អតប។",
+  "Invoice date": "កាលបរិច្ឆេទវិក្កយបត្រ",
+  "Invoice no.": "លេខវិក្កយបត្រ",
+  "Customer": "អតិថិជន (អ្នកទិញ)",
+  "Supplier": "អ្នកផ្គត់ផ្គង់",
+  "Customer VATTIN (if any)": "VATTIN អ្នកទិញ (បើមាន)",
+  "Supplier VATTIN": "VATTIN អ្នកផ្គត់ផ្គង់",
+  "Customer VATTIN": "VATTIN អ្នកទិញ",
+  "Amount before VAT": "ចំនួនមិនរួម អតប",
+  "Currency": "រូបិយប័ណ្ណ",
+  "VAT (0 if none)": "អតប (0 បើគ្មាន)",
+  "VAT amount": "ចំនួន អតប",
+  "Apply changes": "អនុវត្តការកែ",
+  "Purchase": "ការទិញ",
+  "Name not read": "អានឈ្មោះមិនបាន",
+  "before VAT": "មិនរួម អតប",
+  "incl. VAT": "រួម អតប",
+  "Edit": "កែ",
+  "Delete document": "លុបឯកសារ",
+  "Invoices by photo": "វិក្កយបត្រតាមរូបថត",
+  "Enter from invoice photos": "បញ្ចូលពីរូបថតវិក្កយបត្រ",
+  "Sales invoices are added to Sales; purchase invoices are registered as receipts (step 3). You can edit everything afterwards.": "វិក្កយបត្រលក់ត្រូវបូកចូលការលក់ វិក្កយបត្រទិញត្រូវចុះជាបង្កាន់ដៃ (ជំហានទី 3)។ អ្នកអាចកែទាំងអស់នៅពេលក្រោយ។",
+  "Invoice type": "ប្រភេទវិក្កយបត្រ",
+  "Sales invoice": "វិក្កយបត្រលក់",
+  "Purchase invoice": "វិក្កយបត្រទិញ",
+  "Take photo": "ថតរូប",
+  "Choose photo": "ជ្រើសរូបថត",
+  "Reading the invoice…": "កំពុងអានវិក្កយបត្រ…",
+  "Hard to read — please check every field.": "ពិបាកអាន — សូមពិនិត្យគ្រប់ប្រអប់។",
+  "Read. Check and fix if needed, then Add.": "អានរួច។ ពិនិត្យ និងកែបើចាំបាច់ រួចចុច «បន្ថែម»។",
+  "Add to sales": "បន្ថែមទៅការលក់",
+  "Register purchase": "ចុះបញ្ជីការទិញ",
+  "Sales invoices total {0} (before VAT) — Sales field is {1}.": "វិក្កយបត្រលក់សរុប {0} (មិនរួម អតប) — ប្រអប់ការលក់គឺ {1}។",
+  "Use invoice total": "ប្រើចំនួនសរុបវិក្កយបត្រ",
+  "Applied {0} employee(s) — {1} new, {2} updated. Check below, then Save.": "បានអនុវត្តបុគ្គលិក {0} នាក់ — ថ្មី {1} កែ {2}។ ពិនិត្យខាងក្រោម រួចរក្សាទុក។",
+  "Payroll by photo": "ប្រាក់បៀវត្សតាមរូបថត",
+  "Enter from a payroll sheet or payslips": "បញ្ចូលពីបញ្ជីប្រាក់បៀវត្ស ឬប័ណ្ណប្រាក់ខែ",
+  "Names and salaries are read for you. Check the table, then apply — existing employees with the same name are updated.": "ឈ្មោះ និងប្រាក់ខែត្រូវបានអានឱ្យ។ ពិនិត្យតារាង រួចអនុវត្ត — បុគ្គលិកដែលមានឈ្មោះដូចគ្នាត្រូវបានកែ។",
+  " · {0} document(s) uploaded this month": " · ឯកសារ {0} បានបង្ហោះខែនេះ",
+  "Reading names and salaries…": "កំពុងអានឈ្មោះ និងប្រាក់ខែ…",
+  "Found {0} row(s). Fix anything wrong, untick rows to skip.": "រកឃើញ {0} ជួរ។ កែអ្វីដែលខុស ដកធីកជួរដែលចង់រំលង។",
+  "No employees found. Add rows by hand.": "រកមិនឃើញបុគ្គលិក។ សូមបន្ថែមជួរដោយដៃ។",
+  "Amounts are in": "ចំនួនទឹកប្រាក់គិតជា",
+  "Payroll currency": "រូបិយប័ណ្ណប្រាក់បៀវត្ស",
+  "Include {0}": "រួមបញ្ចូល {0}",
+  "Gross or net": "Gross ឬ Net",
+  "Salary": "ប្រាក់ខែ",
+  "+ Add row": "+ បន្ថែមជួរ",
+  "Apply {0} to employees": "អនុវត្ត {0} ទៅបុគ្គលិក",
+  "This period's exchange rate": "អត្រាប្តូរប្រាក់សម្រាប់ខែនេះ",
+  "⚠ {0}% off the company default ({1}). Check for a typo — every KHR figure below uses this rate.": "⚠ ខុស {0}% ពីអត្រាលំនាំដើមរបស់ក្រុមហ៊ុន ({1})។ សូមពិនិត្យក្រែងវាយខុស — តួលេខ KHR ទាំងអស់ខាងក្រោមប្រើអត្រានេះ។",
+  "Company default: {0} KHR{1}": "លំនាំដើមក្រុមហ៊ុន៖ {0} KHR{1}",
+  " (as of {0})": " (គិតត្រឹម {0})",
+  "Use default": "ប្រើលំនាំដើម",
+  "Saved ✓": "បានរក្សាទុក ✓",
+  "Save as company default": "រក្សាទុកជាលំនាំដើមក្រុមហ៊ុន",
+  "Check GDT rate ↗": "ពិនិត្យអត្រា GDT ↗",
+  "Use it like an app on iPhone": "ប្រើដូចកម្មវិធីលើ iPhone",
+  "Tap the Share button": "ចុចប៊ូតុង Share",
+  "below, then": "ខាងក្រោម រួចចុច",
+  "Add to Home Screen": "Add to Home Screen",
+  "User manual (PDF)": "សៀវភៅណែនាំ (PDF)",
+  "A new version is available": "មានកំណែថ្មី",
+  "The app has been updated": "កម្មវិធីត្រូវបានធ្វើបច្ចុប្បន្នភាព",
+  "Version {0}": "កំណែ {0}",
+  "Refresh to use the latest version.": "ផ្ទុកឡើងវិញដើម្បីប្រើកំណែថ្មីបំផុត។",
+  "What’s new": "អ្វីដែលថ្មី",
+  "Download it, then tap the download notification to install. Your data stays as it is.": "ទាញយក រួចចុចលើការជូនដំណឹងទាញយកដើម្បីដំឡើង។ ទិន្នន័យរបស់អ្នកនៅដដែល។",
+  "You are on the latest version.": "អ្នកកំពុងប្រើកំណែថ្មីបំផុត។",
+  "Refresh now": "ផ្ទុកឡើងវិញឥឡូវ",
+  "OK": "យល់ព្រម",
+  "Receipt photo": "រូបថតបង្កាន់ដៃ",
+  "Pinch or zoom the page to enlarge further. Tap outside the photo to close.": "ពង្រីកទំព័រដើម្បីមើលធំជាងនេះ។ ចុចក្រៅរូបថតដើម្បីបិទ។",
+  "From receipt": "ពីបង្កាន់ដៃ",
+  "Only image files are supported (JPG, PNG, etc.).": "គាំទ្រតែឯកសាររូបភាព (JPG, PNG ។ល។)។",
+  "Failed to load image: ": "ផ្ទុករូបភាពមិនបាន៖ ",
+  "Please enter the amount.": "សូមបញ្ចូលចំនួនទឹកប្រាក់។",
+  "Receipt type": "ប្រភេទបង្កាន់ដៃ",
+  "Tax invoice (VAT)": "វិក្កយបត្រអាករ (អតប)",
+  "General receipt": "បង្កាន់ដៃធម្មតា",
+  "Drop the image here": "ទម្លាក់រូបភាពនៅទីនេះ",
+  "or drag a receipt image here": "ឬអូសរូបបង្កាន់ដៃមកទីនេះ",
+  "Enter without a photo": "បញ្ចូលដោយគ្មានរូបថត",
+  "Receipt to register": "បង្កាន់ដៃត្រូវចុះបញ្ជី",
+  "Uploaded photo": "រូបថតដែលបានបង្ហោះ",
+  "View photo large": "មើលរូបថតធំ",
+  "Enter receipt details": "បញ្ចូលព័ត៌មានបង្កាន់ដៃ",
+  "Reading date and amount from the image…": "កំពុងអានកាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ពីរូបភាព…",
+  "Could not read the image. ": "អានរូបភាពមិនបាន។ ",
+  " Enter the date and amount below.": " សូមបញ្ចូលកាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ខាងក្រោម។",
+  "Read automatically — please check": "អានដោយស្វ័យប្រវត្តិ — សូមពិនិត្យ",
+  "Date": "កាលបរិច្ឆេទ",
+  "Amount": "ចំនួនទឹកប្រាក់",
+  "not found": "រកមិនឃើញ",
+  "Check: ": "ពិនិត្យ៖ ",
+  "Printed: ": "លើបង្កាន់ដៃ៖ ",
+  "Use the {0} total instead ({1})": "ប្រើចំនួនសរុប {0} ជំនួស ({1})",
+  "Read again": "អានម្តងទៀត",
+  "Transaction date": "កាលបរិច្ឆេទប្រតិបត្តិការ",
+  "Vendor": "អ្នកលក់",
+  "Vendor / payee": "អ្នកលក់ / អ្នកទទួលប្រាក់",
+  "Shop or company name": "ឈ្មោះហាង ឬក្រុមហ៊ុន",
+  "Needed to claim input VAT — copy it from the invoice.": "ត្រូវការដើម្បីទាមទារ អតប ធាតុចូល — ចម្លងពីវិក្កយបត្រ។",
+  "Format OK.": "ទម្រង់ត្រឹមត្រូវ។",
+  "What was it for?": "ចំណាយសម្រាប់អ្វី?",
+  "Payment type": "ប្រភេទការបង់ប្រាក់",
+  "Withholding tax": "ពន្ធកាត់ទុក",
+  "Withholding type": "ប្រភេទពន្ធកាត់ទុក",
+  "Not applicable": "មិនពាក់ព័ន្ធ",
+  "Note (optional)": "កំណត់ចំណាំ (ជាជម្រើស)",
+  "Additional note (optional — e.g., August office internet bill)": "កំណត់ចំណាំបន្ថែម (ជាជម្រើស — ឧ. វិក្កយបត្រអ៊ីនធឺណិតការិយាល័យខែសីហា)",
+  "e.g. office internet": "ឧ. អ៊ីនធឺណិតការិយាល័យ",
+  "Expense": "ចំណាយ",
+  "input VAT": "អតប ធាតុចូល",
+  "withholding": "ពន្ធកាត់ទុក",
+  "(added automatically)": "(បន្ថែមដោយស្វ័យប្រវត្តិ)",
+  "Rate 1 USD = {0} KHR": "អត្រា 1 USD = {0} KHR",
+  "Register this receipt": "ចុះបញ្ជីបង្កាន់ដៃនេះ",
+  "Registered receipts ({0})": "បង្កាន់ដៃបានចុះបញ្ជី ({0})",
+  "Total": "សរុប",
+  "Vendor (payee)": "អ្នកលក់ (អ្នកទទួលប្រាក់)",
+  "Supplier VATTIN (edit)": "VATTIN អ្នកផ្គត់ផ្គង់ (កែ)",
+  "Withholding": "ពន្ធកាត់ទុក",
+  "Note": "កំណត់ចំណាំ",
+  "Then press Save at the bottom to keep it.": "រួចចុច «រក្សាទុក» នៅខាងក្រោមដើម្បីរក្សា។",
+  "Vendor not entered": "មិនបានបញ្ចូលអ្នកលក់",
+  " · general receipt": " · បង្កាន់ដៃធម្មតា",
+  "⚠ No supplier VATTIN — tap Edit to add": "⚠ គ្មាន VATTIN អ្នកផ្គត់ផ្គង់ — ចុច «កែ» ដើម្បីបន្ថែម",
+  "Delete receipt": "លុបបង្កាន់ដៃ",
+  "Total expenses from receipts": "ចំណាយសរុបពីបង្កាន់ដៃ",
+  "Total input VAT from receipts": "អតប ធាតុចូលសរុបពីបង្កាន់ដៃ",
+  "The app keeps a small thumbnail; a full-size copy of each photo is also stored in Kohr & Co.’s Google Drive. Still keep the paper originals (tax invoices, etc.) for 10 years for GDT audits.": "កម្មវិធីរក្សារូបតូច ហើយរូបថតទំហំពេញក៏រក្សាទុកក្នុង Google Drive របស់ Kohr & Co.។ សូមរក្សាឯកសារក្រដាសដើម (វិក្កយបត្រអាករ ។ល។) 10 ឆ្នាំ សម្រាប់សវនកម្ម GDT។",
+  "Uploaded images are stored only as compressed thumbnails to save space. For GDT tax audits, keep original receipts (tax invoices, etc.) separately — scanned or physical — for 10 years.": "រូបភាពដែលបង្ហោះរក្សាទុកតែជារូបតូចបង្រួម ដើម្បីសន្សំទំហំ។ សម្រាប់សវនកម្មពន្ធ GDT សូមរក្សាបង្កាន់ដៃដើម (វិក្កយបត្រអាករ ។ល។) ដាច់ដោយឡែក 10 ឆ្នាំ។",
+  "Registered (calculate)": "បានចុះបញ្ជី (គណនា)",
+  "Not registered (skip)": "មិនបានចុះបញ្ជី (រំលង)",
+  "This filing has {0} employees. NSSF registration is mandatory at 8 or more — confirm whether this client is registered.": "ការប្រកាសនេះមានបុគ្គលិក {0} នាក់។ ការចុះបញ្ជី ប.ស.ស. ជាកាតព្វកិច្ចចាប់ពី 8 នាក់ — សូមបញ្ជាក់ថាអតិថិជននេះបានចុះបញ្ជីឬនៅ។",
+  "NSSF is not being calculated for this filing. Switch to 'Registered' if this client is enrolled (mandatory at 8+ employees; voluntary enrolment is also possible below that).": "មិនគណនា ប.ស.ស. សម្រាប់ការប្រកាសនេះទេ។ ប្តូរទៅ 'បានចុះបញ្ជី' បើអតិថិជននេះបានចុះឈ្មោះ (កាតព្វកិច្ចចាប់ពី 8 នាក់ ក្រោមនោះអាចចុះដោយស្ម័គ្រចិត្ត)។",
+  "NSSF Contribution": "ភាគទាន ប.ស.ស.",
+  "Add employees with a salary above to calculate NSSF contributions.": "បន្ថែមបុគ្គលិកដែលមានប្រាក់ខែខាងលើ ដើម្បីគណនាភាគទាន ប.ស.ស.។",
+  "NSSF Contribution (separate from GDT tax filing)": "ភាគទាន ប.ស.ស. (ដាច់ដោយឡែកពីការប្រកាសពន្ធ GDT)",
+  "Employee": "បុគ្គលិក",
+  "Contributory wage": "ប្រាក់ឈ្នួលជាប់ភាគទាន",
+  "Employer (4.1%)": "និយោជក (4.1%)",
+  "Employee (3.3%)": "បុគ្គលិក (3.3%)",
+  "Employer contribution": "ភាគទាននិយោជក",
+  "Employee contribution (withheld from salary)": "ភាគទានបុគ្គលិក (កាត់ពីប្រាក់ខែ)",
+  "Total NSSF payment due": "ភាគទាន ប.ស.ស. សរុបត្រូវបង់",
+  "Mandatory for employers with 8+ employees (registration required within 45 days). Contributory wage is capped between 400,000–1,200,000 KHR regardless of actual salary. Due by the 15th of the following month, separately from the GDT monthly tax filing — verify current rates with NSSF (nssf.gov.kh) as they are being phased in.": "ជាកាតព្វកិច្ចសម្រាប់និយោជកដែលមានបុគ្គលិក 8 នាក់ឡើង (ត្រូវចុះបញ្ជីក្នុង 45 ថ្ងៃ)។ ប្រាក់ឈ្នួលជាប់ភាគទានកំណត់ចន្លោះ 400,000–1,200,000 KHR មិនគិតពីប្រាក់ខែពិត។ ត្រូវបង់ត្រឹមថ្ងៃទី 15 នៃខែបន្ទាប់ ដាច់ដោយឡែកពីការប្រកាសពន្ធប្រចាំខែ GDT — សូមផ្ទៀងផ្ទាត់អត្រាបច្ចុប្បន្នជាមួយ ប.ស.ស. (nssf.gov.kh)។",
+  "Auto-classification failed: ": "ចាត់ថ្នាក់ស្វ័យប្រវត្តិមិនបាន៖ ",
+  " — please add manually from the fields above.": " — សូមបន្ថែមដោយដៃពីប្រអប់ខាងលើ។",
+  "Unknown payee": "មិនស្គាល់អ្នកទទួលប្រាក់",
+  "Manually entered (classification not used)": "បញ្ចូលដោយដៃ (មិនប្រើការចាត់ថ្នាក់)",
+  "Withholding Tax (ToW) — payments to residents / non-residents": "ពន្ធកាត់ទុក (ToW) — ការបង់ឱ្យនិវាសនជន / អនិវាសនជន",
+  "Payee name": "ឈ្មោះអ្នកទទួលប្រាក់",
+  "Switch between gross (before withholding) / net (after withholding) entry": "ប្តូររវាងការបញ្ចូល Gross (មុនកាត់ទុក) / Net (ក្រោយកាត់ទុក)",
+  "Net (after WHT)": "Net (ក្រោយកាត់ទុក)",
+  "Gross (before WHT)": "Gross (មុនកាត់ទុក)",
+  "Net paid (USD)": "បង់ Net (USD)",
+  "Gross payment (USD)": "បង់ Gross (USD)",
+  "+ Add": "+ បន្ថែម",
+  "Preview: gross {0} KHR × {1}% = {2} KHR tax → net paid {3} KHR": "មើលជាមុន៖ Gross {0} KHR × {1}% = ពន្ធ {2} KHR → បង់ Net {3} KHR",
+  "Net amount entered — gross payment calculated automatically by reversing the withholding rate.": "បានបញ្ចូលចំនួន Net — ចំនួន Gross គណនាដោយស្វ័យប្រវត្តិ ដោយគិតបញ្ច្រាសអត្រាកាត់ទុក។",
+  "— or upload a source document (invoice, contract, receipt) to auto-fill the fields above —": "— ឬបង្ហោះឯកសារដើម (វិក្កយបត្រ កិច្ចសន្យា បង្កាន់ដៃ) ដើម្បីបំពេញប្រអប់ខាងលើដោយស្វ័យប្រវត្តិ —",
+  "Drag & drop a document image here, or click to choose a file": "អូសរូបឯកសារមកទីនេះ ឬចុចដើម្បីជ្រើសឯកសារ",
+  "Additional note (optional — e.g., October office rent)": "កំណត់ចំណាំបន្ថែម (ជាជម្រើស — ឧ. ថ្លៃឈ្នួលការិយាល័យខែតុលា)",
+  "Note (optional) — e.g. October rent": "កំណត់ចំណាំ (ជាជម្រើស) — ឧ. ថ្លៃឈ្នួលខែតុលា",
+  "Classifying…": "កំពុងចាត់ថ្នាក់…",
+  "Upload & Auto-classify": "បង្ហោះ និងចាត់ថ្នាក់ស្វ័យប្រវត្តិ",
+  "Add manually without classification": "បន្ថែមដោយដៃ មិនចាត់ថ្នាក់",
+  "Using this month's exchange rate above: 1 USD = {0} KHR": "ប្រើអត្រាប្តូរប្រាក់ខែនេះខាងលើ៖ 1 USD = {0} KHR",
+  "No withholding items yet.": "មិនទាន់មានពន្ធកាត់ទុក។",
+  "Payee": "អ្នកទទួលប្រាក់",
+  "Amount (USD)": "ចំនួន (USD)",
+  "net entry": "បញ្ចូល Net",
+  "gross entry": "បញ្ចូល Gross",
+  "from receipt": "ពីបង្កាន់ដៃ",
+  "→ tax ": "→ ពន្ធ ",
+  "→ net ": "→ Net ",
+  "Edit via the receipt": "កែតាមបង្កាន់ដៃ",
+  "Delete item": "លុបចំណុចនេះ",
+  "Total withholding tax": "ពន្ធកាត់ទុកសរុប",
+  "04 — Annual ToI": "04 — ពន្ធប្រចាំឆ្នាំ",
+  "Annual Income Tax (ToI) Summary": "សង្ខេបពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំ (ToI)",
+  "Please register a client under 'Clients' first.": "សូមចុះឈ្មោះអតិថិជនក្នុង «អតិថិជន» ជាមុន។",
+  "Automatically aggregates monthly entries": "បូកសរុបទិន្នន័យប្រចាំខែដោយស្វ័យប្រវត្តិ",
+  "Months entered: {0} / 12": "ខែដែលបានបញ្ចូល៖ {0} / 12",
+  "Annual Summary": "សង្ខេបប្រចាំឆ្នាំ",
+  "Annual revenue": "ចំណូលប្រចាំឆ្នាំ",
+  "Annual expenses": "ចំណាយប្រចាំឆ្នាំ",
+  "Annual profit (estimated)": "ប្រាក់ចំណេញប្រចាំឆ្នាំ (ប៉ាន់ស្មាន)",
+  "ToI vs Minimum Tax Comparison": "ប្រៀបធៀប ToI និងពន្ធអប្បបរមា",
+  "Profit tax (profit × 20%)": "ពន្ធលើប្រាក់ចំណេញ (ចំណេញ × 20%)",
+  "Minimum tax (revenue × 1%)": "ពន្ធអប្បបរមា (ចំណូល × 1%)",
+  "Final annual ToI due (higher of the two)": "ToI ប្រចាំឆ្នាំចុងក្រោយត្រូវបង់ (យកចំនួនខ្ពស់ជាង)",
+  "Less: prepaid PPT already paid": "ដក៖ ប្រាក់រំដោះដែលបានបង់រួច",
+  "Estimated additional payment / refund": "ប៉ាន់ស្មានចំនួនបង់បន្ថែម / បង្វិលវិញ",
+  "※ This is a simplified estimate. QIP incentives, loss carryforwards, dependent deductions, minimum tax exemption conditions, etc. are not reflected — verify against the latest GDT Prakas and tax law before actual filing.": "※ នេះជាការប៉ាន់ស្មានសាមញ្ញ។ ការលើកទឹកចិត្ត QIP ការយោងខាត លក្ខខណ្ឌលើកលែងពន្ធអប្បបរមា ។ល។ មិនត្រូវបានគិតបញ្ចូលទេ — សូមផ្ទៀងផ្ទាត់ជាមួយប្រកាស GDT និងច្បាប់ពន្ធចុងក្រោយ មុនដាក់ប្រកាសពិត។",
+  "05 — Income Statement": "05 — របាយការណ៍ចំណេញ-ខាត",
+  "Profit & Loss Statement": "របាយការណ៍ចំណេញ និងខាត",
+  "Automatically compiled from monthly filing entries": "ចងក្រងដោយស្វ័យប្រវត្តិពីទិន្នន័យប្រកាសប្រចាំខែ",
+  "Monthly": "ប្រចាំខែ",
+  "Annual": "ប្រចាំឆ្នាំ",
+  "Print / Save as PDF": "បោះពុម្ព / រក្សាទុកជា PDF",
+  "Monthly Profit & Loss Statement": "របាយការណ៍ចំណេញ និងខាតប្រចាំខែ",
+  "not registered": "មិនបានចុះបញ្ជី",
+  "Period: {0}-{1}": "រយៈពេល៖ {0}-{1}",
+  "Revenue": "ចំណូល",
+  "Sales revenue (supply value)": "ចំណូលពីការលក់ (តម្លៃផ្គត់ផ្គង់)",
+  "Cost of Goods / Purchases": "ថ្លៃដើមទំនិញ / ការទិញ",
+  "Purchases (supply value)": "ការទិញ (តម្លៃផ្គត់ផ្គង់)",
+  "Gross profit": "ចំណេញដុល",
+  "Operating Expenses": "ចំណាយប្រតិបត្តិការ",
+  "Payroll (gross salary + employer NSSF)": "ប្រាក់បៀវត្ស (ប្រាក់ខែដុល + ប.ស.ស. និយោជក)",
+  "Other expenses (manual + receipts)": "ចំណាយផ្សេងៗ (បញ្ចូលដោយដៃ + បង្កាន់ដៃ)",
+  "Operating profit": "ចំណេញប្រតិបត្តិការ",
+  "Tax (reference)": "ពន្ធ (សម្រាប់យោង)",
+  "Prepayment of profit tax (PPT, 1% of revenue)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (1% នៃចំណូល)",
+  "Net income (estimated)": "ចំណេញសុទ្ធ (ប៉ាន់ស្មាន)",
+  "This monthly statement uses PPT (1% of revenue) as a stand-in for tax expense. The actual profit tax is settled only annually via the ToI filing — see the Annual view here for the reconciled figure.": "របាយការណ៍ប្រចាំខែនេះប្រើប្រាក់រំដោះ (1% នៃចំណូល) ជំនួសចំណាយពន្ធ។ ពន្ធលើប្រាក់ចំណេញពិតត្រូវទូទាត់តែម្តងក្នុងមួយឆ្នាំ តាមការប្រកាស ToI — សូមមើលទិដ្ឋភាពប្រចាំឆ្នាំ។",
+  "Annual Profit & Loss Statement": "របាយការណ៍ចំណេញ និងខាតប្រចាំឆ្នាំ",
+  "Year: {0} ({1}/12 months entered)": "ឆ្នាំ៖ {0} (បានបញ្ចូល {1}/12 ខែ)",
+  "Annual sales revenue": "ចំណូលពីការលក់ប្រចាំឆ្នាំ",
+  "Annual purchases": "ការទិញប្រចាំឆ្នាំ",
+  "Tax": "ពន្ធ",
+  "Annual profit tax due (ToI, final)": "ពន្ធលើប្រាក់ចំណេញប្រចាំឆ្នាំត្រូវបង់ (ToI ចុងក្រោយ)",
+  "Payroll is treated here as a deductible operating expense, so the profit figure may differ from the simplified estimate shown on the Annual ToI page. QIP incentives, loss carryforwards, and other adjustments are not reflected — verify against final tax law before relying on this for filing.": "ប្រាក់បៀវត្សត្រូវបានចាត់ទុកនៅទីនេះជាចំណាយប្រតិបត្តិការដែលអាចកាត់កងបាន ដូច្នេះតួលេខចំណេញអាចខុសពីការប៉ាន់ស្មានក្នុងទំព័រពន្ធប្រចាំឆ្នាំ។ ការលើកទឹកចិត្ត QIP ការយោងខាត និងការកែតម្រូវផ្សេងៗមិនត្រូវបានគិតបញ្ចូលទេ។",
+  "Monthly Breakdown": "លម្អិតប្រចាំខែ",
+  "COGS": "ថ្លៃដើម",
+  "Opex": "ចំណាយប្រតិបត្តិការ",
+  "06 — Capital Gains Tax": "06 — ពន្ធលើចំណេញមូលធន",
+  "Capital Gains Tax Calculator": "គណនាពន្ធលើចំណេញមូលធន",
+  "Capital Gains Tax (CGT) Calculator": "គណនាពន្ធលើចំណេញមូលធន (CGT)",
+  "Flat 20% on net gain — Prakas No. 496 MEF.PrK": "អត្រាថេរ 20% លើចំណេញសុទ្ធ — ប្រកាសលេខ 496 MEF.PrK",
+  "Implementation status": "ស្ថានភាពអនុវត្ត",
+  "As of the latest GDT notice (Instruction No. 041, Jan 2026): CGT on shares, leases, goodwill, IP and foreign currency applies from Jan 1, 2026. CGT on immovable property (land/buildings) has been repeatedly postponed and is currently deferred to Jan 1, 2027. Confirm the current date against the latest GDT announcement before relying on this for an actual filing.": "តាមសេចក្តីជូនដំណឹងចុងក្រោយរបស់ GDT (សេចក្តីណែនាំលេខ 041 មករា 2026)៖ CGT លើភាគហ៊ុន ភតិសន្យា កេរ្តិ៍ឈ្មោះ កម្មសិទ្ធិបញ្ញា និងរូបិយប័ណ្ណបរទេស អនុវត្តចាប់ពី 1 មករា 2026។ CGT លើអចលនទ្រព្យ (ដី/អគារ) ត្រូវបានពន្យារជាច្រើនដង ហើយបច្ចុប្បន្នពន្យារដល់ 1 មករា 2027។ សូមផ្ទៀងផ្ទាត់ជាមួយសេចក្តីប្រកាស GDT ចុងក្រោយ មុនប្រើសម្រាប់ការប្រកាសពិត។",
+  "New Transaction": "ប្រតិបត្តិការថ្មី",
+  "Asset type": "ប្រភេទទ្រព្យ",
+  "Applicable from: {0}": "អនុវត្តចាប់ពី៖ {0}",
+  "Description (optional)": "ពិពណ៌នា (ជាជម្រើស)",
+  "e.g. Sale of company shares to...": "ឧ. លក់ភាគហ៊ុនក្រុមហ៊ុនទៅ...",
+  "Transaction date (optional)": "កាលបរិច្ឆេទប្រតិបត្តិការ (ជាជម្រើស)",
+  "Actual cost": "ថ្លៃដើមពិត",
+  "Deemed cost (80%)": "ថ្លៃដើមសន្មត (80%)",
+  "Transfer price (USD)": "តម្លៃផ្ទេរ (USD)",
+  "Deemed cost method: acquisition cost is assumed to be 80% of the transfer price when actual documentation is unavailable (immovable property only).": "វិធីថ្លៃដើមសន្មត៖ ថ្លៃទិញត្រូវសន្មតជា 80% នៃតម្លៃផ្ទេរ ពេលគ្មានឯកសារពិត (តែអចលនទ្រព្យ)។",
+  "Acquisition cost (USD)": "ថ្លៃទិញ (USD)",
+  "Related expenses (USD, e.g. brokerage, registration)": "ចំណាយពាក់ព័ន្ធ (USD ឧ. ថ្លៃជើងសា ថ្លៃចុះបញ្ជី)",
+  "+ Add transaction": "+ បន្ថែមប្រតិបត្តិការ",
+  "Preview": "មើលជាមុន",
+  "Transfer price": "តម្លៃផ្ទេរ",
+  "Cost basis": "មូលដ្ឋានថ្លៃដើម",
+  "Net gain": "ចំណេញសុទ្ធ",
+  "CGT payable (20%)": "CGT ត្រូវបង់ (20%)",
+  "Applied rate 1 USD = {0} KHR → {1} KHR": "អត្រាអនុវត្ត 1 USD = {0} KHR → {1} KHR",
+  "Taxpayers must file and pay CGT within 3 months of realizing the gain. Certain exemptions apply (e.g. primary residence, transfers between spouses/direct relatives) — verify eligibility before filing.": "អ្នកជាប់ពន្ធត្រូវដាក់ប្រកាស និងបង់ CGT ក្នុងរយៈពេល 3 ខែក្រោយទទួលបានចំណេញ។ មានការលើកលែងមួយចំនួន (ឧ. លំនៅឋានចម្បង ការផ្ទេររវាងសហព័ទ្ធ/ញាតិផ្ទាល់) — សូមផ្ទៀងផ្ទាត់មុនដាក់ប្រកាស។",
+  "Recorded Transactions": "ប្រតិបត្តិការដែលបានកត់ត្រា",
+  "No capital gains transactions recorded yet.": "មិនទាន់មានប្រតិបត្តិការចំណេញមូលធនត្រូវបានកត់ត្រា។",
+  "Asset": "ទ្រព្យ",
+  "Description": "ពិពណ៌នា",
+  "Gain": "ចំណេញ",
+  "Tax (20%)": "ពន្ធ (20%)",
+  "Total CGT recorded": "CGT សរុបដែលបានកត់ត្រា",
+  "Taxpayer Name": "ឈ្មោះអ្នកជាប់ពន្ធ",
+  "Taxpayer Identification Number (TIN)": "លេខអត្តសញ្ញាណកម្មសារពើពន្ធ (TIN)",
+  "Tax Period": "គ្រាជាប់ពន្ធ",
+  "Exchange Rate": "អត្រាប្តូរប្រាក់",
+  "Taxable Supplies": "ការផ្គត់ផ្គង់ជាប់អាករ",
+  "Output VAT": "អតប ធាតុចេញ",
+  "Input VAT Credit": "ឥណទាន អតប ធាតុចូល",
+  "VAT Payable": "អតប ត្រូវបង់",
+  "Prepayment of Tax on Income (PTOI)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (PTOI)",
+  "Public Lighting Tax (PLT)": "អាករបំភ្លឺសាធារណៈ (PLT)",
+  "Tax on Salary (ToS)": "ពន្ធលើប្រាក់បៀវត្ស (ToS)",
+  "Withholding Tax (WHT)": "ពន្ធកាត់ទុក (WHT)",
+  "Total Tax Payable": "ពន្ធសរុបត្រូវបង់",
+  "Annual Turnover": "ផលរបរប្រចាំឆ្នាំ",
+  "Deductible Expenses": "ចំណាយអាចកាត់កងបាន",
+  "Taxable Profit": "ប្រាក់ចំណេញជាប់ពន្ធ",
+  "Tax on Income (ToI)": "ពន្ធលើប្រាក់ចំណូល (ToI)",
+  "Minimum Tax": "ពន្ធអប្បបរមា",
+  "Prepayment Credit": "ឥណទានប្រាក់រំដោះ",
+  "Balance of Tax Payable": "សមតុល្យពន្ធត្រូវបង់",
+  "07 — Filing Draft": "07 — សេចក្តីព្រាងលិខិតប្រកាស",
+  "Filing Draft": "សេចក្តីព្រាងលិខិតប្រកាស",
+  "Filing Draft Preview": "មើលសេចក្តីព្រាងលិខិតប្រកាស",
+  "This is a draft for internal review before actual GDT filing. Confirm the final format against official GDT forms.": "នេះជាសេចក្តីព្រាងសម្រាប់ពិនិត្យផ្ទៃក្នុង មុនដាក់ប្រកាសពិតទៅ GDT។ សូមផ្ទៀងផ្ទាត់ទម្រង់ចុងក្រោយជាមួយទម្រង់ផ្លូវការ GDT។",
+  "P101 Payment Summary": "សង្ខេបការបង់ប្រាក់ P101",
+  "Per-employee salary tax statement": "របាយការណ៍ពន្ធលើប្រាក់បៀវត្សតាមបុគ្គលិក",
+  "Annual ToI e-Filing Summary": "សង្ខេប e-Filing ពន្ធប្រចាំឆ្នាំ",
+  "Show official GDT field names alongside": "បង្ហាញឈ្មោះប្រអប់ផ្លូវការ GDT ទន្ទឹមគ្នា",
+  "GDT terms": "ពាក្យ GDT",
+  "Payment Summary (for Form P101)": "សង្ខេបការបង់ប្រាក់ (សម្រាប់ទម្រង់ P101)",
+  "This is not the official GDT P101 form itself (GDT only distributes it as a Khmer-language PDF) — it's a payment breakdown you can transcribe onto the official P101, or attach alongside it, when paying at a bank counter or the GDT office.": "នេះមិនមែនជាទម្រង់ P101 ផ្លូវការរបស់ GDT ទេ — វាជាតារាងលម្អិតការបង់ប្រាក់ ដែលអ្នកអាចចម្លងទៅលើ P101 ផ្លូវការ ឬភ្ជាប់ជាមួយ ពេលបង់នៅបញ្ជរធនាគារ ឬការិយាល័យ GDT។",
+  "Taxpayer Information": "ព័ត៌មានអ្នកជាប់ពន្ធ",
+  "Taxpayer name": "ឈ្មោះអ្នកជាប់ពន្ធ",
+  "Tax period": "គ្រាជាប់ពន្ធ",
+  "Exchange rate applied": "អត្រាប្តូរប្រាក់ដែលប្រើ",
+  "VAT Detail (for e-Filing entry)": "លម្អិត អតប (សម្រាប់បញ្ចូល e-Filing)",
+  "Taxable supplies (excl. VAT)": "ការផ្គត់ផ្គង់ជាប់អាករ (មិនរួម អតប)",
+  "Payment by Tax Type (GDT)": "ការបង់តាមប្រភេទពន្ធ (GDT)",
+  "VAT": "អតប",
+  "Prepayment of Profit Tax (PPT)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (PPT)",
+  "Public Lighting Tax": "អាករបំភ្លឺសាធារណៈ",
+  "Tax on Fringe Benefits (20%)": "ពន្ធលើអត្ថប្រយោជន៍បន្ថែម (20%)",
+  "Withholding Tax (ToW)": "ពន្ធកាត់ទុក (ToW)",
+  "Total payment to GDT": "សរុបបង់ទៅ GDT",
+  "NSSF Payment (separate — not part of GDT payment above)": "ការបង់ ប.ស.ស. (ដាច់ដោយឡែក — មិនរួមក្នុងការបង់ GDT ខាងលើ)",
+  "Employer + employee contributions": "ភាគទាននិយោជក + បុគ្គលិក",
+  "Signature": "ហត្ថលេខា",
+  "Prepared by / Date": "រៀបចំដោយ / កាលបរិច្ឆេទ",
+  "Taxpayer signature / Stamp": "ហត្ថលេខាអ្នកជាប់ពន្ធ / ត្រា",
+  "Download the current official Form P101 from tax.gov.kh (Download → FORM) and cross-check the totals above before submitting at a bank branch or GDT counter. The English/Khmer terms shown are the standard GDT wording for each tax type — the actual e-Filing screen may label them slightly differently, so confirm against the live form.": "ទាញយកទម្រង់ P101 ផ្លូវការបច្ចុប្បន្នពី tax.gov.kh (Download → FORM) ហើយផ្ទៀងផ្ទាត់ចំនួនសរុបខាងលើ មុនដាក់នៅសាខាធនាគារ ឬបញ្ជរ GDT។ អេក្រង់ e-Filing ពិតអាចដាក់ឈ្មោះខុសបន្តិច ដូច្នេះសូមផ្ទៀងផ្ទាត់ជាមួយទម្រង់ពិត។",
+  "No employees registered for this period.": "មិនមានបុគ្គលិកចុះឈ្មោះសម្រាប់ខែនេះ។",
+  "Salary Tax (ToS) Statement": "របាយការណ៍ពន្ធលើប្រាក់បៀវត្ស (ToS)",
+  "Pay period: {0}-{1}": "គ្រាបើកប្រាក់៖ {0}-{1}",
+  "Name": "ឈ្មោះ",
+  "Gross salary": "ប្រាក់ខែដុល",
+  " (entered as net, reverse-calculated)": " (បញ្ចូលជា Net គណនាបញ្ច្រាស)",
+  "Exchange rate: 1 USD = {0} KHR": "អត្រាប្តូរប្រាក់៖ 1 USD = {0} KHR",
+  "Residency": "និវាសនភាព",
+  "Non-resident — 20% flat": "អនិវាសនជន — ថេរ 20%",
+  "Dependent allowance ({0} × 150,000)": "ប្រាក់បន្ធូរអ្នកនៅក្នុងបន្ទុក ({0} × 150,000)",
+  "Taxable salary": "ប្រាក់បៀវត្សជាប់ពន្ធ",
+  "Progressive Tax Calculation": "ការគណនាពន្ធតាមថ្នាក់",
+  "Bracket (KHR)": "ថ្នាក់ (KHR)",
+  "Rate": "អត្រា",
+  "Taxable amount": "ចំនួនជាប់ពន្ធ",
+  "above": "ឡើងទៅ",
+  "Total withholding tax (ToS)": "ពន្ធកាត់ទុកសរុប (ToS)",
+  "Net pay after tax": "ប្រាក់ទទួលបានក្រោយពន្ធ",
+  "This statement is a draft for the employer's withholding calculation and internal payroll records. It assumes resident taxation without dependent deductions or NSSF contributions — adjust as applicable before filing or issuing to the employee.": "របាយការណ៍នេះជាសេចក្តីព្រាងសម្រាប់ការគណនាកាត់ទុករបស់និយោជក និងបញ្ជីប្រាក់បៀវត្សផ្ទៃក្នុង។ សូមកែតម្រូវតាមករណីជាក់ស្តែង មុនដាក់ប្រកាស ឬចេញឱ្យបុគ្គលិក។",
+  "Annual ToI e-Filing Cross-check Summary": "សង្ខេបផ្ទៀងផ្ទាត់ e-Filing ពន្ធប្រចាំឆ្នាំ",
+  "Fiscal year: {0} ({1}/12 months entered)": "ឆ្នាំសារពើពន្ធ៖ {0} (បានបញ្ចូល {1}/12 ខែ)",
+  "GDT's Annual Tax on Income return is filed through the ToI e-Filing portal (medium/large taxpayers) or the GDT Tax Prefiling App (small taxpayers), not a fillable paper form. Use this summary to cross-check the figures before entering them there.": "លិខិតប្រកាសពន្ធលើប្រាក់ចំណូលប្រចាំឆ្នាំរបស់ GDT ត្រូវដាក់តាមប្រព័ន្ធ ToI e-Filing (អ្នកជាប់ពន្ធមធ្យម/ធំ) ឬ GDT Tax Prefiling App (អ្នកជាប់ពន្ធតូច) មិនមែនទម្រង់ក្រដាសទេ។ ប្រើសង្ខេបនេះដើម្បីផ្ទៀងផ្ទាត់តួលេខមុនបញ្ចូល។",
+  "Fiscal year": "ឆ្នាំសារពើពន្ធ",
+  "A. Annual Profit & Loss Summary": "ក. សង្ខេបចំណេញ និងខាតប្រចាំឆ្នាំ",
+  "B. Tax Comparison": "ខ. ប្រៀបធៀបពន្ធ",
+  "Final ToI due (higher of the two)": "ToI ចុងក្រោយត្រូវបង់ (យកចំនួនខ្ពស់ជាង)",
+  "C. Prepaid Tax Credit": "គ. ឥណទានពន្ធបង់មុន",
+  "Total prepaid PPT": "ប្រាក់រំដោះសរុបដែលបានបង់",
+  "Estimated additional payment": "ប៉ាន់ស្មានចំនួនបង់បន្ថែម",
+  "Estimated refund": "ប៉ាន់ស្មានចំនួនបង្វិលវិញ",
+  "D. Other Annual Totals (reference)": "ឃ. ចំនួនសរុបប្រចាំឆ្នាំផ្សេងៗ (សម្រាប់យោង)",
+  "Annual withholding tax (ToW) remitted": "ពន្ធកាត់ទុក (ToW) ប្រចាំឆ្នាំដែលបានបង់",
+  "Annual NSSF contributions (separate from GDT)": "ភាគទាន ប.ស.ស. ប្រចាំឆ្នាំ (ដាច់ដោយឡែកពី GDT)",
+  "This is a simplified draft that does not reflect QIP incentives, loss carryforwards, dependent deductions, etc. Review against final tax law before entering into ToI e-Filing.": "នេះជាសេចក្តីព្រាងសាមញ្ញ មិនគិតបញ្ចូលការលើកទឹកចិត្ត QIP ការយោងខាត ។ល។ សូមពិនិត្យជាមួយច្បាប់ពន្ធចុងក្រោយ មុនបញ្ចូលក្នុង ToI e-Filing។",
+  "Incorrect password. Tap \"Show\" to check what you typed — mobile keyboards often capitalise the first letter.": "ពាក្យសម្ងាត់មិនត្រឹមត្រូវ។ ចុច \"បង្ហាញ\" ដើម្បីពិនិត្យអ្វីដែលអ្នកបានវាយ — ក្តារចុចទូរសព្ទច្រើនតែដាក់អក្សរធំនៅតួដំបូង។",
+  "New version v1.0.{0} is available": "មានកំណែថ្មី v1.0.{0}",
+  "Cambodia Tax Filing Manager": "កម្មវិធីគ្រប់គ្រងការប្រកាសពន្ធកម្ពុជា",
+  "Office staff: enter the office passphrase. Clients: enter the password Kohr & Co. gave you — you will see only your own company.": "បុគ្គលិកការិយាល័យ៖ បញ្ចូលពាក្យសម្ងាត់ការិយាល័យ។ អតិថិជន៖ បញ្ចូលពាក្យសម្ងាត់ដែល Kohr & Co. បានផ្តល់ឱ្យ — អ្នកនឹងឃើញតែក្រុមហ៊ុនរបស់អ្នក។",
+  "Password": "ពាក្យសម្ងាត់",
+  "Remember on this device": "ចងចាំលើឧបករណ៍នេះ",
+  "Opening…": "កំពុងបើក…",
+  "Open": "បើក",
+  "Open without passphrase (review / edit)": "បើកដោយគ្មានពាក្យសម្ងាត់ (សាកល្បង / កែ)",
+  "Temporary review mode — data stays on this device only and is not synced to the shared sheet.": "របៀបសាកល្បងបណ្តោះអាសន្ន — ទិន្នន័យនៅតែលើឧបករណ៍នេះ មិនសមកាលកម្មទៅសន្លឹករួមទេ។",
+  "Server address (check / change)": "អាសយដ្ឋានម៉ាស៊ីនមេ (ពិនិត្យ / ប្តូរ)",
+  "Save address": "រក្សាទុកអាសយដ្ឋាន",
+  "Saved on this device. Enter the passphrase to connect.": "បានរក្សាទុកលើឧបករណ៍នេះ។ បញ្ចូលពាក្យសម្ងាត់ដើម្បីភ្ជាប់។",
+  "Shared tax data — do not leave this open on an unattended computer.": "ទិន្នន័យពន្ធរួម — កុំទុកចំហលើកុំព្យូទ័រដែលគ្មានអ្នកមើល។",
+  "Email or password is incorrect.": "អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។",
+  "Signing in…": "កំពុងចូល…",
+  "Sign in": "ចូលប្រើ",
+  "Current status": "ស្ថានភាពបច្ចុប្បន្ន",
+  "Last error: ": "កំហុសចុងក្រោយ៖ ",
+  "Connect & sync": "ភ្ជាប់ និងសមកាលកម្ម",
+  "Testing…": "កំពុងសាក…",
+  "Test connection": "សាកការភ្ជាប់",
+  "How syncing works": "របៀបសមកាលកម្ម",
+  "Changes are stored only when you press Save. Other people's saved changes arrive roughly every 12 seconds, and immediately when you switch back to this tab or unlock your phone. Unsaved edits on your screen are never overwritten by incoming changes — you'll see an \"Updated elsewhere\" notice instead. The last save wins, so avoid two people editing the same client's same month at the same time.": "ការកែត្រូវរក្សាទុកតែពេលអ្នកចុច «រក្សាទុក»។ ការកែដែលអ្នកដទៃរក្សាទុក មកដល់ប្រហែលរៀងរាល់ 12 វិនាទី ហើយភ្លាមៗពេលអ្នកត្រឡប់មកផ្ទាំងនេះ។ ការកែមិនទាន់រក្សាទុកលើអេក្រង់របស់អ្នក មិនត្រូវបានសរសេរជាន់ទេ — អ្នកនឹងឃើញសារ \"មានការកែពីកន្លែងផ្សេង\"។ ការរក្សាទុកចុងក្រោយឈ្នះ ដូច្នេះសូមជៀសវាងមនុស្សពីរនាក់កែខែដូចគ្នារបស់អតិថិជនតែមួយក្នុងពេលតែមួយ។",
+  "Couldn't check — check the internet connection.": "ពិនិត្យមិនបាន — សូមពិនិត្យការភ្ជាប់អ៊ីនធឺណិត។",
+  "User manual": "សៀវភៅណែនាំ",
+  "Step-by-step guide with screenshots — install, sign-in, monthly filing, receipts. Updated whenever the app changes.": "ការណែនាំមួយជំហានម្តងៗ ជាមួយរូបអេក្រង់ — ដំឡើង ចូលប្រើ ប្រកាសប្រចាំខែ បង្កាន់ដៃ។ ធ្វើបច្ចុប្បន្នភាពរាល់ពេលកម្មវិធីប្តូរ។",
+  "Manual for version {0}": "សៀវភៅណែនាំសម្រាប់កំណែ {0}",
+  "This copy": "ច្បាប់នេះ",
+  "Android app": "កម្មវិធី Android",
+  "Web version (always up to date)": "កំណែវេប (ថ្មីជានិច្ច)",
+  "Release": "កំណែចេញផ្សាយ",
+  "Latest app": "កម្មវិធីថ្មីបំផុត",
+  "Checking…": "កំពុងពិនិត្យ…",
+  "Check for updates": "ពិនិត្យរកបច្ចុប្បន្នភាព",
+  "Get v1.0.{0}": "ទាញយក v1.0.{0}",
+  "You're on the latest version.": "អ្នកកំពុងប្រើកំណែថ្មីបំផុត។",
+  "Install the Android app": "ដំឡើងកម្មវិធី Android",
+  "Open this link on the phone, download the .apk and install it. When asked, allow installs from this source.": "បើកតំណនេះលើទូរសព្ទ ទាញយក .apk រួចដំឡើង។ ពេលសួរ សូមអនុញ្ញាតការដំឡើងពីប្រភពនេះ។",
+  "08 — Reference": "08 — ឯកសារយោង",
+  "Cambodia Tax Rate Reference (2026)": "តារាងអត្រាពន្ធកម្ពុជា (2026)",
+  "Based on Prakas 575 MEF.PK.GDT, etc.": "ផ្អែកលើប្រកាស 575 MEF.PK.GDT ។ល។",
+  "Monthly Salary Tax (Tax on Salary, residents)": "ពន្ធលើប្រាក់បៀវត្សប្រចាំខែ (និវាសនជន)",
+  "Over 12,500,000": "លើស 12,500,000",
+  "Non-residents: flat 20% withholding on gross salary, no brackets (final tax, generally no annual filing required).": "អនិវាសនជន៖ កាត់ទុកថេរ 20% លើប្រាក់ខែដុល គ្មានថ្នាក់ (ពន្ធចុងក្រោយ)។",
+  "Exemptions apply for payments to VAT-registered (real regime) taxpayers with a valid tax invoice, and for royalty/interest payments between real-regime and self-declaration taxpayers (Circular No. 024, Dec 2025).": "មានការលើកលែងសម្រាប់ការបង់ឱ្យអ្នកជាប់ពន្ធចុះបញ្ជី អតប (របបពិត) ដែលមានវិក្កយបត្រអាករត្រឹមត្រូវ និងការបង់សួយសារ/ការប្រាក់រវាងអ្នកជាប់ពន្ធរបបស្វ័យប្រកាស (សារាចរលេខ 024 ធ្នូ 2025)។",
+  "Capital Gains Tax (CGT)": "ពន្ធលើចំណេញមូលធន (CGT)",
+  "Tax rate": "អត្រាពន្ធ",
+  "Shares, leases, goodwill, IP, foreign currency": "ភាគហ៊ុន ភតិសន្យា កេរ្តិ៍ឈ្មោះ កម្មសិទ្ធិបញ្ញា រូបិយប័ណ្ណបរទេស",
+  "Effective from Jan 1, 2026": "អនុវត្តចាប់ពី 1 មករា 2026",
+  "Immovable property (land/buildings)": "អចលនទ្រព្យ (ដី/អគារ)",
+  "Deferred to Jan 1, 2027 (repeatedly postponed)": "ពន្យារដល់ 1 មករា 2027 (ពន្យារច្រើនដង)",
+  "Based on Prakas No. 496 MEF.PrK and GDT Instruction No. 041 (Jan 2026). This regime has been postponed multiple times since 2020 — always confirm the current effective date with the latest GDT notice before filing.": "ផ្អែកលើប្រកាសលេខ 496 MEF.PrK និងសេចក្តីណែនាំ GDT លេខ 041 (មករា 2026)។ របបនេះត្រូវបានពន្យារច្រើនដងចាប់ពីឆ្នាំ 2020 — សូមផ្ទៀងផ្ទាត់កាលបរិច្ឆេទអនុវត្តជាមួយសេចក្តីជូនដំណឹង GDT ចុងក្រោយជានិច្ច។",
+  "NSSF Contribution (separate from GDT)": "ភាគទាន ប.ស.ស. (ដាច់ដោយឡែកពី GDT)",
+  "Scheme": "របប",
+  "Employer": "និយោជក",
+  "Occupational risk": "ហានិភ័យការងារ",
+  "Healthcare": "ថែទាំសុខភាព",
+  "Pension": "សោធន",
+  "Contributory wage band": "កម្រិតប្រាក់ឈ្នួលជាប់ភាគទាន",
+  "Mandatory registration": "ការចុះបញ្ជីជាកាតព្វកិច្ច",
+  "8+ employees, within 45 days": "បុគ្គលិក 8 នាក់ឡើង ក្នុង 45 ថ្ងៃ",
+  "Payment deadline": "កាលកំណត់បង់ប្រាក់",
+  "15th of following month": "ថ្ងៃទី 15 នៃខែបន្ទាប់",
+  "Pension contribution rates are being phased in and are scheduled to increase (e.g. employer pension share rising toward 4% by 2027) — verify current rates at nssf.gov.kh before filing.": "អត្រាភាគទានសោធនកំពុងអនុវត្តជាជំហានៗ ហើយគ្រោងនឹងកើនឡើង — សូមផ្ទៀងផ្ទាត់អត្រាបច្ចុប្បន្ននៅ nssf.gov.kh មុនដាក់ប្រកាស។",
+  "Public Lighting Tax (PLT) & Specific Tax (STCM)": "អាករបំភ្លឺសាធារណៈ (PLT) និងអាករពិសេស (STCM)",
+  "5% of first-supply value (alcohol, tobacco)": "5% នៃតម្លៃផ្គត់ផ្គង់លើកដំបូង (ស្រា ថ្នាំជក់)",
+  "Applies once, to the first domestic supply after manufacture or import. Included in the monthly filing above if you enter an alcohol/tobacco supply value.": "អនុវត្តម្តង លើការផ្គត់ផ្គង់ក្នុងស្រុកលើកដំបូងក្រោយផលិត ឬនាំចូល។ រួមក្នុងការប្រកាសប្រចាំខែខាងលើ បើអ្នកបញ្ចូលតម្លៃផ្គត់ផ្គង់ស្រា/ថ្នាំជក់។",
+  "Specific Tax (STCM)": "អាករពិសេស (STCM)",
+  "10%–45%, varies by product": "10%–45% ប្រែប្រួលតាមផលិតផល",
+  "Applies to specific goods/services — alcohol, tobacco, telecommunications, certain vehicles, air tickets, entertainment services, etc. Rates vary widely by product category and are not covered by this tool's calculators — confirm the applicable rate and base for your specific products with GDT or a licensed tax advisor before filing.": "អនុវត្តលើទំនិញ/សេវាជាក់លាក់ — ស្រា ថ្នាំជក់ ទូរគមនាគមន៍ យានយន្តមួយចំនួន សំបុត្រយន្តហោះ សេវាកម្សាន្ត ។ល។ អត្រាខុសគ្នាច្រើនតាមប្រភេទផលិតផល ហើយឧបករណ៍នេះមិនគណនាទេ — សូមបញ្ជាក់ជាមួយ GDT ឬទីប្រឹក្សាពន្ធមានអាជ្ញាបណ្ណ។",
+  "Other Regular Filings": "ការប្រកាសទៀងទាត់ផ្សេងៗ",
+  "Standard VAT rate": "អត្រា អតប ស្តង់ដារ",
+  "Prepayment Profit Tax (PPT)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (PPT)",
+  "Revenue (excl. VAT) × 1%, due the 20th (paper) / 25th (e-Filing) of the following month": "ចំណូល (មិនរួម អតប) × 1% ផុតកំណត់ថ្ងៃទី 20 (ក្រដាស) / ទី 25 (e-Filing) នៃខែបន្ទាប់",
+  "Annual Profit Tax (ToI/ToP)": "ពន្ធលើប្រាក់ចំណេញប្រចាំឆ្នាំ (ToI/ToP)",
+  "Taxable income × 20% (or 1% minimum tax, whichever is greater)": "ប្រាក់ចំណូលជាប់ពន្ធ × 20% (ឬពន្ធអប្បបរមា 1% យកចំនួនខ្ពស់ជាង)",
+  "NSSF Pension (2022–2027, Phase 1)": "សោធន ប.ស.ស. (2022–2027 ជំហានទី 1)",
+  "Employee 2% + Employer 2%": "បុគ្គលិក 2% + និយោជក 2%",
+  "NSSF Health Insurance": "ធានារ៉ាប់រងសុខភាព ប.ស.ស.",
+  "Employee 1.3% + Employer 1.3%": "បុគ្គលិក 1.3% + និយោជក 1.3%",
+  "These figures are compiled from public 2026 sources for reference only. Confirm with official GDT notices before practical application.": "តួលេខទាំងនេះចងក្រងពីប្រភពសាធារណៈឆ្នាំ 2026 សម្រាប់យោងប៉ុណ្ណោះ។ សូមបញ្ជាក់ជាមួយសេចក្តីជូនដំណឹងផ្លូវការ GDT មុនអនុវត្តជាក់ស្តែង។",
+  "Supply": "ការផ្គត់ផ្គង់",
+  "VAT (10%)": "អតប (10%)",
+  "FILED": "បានដាក់ប្រកាស",
+  "M{0}": "ខែ {0}",
+  "D-{0} · {1} left": "នៅសល់ {0} ថ្ងៃ · {1} មិនទាន់រួច",
+  "{0} late · {1} left": "យឺត {0} · {1} មិនទាន់រួច",
+  "· VAT {0} KHR": "· អតប {0} KHR",
+  "Khmer (ខ្មែរ) added — choose 한국어 · English · ខ្មែរ with the language buttons": "បានបន្ថែមភាសាខ្មែរ — ជ្រើស 한국어 · English · ខ្មែរ ដោយប៊ូតុងភាសា",
+  "Uploaded images are stored only as compressed thumbnails to save space. Payments to a VAT-registered (real regime) taxpayer supported by a valid tax invoice, and royalty/interest payments between real-regime and self-declaration taxpayers, are generally exempt from ToW — check Prakas No. 578 MEF.Prk.GDT and Circular No. 024 before applying.": "រូបភាពដែលបង្ហោះរក្សាទុកតែជារូបតូចបង្រួម។ ការបង់ឱ្យអ្នកជាប់ពន្ធចុះបញ្ជី អតប (របបពិត) ដែលមានវិក្កយបត្រអាករត្រឹមត្រូវ និងការបង់សួយសារ/ការប្រាក់រវាងអ្នកជាប់ពន្ធរបបស្វ័យប្រកាស ជាទូទៅត្រូវបានលើកលែងពន្ធកាត់ទុក — សូមពិនិត្យប្រកាសលេខ 578 MEF.Prk.GDT និងសារាចរលេខ 024 មុនអនុវត្ត។",
+  "Loading…": "កំពុងផ្ទុក…",
+  "Paper D-{0} ·": "ក្រដាស នៅសល់ {0} ថ្ងៃ ·",
+  "e-Filing D-{0}": "e-Filing នៅសល់ {0} ថ្ងៃ",
+  "Paper D-{0} · e-Filing D-{1}": "ក្រដាស នៅសល់ {0} ថ្ងៃ · e-Filing នៅសល់ {1} ថ្ងៃ",
+  "{0} · {1} KHR": "{0} · {1} KHR",
+  "Filed {0} · not paid": "ដាក់ប្រកាស {0} · មិនទាន់បង់",
+  "Filed {0} · paid": "ដាក់ប្រកាស {0} · បានបង់",
+  "Filed {0} · paid ✓": "ដាក់ប្រកាស {0} · បានបង់ ✓"
+}; /*KM_DICT_END*/
+const KM_MONTHS = {
+  Jan: "មករា",
+  Feb: "កុម្ភៈ",
+  Mar: "មីនា",
+  Apr: "មេសា",
+  May: "ឧសភា",
+  Jun: "មិថុនា",
+  Jul: "កក្កដា",
+  Aug: "សីហា",
+  Sep: "កញ្ញា",
+  Oct: "តុលា",
+  Nov: "វិច្ឆិកា",
+  Dec: "ធ្នូ",
+  January: "មករា",
+  February: "កុម្ភៈ",
+  March: "មីនា",
+  April: "មេសា",
+  June: "មិថុនា",
+  July: "កក្កដា",
+  August: "សីហា",
+  September: "កញ្ញា",
+  October: "តុលា",
+  November: "វិច្ឆិកា",
+  December: "ធ្នូ"
+};
+const KM_DAYS = {
+  Mon: "ច័ន្ទ",
+  Tue: "អង្គារ",
+  Wed: "ពុធ",
+  Thu: "ព្រហស្បតិ៍",
+  Fri: "សុក្រ",
+  Sat: "សៅរ៍",
+  Sun: "អាទិត្យ"
+};
+const kmText = (() => {
+  const exact = new Map();
+  const templates = [];
+  const norm = s => s.replace(/\s+/g, " ").trim();
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  Object.keys(KM_DICT).forEach(en => {
+    if (/\{\d\}/.test(en)) {
+      const order = [];
+      // 고정 글자가 거의 없는 문형(D-{0}, M{0})은 숫자만 받는다 — "Mekong" 같은 이름이 잘못 걸리지 않게
+      const hole = norm(en).replace(/\{\d\}/g, "").replace(/[^A-Za-z]/g, "").length <= 2 ? "([\\d.,]+)" : "(.*?)";
+      const src = norm(en).split(/(\{\d\})/).map(part => {
+        const m = part.match(/^\{(\d)\}$/);
+        if (m) {
+          order.push(Number(m[1]));
+          return hole;
+        }
+        return esc(part);
+      }).join("");
+      templates.push({
+        re: new RegExp("^" + src + "$"),
+        order,
+        km: KM_DICT[en],
+        lit: norm(en).replace(/\{\d\}/g, "").length
+      });
+    } else {
+      exact.set(norm(en), KM_DICT[en]);
+    }
+  });
+  templates.sort((a, b) => b.lit - a.lit); // 고정 글자가 많은(구체적인) 문형부터
+  const DATE_TOKEN = /\b(January|February|March|April|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/g;
+  const DATE_ONLY = /^(?:January|February|March|April|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM|[\d\s,.:·/()\-–])+$/;
+  const dateTr = s => DATE_ONLY.test(s) && /[A-Za-z]{3}/.test(s.replace(/\b(AM|PM)\b/g, "")) ? s.replace(DATE_TOKEN, w => KM_MONTHS[w] || KM_DAYS[w] || w) : null;
+  const MONTH_DAY = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g;
+  const cache = new Map();
+  const core = (s, depth) => {
+    if (exact.has(s)) return exact.get(s);
+    const d = dateTr(s);
+    if (d) return d;
+    if (depth > 2) return null;
+    for (let i = 0; i < templates.length; i += 1) {
+      const t = templates[i];
+      const m = t.re.exec(s);
+      if (m) {
+        let out = t.km;
+        t.order.forEach((idx, gi) => {
+          const g = m[gi + 1];
+          const sub = g && /[A-Za-z]/.test(g) ? core(norm(g), depth + 1) : null;
+          out = out.split("{" + idx + "}").join(sub || (g || "").replace(MONTH_DAY, (w, mo, dd) => KM_MONTHS[mo] + " " + dd));
+        });
+        return out;
+      }
+    }
+    // "라벨: 값" 처럼 앞부분만 사전에 있는 경우
+    const c = s.indexOf(": ");
+    if (c > 0 && exact.has(s.slice(0, c + 1))) return exact.get(s.slice(0, c + 1)) + " " + s.slice(c + 2);
+    return null;
+  };
+  return raw => {
+    if (!raw || !/[A-Za-z]/.test(raw)) return null;
+    if (cache.has(raw)) return cache.get(raw);
+    const lead = raw.match(/^\s*/)[0];
+    const tail = raw.match(/\s*$/)[0];
+    const body = norm(raw);
+    const km = body.length > 600 ? null : core(body, 0);
+    const out = km == null ? null : lead + km + tail;
+    if (cache.size > 4000) cache.clear();
+    cache.set(raw, out);
+    return out;
+  };
+})();
+const KM_ATTRS = ["placeholder", "title", "aria-label"];
+function useKhmerOverlay(on) {
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    document.documentElement.classList.toggle("lang-km", !!on);
+    if (!on) return undefined;
+    const root = document.body;
+    const texts = new WeakMap(); // 글자 노드 → { en, km }
+    const attrs = new WeakMap(); // 요소 → { 속성: { en, km } }
+    const skip = el => !el || /^(SCRIPT|STYLE|TEXTAREA|CODE|PRE)$/.test(el.tagName) || el.closest && el.closest("[data-notr]");
+    const skipAttr = el => !el || el.closest && el.closest("[data-notr]");
+    const doText = node => {
+      if (skip(node.parentElement)) return;
+      const cur = node.nodeValue;
+      const rec = texts.get(node);
+      if (rec && rec.km === cur) return;
+      const km = kmText(cur);
+      if (km && km !== cur) {
+        texts.set(node, {
+          en: cur,
+          km
+        });
+        node.nodeValue = km;
+      }
+    };
+    const doAttrs = el => {
+      if (skipAttr(el)) return;
+      KM_ATTRS.forEach(a => {
+        const cur = el.getAttribute(a);
+        if (!cur) return;
+        const rec = attrs.get(el) || {};
+        if (rec[a] && rec[a].km === cur) return;
+        const km = kmText(cur);
+        if (km && km !== cur) {
+          rec[a] = {
+            en: cur,
+            km
+          };
+          attrs.set(el, rec);
+          el.setAttribute(a, km);
+        }
+      });
+    };
+    const walk = node => {
+      if (node.nodeType === 3) {
+        doText(node);
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      doAttrs(node);
+      const tw = document.createTreeWalker(node, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let n = tw.nextNode();
+      while (n) {
+        if (n.nodeType === 3) doText(n);else doAttrs(n);
+        n = tw.nextNode();
+      }
+    };
+    const mo = new MutationObserver(list => {
+      list.forEach(m => {
+        if (m.type === "characterData") doText(m.target);else if (m.type === "attributes") doAttrs(m.target);else m.addedNodes.forEach(walk);
+      });
+    });
+    walk(root);
+    mo.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: KM_ATTRS
+    });
+    return () => {
+      mo.disconnect();
+      // 다른 언어로 바꾸면 원래 글자로 되돌린다
+      const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let n = tw.nextNode();
+      while (n) {
+        if (n.nodeType === 3) {
+          const r = texts.get(n);
+          if (r && n.nodeValue === r.km) n.nodeValue = r.en;
+        } else {
+          const r = attrs.get(n);
+          if (r) Object.keys(r).forEach(a => {
+            if (n.getAttribute(a) === r[a].km) n.setAttribute(a, r[a].en);
+          });
+        }
+        n = tw.nextNode();
+      }
+    };
+  }, [on]);
+}
 function useAutoFitText(dep) {
   useEffect(() => {
     const root = document.getElementById("root") || document.body;
@@ -2626,7 +3733,10 @@ function CambodiaTaxApp() {
   });
   const [status, setStatus] = useState("");
   const [lang, setLang] = useState("ko");
-  useAutoFitText(lang);
+  const [km, setKm] = useState(false); // 크메르어: 화면 로직은 영어(lang="en") + 글자만 크메르어로 덧씌움
+  const uiLang = km ? "km" : lang;
+  useKhmerOverlay(km);
+  useAutoFitText(uiLang);
   const [syncedAt, setSyncedAt] = useState(null);
   const [backendOverride, setBackendOverride] = useState(null);
   const [backendError, setBackendError] = useState("");
@@ -2875,7 +3985,10 @@ function CambodiaTaxApp() {
       // 4) 언어는 기기별 개인 설정
       try {
         const langRes = await window.storage.get(LANG_KEY, false);
-        if (langRes?.value === "en" || langRes?.value === "ko") setLang(langRes.value);
+        if (langRes?.value === "en" || langRes?.value === "ko") setLang(langRes.value);else if (langRes?.value === "km") {
+          setLang("en");
+          setKm(true);
+        }
       } catch (e) {
         // 개인 언어 설정 미저장 상태 — 기본값(한국어) 유지
       } finally {
@@ -2886,7 +3999,8 @@ function CambodiaTaxApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const changeLang = async next => {
-    setLang(next);
+    setKm(next === "km");
+    setLang(next === "km" ? "en" : next);
     try {
       await window.storage.set(LANG_KEY, next, false);
     } catch (e) {
@@ -3507,6 +4621,7 @@ function CambodiaTaxApp() {
     }, /*#__PURE__*/React.createElement(UnlockScreen, {
       workspaceId: backend.workspaceId,
       lang: lang,
+      uiLang: uiLang,
       onLang: changeLang,
       onUnlock: unlockWithPassphrase,
       onSkip: ALLOW_SKIP_LOGIN && !isAndroidApp() ? skipUnlock : null,
@@ -3523,6 +4638,7 @@ function CambodiaTaxApp() {
     }, /*#__PURE__*/React.createElement(LoginScreen, {
       backend: backend,
       lang: lang,
+      uiLang: uiLang,
       onLang: changeLang,
       onSignIn: signIn
     }));
@@ -3564,24 +4680,26 @@ function CambodiaTaxApp() {
       gap: 6,
       margin: "16px 6px 0"
     }
-  }, ["ko", "en"].map(l => /*#__PURE__*/React.createElement("button", {
+  }, ["ko", "en", "km"].map(l => /*#__PURE__*/React.createElement("button", {
     key: l,
     type: "button",
-    "aria-pressed": lang === l,
+    "data-notr": "",
+    "aria-pressed": uiLang === l,
     style: {
       ...S.langBtnLight,
       flex: 1,
-      padding: "6px 8px",
+      padding: "6px 4px",
       fontSize: 13,
-      ...(lang === l ? S.langBtnLightActive : {})
+      ...(uiLang === l ? S.langBtnLightActive : {})
     },
     onClick: () => changeLang(l)
-  }, l === "ko" ? "한국어" : "English"))), /*#__PURE__*/React.createElement("button", {
+  }, l === "ko" ? "한국어" : l === "en" ? "English" : "ខ្មែរ"))), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "lang-toggle-compact",
-    onClick: () => changeLang(lang === "en" ? "ko" : "en"),
-    "aria-label": lang === "en" ? "언어를 한국어로 바꾸기" : "Switch language to English"
-  }, lang === "en" ? "EN · 한국어" : "KO · EN"), (backend.mode === "gsheet" && backend.passphrase || backend.reviewMode) && /*#__PURE__*/React.createElement("button", {
+    "data-notr": "",
+    onClick: () => changeLang(uiLang === "ko" ? "en" : uiLang === "en" ? "km" : "ko"),
+    "aria-label": "Language · 언어 · ភាសា"
+  }, uiLang === "ko" ? "KO · EN" : uiLang === "en" ? "EN · ខ្មែរ" : "ខ្មែរ · 한국어"), (backend.mode === "gsheet" && backend.passphrase || backend.reviewMode) && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "logout-compact",
     onClick: () => {
@@ -11854,6 +12972,7 @@ function DraftView({
 function UnlockScreen({
   workspaceId,
   lang,
+  uiLang = lang,
   onLang,
   onUnlock,
   onSkip,
@@ -12124,20 +13243,30 @@ function UnlockScreen({
       justifyContent: "center"
     }
   }, /*#__PURE__*/React.createElement("button", {
-    "aria-pressed": lang === "ko",
+    "data-notr": "",
+    "aria-pressed": uiLang === "ko",
     style: {
       ...S.langBtnLight,
-      ...(lang === "ko" ? S.langBtnLightActive : {})
+      ...(uiLang === "ko" ? S.langBtnLightActive : {})
     },
     onClick: () => onLang("ko")
   }, "한국어"), /*#__PURE__*/React.createElement("button", {
-    "aria-pressed": lang === "en",
+    "data-notr": "",
+    "aria-pressed": uiLang === "en",
     style: {
       ...S.langBtnLight,
-      ...(lang === "en" ? S.langBtnLightActive : {})
+      ...(uiLang === "en" ? S.langBtnLightActive : {})
     },
     onClick: () => onLang("en")
-  }, "English")), /*#__PURE__*/React.createElement("div", {
+  }, "English"), /*#__PURE__*/React.createElement("button", {
+    "data-notr": "",
+    "aria-pressed": uiLang === "km",
+    style: {
+      ...S.langBtnLight,
+      ...(uiLang === "km" ? S.langBtnLightActive : {})
+    },
+    onClick: () => onLang("km")
+  }, "ខ្មែរ")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "center",
@@ -12159,6 +13288,7 @@ function UnlockScreen({
 function LoginScreen({
   backend,
   lang,
+  uiLang = lang,
   onLang,
   onSignIn
 }) {
@@ -12256,18 +13386,27 @@ function LoginScreen({
       justifyContent: "center"
     }
   }, /*#__PURE__*/React.createElement("button", {
+    "data-notr": "",
     style: {
       ...S.langBtnLight,
-      ...(lang === "ko" ? S.langBtnLightActive : {})
+      ...(uiLang === "ko" ? S.langBtnLightActive : {})
     },
     onClick: () => onLang("ko")
   }, "한국어"), /*#__PURE__*/React.createElement("button", {
+    "data-notr": "",
     style: {
       ...S.langBtnLight,
-      ...(lang === "en" ? S.langBtnLightActive : {})
+      ...(uiLang === "en" ? S.langBtnLightActive : {})
     },
     onClick: () => onLang("en")
-  }, "English")), /*#__PURE__*/React.createElement("p", {
+  }, "English"), /*#__PURE__*/React.createElement("button", {
+    "data-notr": "",
+    style: {
+      ...S.langBtnLight,
+      ...(uiLang === "km" ? S.langBtnLightActive : {})
+    },
+    onClick: () => onLang("km")
+  }, "ខ្មែរ")), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 11.5,
       color: PALETTE.brassMuted,
@@ -13930,6 +15069,7 @@ const CSS_FONTS = `
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Noto+Sans+Khmer:wght@400;500&display=swap');
 body { margin: 0; background: ${PALETTE.paper}; }
 .app-root, .app-root input, .app-root select, .app-root button, .app-root textarea { font-family: ${FONT.body}; font-variant-numeric: tabular-nums; }
+html.lang-km .app-root, html.lang-km .app-root input, html.lang-km .app-root select, html.lang-km .app-root button, html.lang-km .app-root textarea { font-family: ${FONT.body}, "Noto Sans Khmer", "Khmer OS Battambang", "Khmer UI", "Leelawadee UI", sans-serif; }
 input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid ${PALETTE.teal}; outline-offset: 2px; }
 input:focus, select:focus, textarea:focus { border-color: ${PALETTE.teal}; outline: none; box-shadow: 0 0 0 3px ${PALETTE.tealTint}; }
 ::selection { background: #CFE8DF; color: ${PALETTE.ink}; }

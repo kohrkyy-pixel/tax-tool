@@ -459,10 +459,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.04.9";
+const APP_RELEASE = "2026.11.04.10";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.04.10",
+  ko: ["사무소 텔레그램 ID 표시를 @KOHRKYY로 바꿨어요"],
+  en: ["Office Telegram ID now shown as @KOHRKYY"]
+}, {
   version: "2026.11.04.9",
   ko: ["매출·매입 인보이스를 사진으로 — ① 단계에서 찍으면 날짜·거래처·금액·VATTIN을 읽어 채워요", "급여대장·급여명세서를 사진으로 — ② 단계에서 직원 이름과 월급을 읽어 표로 보여 줘요", "읽은 내용은 등록 전·후 언제든 직접 고칠 수 있어요"],
   en: ["Sales & purchase invoices by photo — in step 1 the date, party, amount and VATTIN are filled in for you", "Payroll sheets & payslips by photo — in step 2 names and salaries are read into a table", "Everything read can be edited before and after you add it"]
@@ -1766,7 +1770,7 @@ const PAY_METHODS = [{
 // ── 연락 채널: 텔레그램(우선) → 이메일 ──
 const OFFICE_CONTACT = {
   name: "김용윤 세무사",
-  telegram: "kohrkyy",
+  telegram: "KOHRKYY",
   email: "kohrkyy@gmail.com",
   phone: "089 313 834"
 };
@@ -5074,7 +5078,7 @@ function reminderText(r, year, month, due, withDue, en) {
     }
     if (withDue) lines.push(`GDT filing deadline: ${gdtDueText(due, "en")} · NSSF: ${fmtMonthDay(due.nssf, "en")}`);
     lines.push(`App: ${APP_PUBLIC_URL}`);
-    lines.push("Questions: Kim Yong-yun, Kohr & Co. · Telegram @kohrkyy · 089 313 834");
+    lines.push("Questions: Kim Yong-yun, Kohr & Co. · Telegram @KOHRKYY · 089 313 834");
   } else {
     lines.push(`${r.c.name} 담당자님, 안녕하세요. Kohr & Co.입니다.`);
     if (r.status === "filed") {
@@ -5091,7 +5095,7 @@ function reminderText(r, year, month, due, withDue, en) {
     }
     if (withDue) lines.push(`국세청 신고 마감: ${gdtDueText(due, "ko")} · NSSF 납부: ${fmtMonthDay(due.nssf, "ko")}`);
     lines.push(`앱 주소: ${APP_PUBLIC_URL}`);
-    lines.push("문의: 김용윤 세무사 · Telegram @kohrkyy · 089 313 834");
+    lines.push("문의: 김용윤 세무사 · Telegram @KOHRKYY · 089 313 834");
   }
   return lines.join("\n");
 }
@@ -5468,7 +5472,7 @@ function ClientsView({
       setEditMsg({
         id,
         kind: "error",
-        text: en ? "Telegram ID looks wrong (e.g. @kohrkyy or +85512345678)." : "텔레그램 ID 형식을 확인해 주세요 (예: @kohrkyy 또는 +85512345678)."
+        text: en ? "Telegram ID looks wrong (e.g. @KOHRKYY or +85512345678)." : "텔레그램 ID 형식을 확인해 주세요 (예: @KOHRKYY 또는 +85512345678)."
       });
       return;
     }

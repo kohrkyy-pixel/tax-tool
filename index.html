@@ -514,11 +514,11 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.11.1";
+const APP_RELEASE = "2026.11.11.2";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
-  version: "2026.11.11.1",
+  version: "2026.11.11.2",
   ko: ["여러 증빙을 스캔한 PDF를 한 번에 — 쪽별로 나눠 자동으로 읽고, 목록에서 확인한 뒤 한꺼번에 등록해요 (1단계 매출·매입, 3단계 증빙)", "엑셀 매출·매입 장부(.xlsx)도 그대로 올려 행별로 등록해요 — 이미 등록한 건은 자동으로 빼요", "면세 매출, 소비자 매출 구분, 전월 이월 VAT 공제를 신고 계산에 반영했어요"],
   en: ["Scanned PDFs with many documents — split page by page, read automatically, checked in a list and registered together (step 1 sales & purchases, step 3 receipts)", "Excel sales / purchase records (.xlsx) can be uploaded and registered row by row — documents already added are skipped", "Non-taxable sales, sales to consumers and VAT credit brought forward are now part of the monthly calculation"]
 }, {
@@ -3976,7 +3976,12 @@ const KM_DICT = {
   "Sales invoices: {0} · taxable {1}": "វិក្កយបត្រលក់៖ {0} · ជាប់អាករ {1}",
   " · non-taxable {0}": " · មិនជាប់អាករ {0}",
   " Non-taxable: invoices {0}, field {1}.": " មិនជាប់អាករ៖ វិក្កយបត្រ {0}, ប្រអប់បញ្ចូល {1}។",
-  "Taxable sales to taxpayers / to consumers": "ការលក់ជាប់អាករ — ឱ្យអ្នកជាប់ពន្ធ / ឱ្យអ្នកប្រើប្រាស់"
+  "Taxable sales to taxpayers / to consumers": "ការលក់ជាប់អាករ — ឱ្យអ្នកជាប់ពន្ធ / ឱ្យអ្នកប្រើប្រាស់",
+  "This PDF's structure could not be read, so the scanned images inside were taken out directly. Check that the page order is right.": "មិនអាចអានរចនាសម្ព័ន្ធ PDF នេះបានទេ ដូច្នេះបានទាញយករូបភាពស្កេនខាងក្នុងដោយផ្ទាល់។ សូមពិនិត្យថាលំដាប់ទំព័រត្រឹមត្រូវ។",
+  "This page could not be opened.": "មិនអាចបើកទំព័រនេះបានទេ។",
+  "The content of this file is not a PDF. If your company's document security (DRM) encrypts files on this PC, the browser cannot read it — remove the protection first, or upload from a phone or another PC.": "មាតិកាឯកសារនេះមិនមែនជា PDF ទេ។ បើកុំព្យូទ័រនេះមានប្រព័ន្ធសុវត្ថិភាពឯកសារ (DRM) របស់ក្រុមហ៊ុន កម្មវិធីរុករកមិនអាចអានវាបានទេ — សូមដកការការពារចេញជាមុន ឬផ្ទុកឡើងពីទូរសព្ទ ឬកុំព្យូទ័រផ្សេង។",
+  "This PDF is password-protected. Remove the password and try again.": "PDF នេះជាប់ពាក្យសម្ងាត់។ សូមដកពាក្យសម្ងាត់ចេញ រួចព្យាយាមម្តងទៀត។",
+  "Could not open this PDF.": "មិនអាចបើក PDF នេះបានទេ។"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -9736,6 +9741,62 @@ async function renderPdfPage(page) {
     thumb
   };
 }
+
+// pdf.js 가 구조를 읽지 못하는 PDF 대비: 스캔본은 쪽마다 JPEG 한 장이 그대로 들어 있으므로 그 이미지를 직접 꺼낸다
+function findPdfJpegs(u8) {
+  const out = [];
+  const END = [101, 110, 100, 115, 116, 114, 101, 97, 109]; // "endstream"
+  let i = 0;
+  while ((i = u8.indexOf(0xD8, i + 1)) > 0) {
+    if (u8[i - 1] !== 0xFF || u8[i + 1] !== 0xFF) continue;
+    const s = i - 1;
+    const pre = String.fromCharCode(...u8.subarray(Math.max(0, s - 8), s));
+    if (!/stream\r?\n$/.test(pre)) continue;
+    let e = s;
+    for (;;) {
+      e = u8.indexOf(101, e + 1);
+      if (e < 0) break;
+      let k = 1;
+      while (k < 9 && u8[e + k] === END[k]) k++;
+      if (k === 9) break;
+    }
+    if (e < 0) break;
+    let end = e;
+    while (end > s && (u8[end - 1] === 10 || u8[end - 1] === 13)) end--;
+    if (end - s > 40000) out.push([s, end]); // 작은 썸네일·로고는 건너뜀
+    i = e;
+  }
+  return out;
+}
+async function renderJpegBlob(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const im = await new Promise((res, rej) => {
+      const x = new Image();
+      x.onload = () => res(x);
+      x.onerror = () => rej(new Error("IMAGE_DECODE"));
+      x.src = url;
+    });
+    const draw = (maxSide, q) => {
+      const sc = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(im.naturalWidth * sc);
+      c.height = Math.round(im.naturalHeight * sc);
+      const ctx = c.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(im, 0, 0, c.width, c.height);
+      const d = c.toDataURL("image/jpeg", q);
+      c.width = c.height = 0;
+      return d;
+    };
+    return {
+      hi: draw(1568, 0.85),
+      thumb: draw(594, 0.55)
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 const BULK_PROMPT = kind => `You are reading ONE scanned page from a bundle of ${kind === "sales" ? "SALES invoices issued by our company to customers" : "PURCHASE / EXPENSE documents of our company (supplier tax invoices, bills, receipts, bank transfer slips, payment vouchers)"} in Cambodia.
 The page may contain ONE document, SEVERAL separate documents (e.g. two bank slips or small receipts scanned together), or NO document (blank page, cover sheet, attachment, or a continuation page without totals).
 Return every separate document on the page, top to bottom. Read digit by digit; do not guess. Khmer numerals (០-៩) → 0-9. Dates are usually DAY/MONTH/YEAR.
@@ -10012,18 +10073,44 @@ function BulkImportPanel({
     });
     let pdf = null;
     try {
-      const pdfjs = await loadVendor("pdfjs");
-      pdf = await pdfjs.getDocument({
-        data: await file.arrayBuffer(),
-        isEvalSupported: false
-      }).promise;
-      const total = Math.min(pdf.numPages, BULK_MAX_PAGES);
+      const sig = new TextDecoder("latin1").decode(new Uint8Array(await file.slice(0, 1024).arrayBuffer()));
+      if (!sig.includes("%PDF-")) throw new Error("NOT_PDF");
+      // 쪽을 꺼내는 방법 두 가지: ① pdf.js 로 그리기 ② (실패하면) 스캔 이미지 직접 꺼내기
+      let total = 0,
+        pageCount = 0,
+        getPage = null;
+      try {
+        const pdfjs = await loadVendor("pdfjs");
+        pdf = await pdfjs.getDocument({
+          data: await file.arrayBuffer(),
+          isEvalSupported: false
+        }).promise;
+        pageCount = pdf.numPages;
+        getPage = async n => {
+          const page = await pdf.getPage(n);
+          const img = await renderPdfPage(page);
+          page.cleanup();
+          try {
+            await pdf.cleanup();
+          } catch (e) {/* 무시 */} // 600dpi 스캔본은 쪽당 메모리가 커서 바로 비운다
+          return img;
+        };
+      } catch (e1) {
+        if (e1.message === "VENDOR_MISSING" || e1.name === "PasswordException") throw e1;
+        const spans = findPdfJpegs(new Uint8Array(await file.arrayBuffer()));
+        if (!spans.length) throw e1;
+        pdf = null;
+        pageCount = spans.length;
+        getPage = n => renderJpegBlob(file.slice(spans[n - 1][0], spans[n - 1][1], "image/jpeg"));
+      }
+      total = Math.min(pageCount, BULK_MAX_PAGES);
       if (runRef.current !== token) return;
       setJob(j => j && {
         ...j,
         total,
-        truncated: pdf.numPages > total ? pdf.numPages : 0,
-        phase: "read"
+        truncated: pageCount > total ? pageCount : 0,
+        phase: "read",
+        direct: !pdf
       });
       const inflight = new Set();
       const readPage = async (n, hi) => {
@@ -10045,18 +10132,23 @@ function BulkImportPanel({
       };
       for (let n = 1; n <= total; n++) {
         if (runRef.current !== token) break;
-        const page = await pdf.getPage(n);
-        const img = await renderPdfPage(page);
-        page.cleanup();
+        let img;
         try {
-          await pdf.cleanup();
-        } catch (e) {/* 무시 */} // 600dpi 스캔본은 쪽당 메모리가 커서 바로 비운다
+          img = await getPage(n);
+        } catch (e) {
+          if (runRef.current === token) setJob(j => j && {
+            ...j,
+            read: j.read + 1,
+            rows: sortRows([...j.rows, bulkBlankRow({
+              page: n,
+              empty: true,
+              readError: en ? "This page could not be opened." : "이 쪽은 열지 못했어요."
+            })])
+          });
+          continue;
+        }
         if (runRef.current !== token) break;
         pagesRef.current[n] = img;
-        setJob(j => j && {
-          ...j,
-          rendered: n
-        });
         const t = readPage(n, img.hi).finally(() => inflight.delete(t));
         inflight.add(t);
         if (inflight.size >= 2) await Promise.race(inflight);
@@ -10067,13 +10159,14 @@ function BulkImportPanel({
         phase: "review"
       });
     } catch (e) {
+      const msg = e.message === "VENDOR_MISSING" ? en ? "The PDF reader is not included in this copy of the app. Please update the app." : "이 앱 파일에는 PDF 읽기 기능이 들어 있지 않아요. 앱을 업데이트해 주세요." : e.message === "NOT_PDF" ? en ? "The content of this file is not a PDF. If your company's document security (DRM) encrypts files on this PC, the browser cannot read it — remove the protection first, or upload from a phone or another PC." : "파일 내용이 PDF 형식이 아니에요. 회사 문서보안(DRM)이 걸린 PC에서는 파일이 암호화되어 브라우저가 읽지 못해요 — 보안을 해제한 뒤 올리거나, 휴대폰·다른 PC에서 올려 주세요." : e.name === "PasswordException" ? en ? "This PDF is password-protected. Remove the password and try again." : "암호가 걸린 PDF예요. 암호를 푼 뒤 다시 올려 주세요." : (en ? "Could not open this PDF." : "PDF를 열지 못했어요.") + ` (${e.message})`;
       if (runRef.current === token) setJob(j => ({
         ...(j || {
           kind: k,
           rows: []
         }),
         phase: "error",
-        error: e.message === "VENDOR_MISSING" ? en ? "The PDF reader is not included in this copy of the app. Please update the app." : "이 앱 파일에는 PDF 읽기 기능이 들어 있지 않아요. 앱을 업데이트해 주세요." : (en ? "Could not open this PDF. Check that it is not password-protected." : "PDF를 열지 못했어요. 암호가 걸린 파일인지 확인해 주세요.") + ` (${e.message})`
+        error: msg
       }));
     } finally {
       try {
@@ -10717,7 +10810,12 @@ function BulkImportPanel({
       height: "100%",
       background: PALETTE.teal
     }
-  }))), job.truncated > 0 && /*#__PURE__*/React.createElement("div", {
+  }))), job.direct && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, en ? "This PDF's structure could not be read, so the scanned images inside were taken out directly. Check that the page order is right." : "PDF 구조를 읽지 못해, 안에 든 스캔 이미지를 직접 꺼내 읽었어요. 쪽 순서가 맞는지 확인해 주세요."), job.truncated > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.brassText

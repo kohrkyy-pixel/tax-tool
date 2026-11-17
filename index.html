@@ -514,12 +514,12 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.14";
+const APP_RELEASE = "2026.11.17.15";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
-  version: "2026.11.17.14",
-  ko: ["금액을 달러와 리엘로 함께 보여 줘요 — 목록의 각 건, 합계, 세목별 계산, 신고서 표", "입력할 때 통화를 고를 수 있어요 — 매출·매입·경비 금액, 직원 급여, 원천세 지급액을 USD나 KHR로 입력"],
+  version: "2026.11.17.15",
+  ko: ["금액을 달러와 리엘로 함께 보여 줘요 — 달러는 파란색, 리엘은 초록색 (목록의 각 건, 합계, 세목별 계산, 신고서 표)", "입력할 때 통화를 고를 수 있어요 — 매출·매입·경비 금액, 직원 급여, 원천세 지급액을 USD나 KHR로 입력"],
   en: ["Amounts are shown in both dollars and riel — each row, the totals, the tax calculations and the return table", "Choose the currency when entering — sales, purchases, expenses, salaries and withholding payments in USD or KHR"]
 }, {
   version: "2026.11.17.13",
@@ -8834,7 +8834,9 @@ function MonthlyView({
       ...local,
       nonTaxableRevenue: v
     }),
-    helper: Number(local.nonTaxableRevenue) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt(calc.nonTaxableKHR), " KHR")
+    helper: Number(local.nonTaxableRevenue) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", /*#__PURE__*/React.createElement(Khr, {
+      v: calc.nonTaxableKHR
+    }))
   }), /*#__PURE__*/React.createElement(MoneyField, {
     id: "mf-purchase",
     label: en ? "Purchases" : "매입액",
@@ -8862,7 +8864,9 @@ function MonthlyView({
       ...local,
       expenses: v
     }),
-    helper: Number(local.expenses) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt((Number(local.expenses) || 0) * calc.rate), " KHR")
+    helper: Number(local.expenses) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", /*#__PURE__*/React.createElement(Khr, {
+      v: (Number(local.expenses) || 0) * calc.rate
+    }))
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -9179,13 +9183,14 @@ function MonthlyView({
     }, bf ? fmt(bf) : "0"), /*#__PURE__*/React.createElement("td", {
       style: {
         ...num,
-        fontWeight: v ? 600 : 400
+        fontWeight: v ? 600 : 400,
+        color: v ? CCY_COLOR.KHR : PALETTE.inkSoft
       }
     }, fmt(v)), /*#__PURE__*/React.createElement("td", {
       "data-usd": true,
       style: {
         ...num,
-        color: PALETTE.inkSoft
+        color: v ? CCY_COLOR.USD : PALETTE.inkSoft
       }
     }, fmtUsd(v / calc.rate)), credit && /*#__PURE__*/React.createElement("td", {
       style: num
@@ -9203,10 +9208,16 @@ function MonthlyView({
       style: num
     }, fmt(calc.vatCreditBF)), /*#__PURE__*/React.createElement("td", {
       "data-p101-total": true,
-      style: num
+      style: {
+        ...num,
+        color: CCY_COLOR.KHR
+      }
     }, fmt(calc.totalDue)), /*#__PURE__*/React.createElement("td", {
       "data-usd": true,
-      style: num
+      style: {
+        ...num,
+        color: CCY_COLOR.USD
+      }
     }, fmtUsd(calc.totalDue / calc.rate)), credit && /*#__PURE__*/React.createElement("td", {
       style: num
     }, fmt(calc.vatCreditCF)))));
@@ -9422,19 +9433,23 @@ function MonthlyView({
       color: PALETTE.ink,
       whiteSpace: "nowrap"
     }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: CCY_COLOR.KHR
+    }
   }, fmt(calc.totalDue), " ", /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 14,
-      fontWeight: 600,
-      color: PALETTE.inkSoft
+      fontWeight: 600
     }
-  }, "KHR"), /*#__PURE__*/React.createElement("span", {
+  }, "KHR")), /*#__PURE__*/React.createElement(Usd, {
+    v: calc.totalDue / calc.rate,
     style: {
       fontSize: 13,
-      fontWeight: 500,
-      color: PALETTE.inkSoft
+      fontWeight: 600,
+      marginLeft: 8
     }
-  }, ` · $${fmtUsd(calc.totalDue / calc.rate)}`))), /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: step > 1 ? "48px minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1fr) minmax(0, 1.4fr)",
@@ -12067,7 +12082,10 @@ function InvoiceDocsPanel({
   const sumKHR = (list, pick) => list.reduce((a, d) => a + toKHR(pick(d), d), 0);
   const taxDocs = salesDocs.filter(d => d.taxType !== "nontax"),
     ntDocs = salesDocs.filter(d => d.taxType === "nontax");
-  const both = (u, k) => `${usd(u)} · ${fmt(k)} KHR`;
+  const both = (u, k) => /*#__PURE__*/React.createElement(BothMoney, {
+    usd: u,
+    khr: k
+  });
   const purSumUSD = purchaseDocs.reduce((a, d) => a + (d.currency === "KHR" ? (Number(d.amountKHR) || 0) / R : Number(d.amount) || 0), 0);
   const purVatUSD = purchaseDocs.reduce((a, d) => a + (Number(d.vatAmountKHR) || 0) / (Number(d.fx) || R), 0);
   const row = (d, k) => {
@@ -12709,13 +12727,23 @@ function TaxCalcCard({
       whiteSpace: "nowrap",
       fontWeight: v ? 600 : 400
     }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: CCY_COLOR.KHR
+    }
   }, v < 0 ? "−" : "", fmt(Math.abs(v)), /*#__PURE__*/React.createElement("span", {
     style: {
       fontWeight: 400,
-      color: PALETTE.inkSoft,
       fontSize: 12.5
     }
-  }, ` KHR · $${fmtUsd(Math.abs(v) / r)}`)))), /*#__PURE__*/React.createElement("div", {
+  }, " KHR")), /*#__PURE__*/React.createElement(Usd, {
+    v: Math.abs(v) / r,
+    style: {
+      fontWeight: 400,
+      fontSize: 12.5,
+      marginLeft: 8
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
     "data-taxcard-total": true,
     style: {
       display: "flex",
@@ -12742,7 +12770,8 @@ function TaxCalcCard({
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 19,
-      whiteSpace: "nowrap"
+      whiteSpace: "nowrap",
+      color: CCY_COLOR.KHR
     }
   }, fmt(total[1]), " ", /*#__PURE__*/React.createElement("span", {
     style: {
@@ -12750,12 +12779,15 @@ function TaxCalcCard({
       fontWeight: 600
     }
   }, "KHR")), /*#__PURE__*/React.createElement("span", {
-    "data-usd": true,
+    "data-usd": true
+  }, /*#__PURE__*/React.createElement(Usd, {
+    v: total[1] / r,
+    approx: true,
     style: {
       fontSize: 12.5,
       fontWeight: 600
     }
-  }, "≈ $", fmtUsd(total[1] / r)))), foot && /*#__PURE__*/React.createElement("div", {
+  })))), foot && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
@@ -12831,10 +12863,12 @@ function MoneyField({
     }
   }, "USD")), khr && Number(value) > 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft
+      fontSize: 13
     }
-  }, "≈ $", fmtUsd(Number(value))) : helper ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Usd, {
+    v: Number(value),
+    approx: true
+  })) : helper ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
@@ -13301,6 +13335,61 @@ function AttachDocBox({
     }
   }, error));
 }
+// 통화별 글자색: 달러는 파랑, 리엘은 초록 — 어느 통화인지 색으로 바로 구분
+const CCY_COLOR = {
+  USD: "#1F4E8C",
+  KHR: "#0B6B55"
+};
+function Usd({
+  v,
+  approx,
+  style
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    "data-cur": "USD",
+    style: {
+      color: CCY_COLOR.USD,
+      whiteSpace: "nowrap",
+      ...(style || {})
+    }
+  }, approx ? "≈ " : "", "$", fmtUsd(v));
+}
+function Khr({
+  v,
+  style
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    "data-cur": "KHR",
+    style: {
+      color: CCY_COLOR.KHR,
+      whiteSpace: "nowrap",
+      ...(style || {})
+    }
+  }, fmt(v), " KHR");
+}
+// 두 통화를 나란히 (좁으면 줄바꿈)
+function BothMoney({
+  usd,
+  khr,
+  first
+}) {
+  const a = /*#__PURE__*/React.createElement(Usd, {
+      key: "u",
+      v: usd
+    }),
+    b = /*#__PURE__*/React.createElement(Khr, {
+      key: "k",
+      v: khr
+    });
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      flexWrap: "wrap",
+      justifyContent: "flex-end",
+      columnGap: 8
+    }
+  }, first === "KHR" ? [b, a] : [a, b]);
+}
 // 금액을 두 통화로 함께: 원래 통화를 앞에, 환산 금액을 뒤에
 function dualMoney(amount, currency, rate) {
   const a = Number(amount) || 0,
@@ -13326,18 +13415,29 @@ function DualAmount({
       whiteSpace: "nowrap",
       lineHeight: 1.35
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, khr ? /*#__PURE__*/React.createElement(Khr, {
+    v: a,
     style: {
       fontSize: 14.5,
-      fontWeight: 600,
-      color: PALETTE.ink
+      fontWeight: 600
     }
-  }, khr ? `${fmt(a)} KHR` : `$${fmtUsd(a)}`), /*#__PURE__*/React.createElement("span", {
+  }) : /*#__PURE__*/React.createElement(Usd, {
+    v: a,
     style: {
-      fontSize: 12,
-      color: PALETTE.inkSoft
+      fontSize: 14.5,
+      fontWeight: 600
     }
-  }, khr ? `$${fmtUsd(a / r)}` : `${fmt(a * r)} KHR`));
+  }), khr ? /*#__PURE__*/React.createElement(Usd, {
+    v: a / r,
+    style: {
+      fontSize: 12
+    }
+  }) : /*#__PURE__*/React.createElement(Khr, {
+    v: a * r,
+    style: {
+      fontSize: 12
+    }
+  }));
 }
 // 입력 칸 옆의 통화 고르기
 function CcySelect({
@@ -13457,9 +13557,15 @@ function TotalsBox({
         marginTop: 2
       } : {})
     }
-  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
-      textAlign: "right"
+      flexShrink: 0,
+      maxWidth: "50%"
+    }
+  }, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      textAlign: "right",
+      minWidth: 0
     }
   }, value))));
 }
@@ -19906,13 +20012,18 @@ function NumberRow({
       fontSize: big ? 20 : 14,
       color: big ? PALETTE.teal : PALETTE.ink
     }
-  }, noFmt ? value : `${fmt(value)} KHR`, !noFmt && usdRate > 0 && value > 0 ? /*#__PURE__*/React.createElement("span", {
+  }, noFmt ? value : usdRate > 0 ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: CCY_COLOR.KHR
+    }
+  }, `${fmt(value)} KHR`) : `${fmt(value)} KHR`, !noFmt && usdRate > 0 && value > 0 ? /*#__PURE__*/React.createElement(Usd, {
+    v: value / usdRate,
     style: {
       fontFamily: FONT.body,
-      fontWeight: 400,
-      color: PALETTE.inkSoft
+      fontWeight: 500,
+      marginLeft: 8
     }
-  }, ` · $${fmtUsd(value / usdRate)}`) : null));
+  }) : null));
 }
 function VatBreakdownRow({
   bd

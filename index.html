@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.5";
+const APP_RELEASE = "2026.11.17.6";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.6",
+  ko: ["스캔본 붙이기가 통화가 달라도 맞는 건을 찾아요 — 장부는 USD, 영수증은 KHR이어도 환율로 바꿔 금액이 맞고 날짜나 거래처가 같으면 그 경비에 붙여요", "어떻게 맞췄는지(환산 금액과 환율)를 쪽마다 보여 줘요"],
+  en: ["Attaching scans now works across currencies — a KHR receipt is matched to an expense recorded in USD when the converted amount agrees and the date or supplier is the same", "Each page shows how it was matched (converted amount and rate)"]
+}, {
   version: "2026.11.17.5",
   ko: ["NSSF를 직원별로 — 가입 여부와 NSSF에 신고한 임금을 직원마다 따로 넣을 수 있어요 (급여세 탭 아래 NSSF)", "NSSF 납부 확인서와 바로 비교할 수 있게 직업재해·건강보험·연금 금액을 나눠 보여 줘요"],
   en: ["NSSF per employee — set for each person whether they are registered and the wage declared to NSSF (under the Salary tax tab)", "Occupational risk, health care and pension amounts are shown separately so they can be checked against the NSSF receipt"]
@@ -4122,7 +4126,10 @@ const KM_DICT = {
   "As on the NSSF receipt — {0} registered, wage base {1} KHR": "ដូចលើលិខិតបញ្ជាក់ ប.ស.ស. — បានចុះបញ្ជី {0} នាក់ មូលដ្ឋានប្រាក់ឈ្នួល {1} KHR",
   "Occupational risk (0.8%)": "ហានិភ័យការងារ (0.8%)",
   "Health care (2.6%)": "ថែទាំសុខភាព (2.6%)",
-  "Pension (4%)": "ប្រាក់សោធន (4%)"
+  "Pension (4%)": "ប្រាក់សោធន (4%)",
+  "Attaching scans now works across currencies — a KHR receipt is matched to an expense recorded in USD when the converted amount agrees and the date or supplier is the same": "ការភ្ជាប់ឯកសារស្កេនឥឡូវដំណើរការទោះរូបិយប័ណ្ណខុសគ្នា — បង្កាន់ដៃជា KHR ត្រូវផ្គូផ្គងនឹងចំណាយដែលកត់ជា USD ពេលចំនួនបន្ទាប់ពីប្តូរត្រូវគ្នា ហើយកាលបរិច្ឆេទ ឬអ្នកផ្គត់ផ្គង់ដូចគ្នា",
+  "Each page shows how it was matched (converted amount and rate)": "ទំព័រនីមួយៗបង្ហាញពីរបៀបផ្គូផ្គង (ចំនួនបន្ទាប់ពីប្តូរ និងអត្រា)",
+  "Matched after converting: {0} ≈ {1} (rate {2})": "ផ្គូផ្គងបន្ទាប់ពីប្តូរ៖ {0} ≈ {1} (អត្រា {2})"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -10440,11 +10447,12 @@ function BulkImportPanel({
   const matchRef = useRef(null);
   const dropDups = (rows, k, pdf) => rows.map(x => {
     if (!x.include) return x;
-    const m = pdf && matchRef.current ? matchRef.current(x, k) : "";
+    const m = pdf && matchRef.current ? matchRef.current(x, k) : null;
     if (m) return {
       ...x,
       include: false,
-      attachTo: m
+      attachTo: m.id,
+      matchNote: m.note
     };
     return dupRef.current && dupRef.current(x, k) ? {
       ...x,
@@ -10651,6 +10659,7 @@ function BulkImportPanel({
     amount: Number(d.subtotal) || 0,
     total: r2((Number(d.subtotal) || 0) + (Number(d.vat) || 0)),
     currency: d.currency,
+    fx: d.fx,
     has: !!(d.thumbnail || d.driveUrl)
   })) : (local.evidence || []).map(d => ({
     id: d.id,
@@ -10660,21 +10669,66 @@ function BulkImportPanel({
     amount: Number(d.amount) || 0,
     total: Number(d.amount) || 0,
     currency: d.currency,
+    fx: d.fx,
     has: !!(d.thumbnail || d.driveUrl)
   }));
+  // 금액이 맞는 후보 중에서 번호·날짜·거래처가 가장 잘 맞는 하나를 고른다.
+  // 통화가 다르면(장부는 USD, 영수증은 KHR 등) 환율로 바꿔서 비교한다: 문서의 인보이스 환율 → 없으면 3,950~4,150 범위
   const findMatch = (row, k) => {
     const sub = Number(row.subtotal) || 0;
-    if (!(sub > 0)) return "";
+    if (!(sub > 0)) return null;
     const total = r2(sub + (Number(row.vat) || 0));
-    const same = existingDocs(k).filter(d => d.currency === row.currency && (Math.abs(d.amount - (k === "sales" ? sub : total)) < 0.005 || Math.abs(d.total - total) < 0.005));
-    if (!same.length) return "";
-    const byNo = row.invoiceNo ? same.filter(d => d.no && (alnum(d.no) === alnum(row.invoiceNo) || alnum(d.no).endsWith(alnum(row.invoiceNo)) || alnum(row.invoiceNo).endsWith(alnum(d.no)))) : [];
-    if (byNo.length === 1) return byNo[0].id;
-    const byDate = same.filter(d => d.date && d.date === row.date);
-    if (byDate.length === 1) return byDate[0].id;
-    const pool = byDate.length ? byDate : same;
-    const free = pool.filter(d => !d.has);
-    return free.length === 1 ? free[0].id : pool.length === 1 ? pool[0].id : "";
+    const dayDiff = (a, b) => a && b ? Math.abs((new Date(a) - new Date(b)) / 86400000) : 99;
+    const words = v => String(v || "").toLowerCase().split(/[^a-z0-9ក-៿가-힣]+/).filter(w => w.length >= 4 && !/^(ltd|co|company|cambodia|limited|group|trading)$/.test(w));
+    const rowWords = words(row.party);
+    const cands = [];
+    for (const d of existingDocs(k)) {
+      let amt = 0,
+        rateUsed = 0;
+      if (d.currency === row.currency) {
+        if (Math.abs(d.amount - (k === "sales" ? sub : total)) < 0.005 || Math.abs(d.total - total) < 0.005) amt = 3;
+      } else {
+        // KHR ÷ USD = 이 건에 실제로 쓰인 환율. 그 값이 문서 환율과 같거나 통상 범위 안이면 같은 금액으로 본다
+        const pairs = row.currency === "KHR" ? [[total, d.total], [sub, d.amount]] : [[d.total, total], [d.amount, sub]];
+        for (const [khr, usd] of pairs) {
+          if (!(usd > 0) || amt) continue;
+          const implied = khr / usd;
+          const refs = [Number(d.fx), Number(row.fx), 4000].filter(x => x > 0);
+          if (refs.some(x => Math.abs(implied - x) / x <= 0.004)) {
+            amt = 2;
+            rateUsed = implied;
+          } else if (implied >= 3950 && implied <= 4150) {
+            amt = 1;
+            rateUsed = implied;
+          }
+        }
+      }
+      if (!amt) continue;
+      const noOk = row.invoiceNo && d.no && alnum(row.invoiceNo).length >= 3 && (alnum(d.no) === alnum(row.invoiceNo) || alnum(d.no).endsWith(alnum(row.invoiceNo)) || alnum(row.invoiceNo).endsWith(alnum(d.no)));
+      const dd = dayDiff(d.date, row.date);
+      const partyOk = alnum(d.party).length >= 3 && alnum(row.party).length >= 3 && (alnum(d.party).includes(alnum(row.party)) || alnum(row.party).includes(alnum(d.party))) || words(d.party).some(w => rowWords.includes(w));
+      const support = (noOk ? 4 : 0) + (dd === 0 ? 2 : dd <= 3 ? 1 : 0) + (partyOk ? 2 : 0);
+      cands.push({
+        d,
+        cross: d.currency !== row.currency,
+        amt,
+        support,
+        score: amt + support + (d.has ? 0 : 0.5),
+        rateUsed
+      });
+    }
+    if (!cands.length) return null;
+    cands.sort((a, b) => b.score - a.score);
+    const best = cands[0],
+      second = cands[1];
+    // 같은 통화: 금액이 같은 문서가 하나뿐이면 충분. 통화가 다르면 날짜·거래처·번호 중 하나는 맞아야 한다
+    const enough = best.cross ? best.support >= 2 : best.support >= 1 || cands.filter(c => !c.cross).length === 1 || cands.filter(c => !c.cross && !c.d.has).length === 1;
+    if (!enough || second && second.score >= best.score && !(best.cross === false && second.cross)) return null;
+    const money = (n, c) => c === "KHR" ? `${fmt(n)} KHR` : `$${fmtUsd(n)}`;
+    return {
+      id: best.d.id,
+      note: best.cross ? en ? `Matched after converting: ${money(total, row.currency)} ≈ ${money(best.d.total, best.d.currency)} (rate ${fmt(Math.round(best.rateUsed))})` : `환산해서 일치: ${money(total, row.currency)} ≈ ${money(best.d.total, best.d.currency)} (환율 ${fmt(Math.round(best.rateUsed))})` : ""
+    };
   };
   matchRef.current = findMatch;
   const setRow = (id, patch) => setJob(j => ({
@@ -10961,13 +11015,16 @@ function BulkImportPanel({
         const v = e.target.value;
         setRow(row.id, v === "" ? {
           attachTo: "",
+          matchNote: "",
           include: true,
           open: row.empty ? true : row.open
         } : v === "__skip" ? {
           attachTo: "",
+          matchNote: "",
           include: false
         } : {
           attachTo: v,
+          matchNote: "",
           include: false
         });
       }
@@ -11165,7 +11222,13 @@ function BulkImportPanel({
       onChange: e => setRow(row.id, {
         fx: e.target.value
       })
-    }))), row.noteText && /*#__PURE__*/React.createElement("div", {
+    }))), row.matchNote && row.attachTo && !row.include && /*#__PURE__*/React.createElement("div", {
+      "data-match-note": true,
+      style: {
+        fontSize: 12.5,
+        color: PALETTE.tealDeep
+      }
+    }, row.matchNote), row.noteText && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12.5,
         color: PALETTE.inkSoft

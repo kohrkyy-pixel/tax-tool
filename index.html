@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.12";
+const APP_RELEASE = "2026.11.17.13";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.13",
+  ko: ["목록을 접으면 한 건도 보이지 않아요 (매출·매입 인보이스, 경비 증빙)", "날짜순으로 정렬할 수 있어요 — 경비 증빙은 항목별로도 묶어 볼 수 있어요", "목록 아래에 합계를 보여 줘요 — 공급가액 · 부가세 · 원천세"],
+  en: ["Hiding a list now hides every row (sales / purchase invoices, receipts)", "Sort by date — receipts can also be grouped by type", "Totals under each list — supply, VAT and withholding tax"]
+}, {
   version: "2026.11.17.12",
   ko: ["매출·매입 인보이스 목록에도 등록 건수와 증빙 건수를 보여 줘요 — 증빙 없는 인보이스만 골라 보고, [수정/추가]에서 사진이나 PDF를 그 건에 바로 올릴 수 있어요"],
   en: ["Sales and purchase invoice lists now show how many have a document — filter to the ones missing, and press Edit / Add to upload a photo or PDF to that invoice"]
@@ -4170,7 +4174,27 @@ const KM_DICT = {
   "{0} {1} · with document {2} · missing {3}": "{0} {1} · មានឯកសារ {2} · ខ្វះ {3}",
   " — nothing is missing": " — គ្មានអ្វីខ្វះទេ",
   "Invoices": "វិក្កយបត្រ",
-  "Expenses": "ចំណាយ"
+  "Expenses": "ចំណាយ",
+  "Hiding a list now hides every row (sales / purchase invoices, receipts)": "ការលាក់បញ្ជីឥឡូវលាក់គ្រប់ជួរ (វិក្កយបត្រលក់ / ទិញ, បង្កាន់ដៃ)",
+  "Sort by date — receipts can also be grouped by type": "តម្រៀបតាមកាលបរិច្ឆេទ — បង្កាន់ដៃក៏អាចដាក់ជាក្រុមតាមប្រភេទ",
+  "Totals under each list — supply, VAT and withholding tax": "សរុបនៅក្រោមបញ្ជីនីមួយៗ — តម្លៃផ្គត់ផ្គង់ អតប និងពន្ធកាត់ទុក",
+  "Sort": "តម្រៀប",
+  "Sort order": "លំដាប់តម្រៀប",
+  "As registered": "តាមលំដាប់ចុះបញ្ជី",
+  "Date — oldest first": "កាលបរិច្ឆេទ — ចាស់មុន",
+  "Date — newest first": "កាលបរិច្ឆេទ — ថ្មីមុន",
+  "By type": "តាមប្រភេទ",
+  "Hide the list": "លាក់បញ្ជី",
+  "Show {0} documents": "បង្ហាញឯកសារ {0}",
+  "Show {0} receipts": "បង្ហាញបង្កាន់ដៃ {0}",
+  "Sales invoices: {0}": "វិក្កយបត្រលក់៖ {0}",
+  "Purchase invoices: {0}": "វិក្កយបត្រទិញ៖ {0}",
+  "Taxable supply (before VAT)": "តម្លៃជាប់អាករ (មុន អតប)",
+  "Non-taxable supply": "តម្លៃមិនជាប់អាករ",
+  "Total incl. VAT": "សរុបរួមទាំង អតប",
+  "Supply (before VAT)": "តម្លៃផ្គត់ផ្គង់ (មុន អតប)",
+  "Supply before VAT": "តម្លៃផ្គត់ផ្គង់មុន អតប",
+  "Withholding tax on these receipts": "ពន្ធកាត់ទុកលើបង្កាន់ដៃទាំងនេះ"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8872,6 +8896,7 @@ function MonthlyView({
     kinds: ["purchase"],
     onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
   })), /*#__PURE__*/React.createElement(EvidencePanel, {
+    withholding: local.withholding || [],
     evidence: local.evidence || [],
     exchangeRate: local.exchangeRate,
     onChangeExchangeRate: v => setLocal({
@@ -11906,7 +11931,8 @@ function InvoiceDocsPanel({
   const money = (amt, cur) => cur === "KHR" ? `${fmt(amt)} KHR` : usd(Number(amt) || 0);
   const salesSumUSD = salesDocs.filter(d => d.taxType !== "nontax").reduce((a, d) => a + toUSD(d.subtotal, d.currency), 0);
   const nonTaxSumUSD = salesDocs.filter(d => d.taxType === "nontax").reduce((a, d) => a + toUSD(d.subtotal, d.currency), 0);
-  const [showAll, setShowAll] = useState(false);
+  const [openState, setOpenState] = useState(null); // null = 건수에 따라 자동 (6건 이하면 펼침)
+  const [sortMode, setSortMode] = useState("added");
   const allRows = [...salesDocs.map(d => [d, "sales"]), ...purchaseDocs.map(d => [d, "purchase"])];
   // 인보이스 사진·스캔본이 붙어 있는지 — 엑셀로만 올린 건은 증빙이 없다
   const hasDoc = d => !!(d.thumbnail || d.driveUrl);
@@ -11954,7 +11980,13 @@ function InvoiceDocsPanel({
     }
   };
   const filterOn = onlyMissing && missingCount > 0;
-  const shownRows = filterOn ? allRows.filter(([d]) => !hasDoc(d) || editId === d.id) : showAll || allRows.length <= 6 ? allRows : allRows.slice(-5);
+  const listOpen = openState ?? allRows.length <= 6;
+  const sortedRows = sortDocs(allRows, sortMode, ([d, k]) => k === "sales" ? d.date : d.txDate, () => "");
+  // 접으면 한 건도 보이지 않는다 (증빙 없는 건만 보기는 접혀 있어도 그 건들을 보여 준다)
+  const shownRows = filterOn ? sortedRows.filter(([d]) => !hasDoc(d) || editId === d.id) : listOpen ? sortedRows : [];
+  const salesVatUSD = salesDocs.filter(d => d.taxType !== "nontax").reduce((a, d) => a + toUSD(Number(d.vat) || 0, d.currency), 0);
+  const purSumUSD = purchaseDocs.reduce((a, d) => a + (d.currency === "KHR" ? (Number(d.amountKHR) || 0) / R : Number(d.amount) || 0), 0);
+  const purVatUSD = purchaseDocs.reduce((a, d) => a + (Number(d.vatAmountKHR) || 0) / (Number(d.fx) || R), 0);
   const row = (d, k) => {
     const name = k === "sales" ? d.customer : d.vendor;
     const date = k === "sales" ? d.date : d.txDate;
@@ -12174,29 +12206,42 @@ function InvoiceDocsPanel({
       ko: "인보이스",
       en: "Invoices"
     }
-  })), !filterOn && allRows.length > shownRows.length && /*#__PURE__*/React.createElement("button", {
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginBottom: 4
+    }
+  }, !filterOn && /*#__PURE__*/React.createElement("button", {
     type: "button",
+    "data-list-toggle": true,
+    "aria-expanded": listOpen,
     style: {
       ...S.buttonGhostSmall2,
-      width: "100%",
-      marginBottom: 4
+      flex: 1,
+      minWidth: 160
     },
-    onClick: () => setShowAll(true)
-  }, en ? `Show all ${allRows.length} documents` : `문서 ${allRows.length}건 모두 보기`), shownRows.map(([d, k]) => row(d, k)), !filterOn && showAll && allRows.length > 6 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setOpenState(!listOpen)
+  }, listOpen ? en ? "Hide the list" : "문서 접기" : en ? `Show ${allRows.length} documents` : `문서 ${allRows.length}건 펼치기`), (listOpen || filterOn) && allRows.length > 1 && /*#__PURE__*/React.createElement(SortSelect, {
+    value: sortMode,
+    onChange: setSortMode
+  })), shownRows.map(([d, k]) => row(d, k)), !filterOn && listOpen && allRows.length > 6 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonGhostSmall2,
       width: "100%",
       marginTop: 4
     },
-    onClick: () => setShowAll(false)
-  }, en ? "Show fewer" : "접기"), salesDocs.length > 1 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft,
-      marginTop: 6
-    }
-  }, en ? `Sales invoices: ${salesDocs.length} · taxable ${usd(salesSumUSD)}` : `매출 인보이스 ${salesDocs.length}건 · 과세 ${usd(salesSumUSD)}`, nonTaxSumUSD > 0 ? en ? ` · non-taxable ${usd(nonTaxSumUSD)}` : ` · 면세 ${usd(nonTaxSumUSD)}` : ""), salesDocs.length > 0 && (Math.abs(salesSumUSD - (Number(local.revenue) || 0)) > 0.01 || Math.abs(nonTaxSumUSD - (Number(local.nonTaxableRevenue) || 0)) > 0.01) && /*#__PURE__*/React.createElement("div", {
+    onClick: () => setOpenState(false)
+  }, en ? "Hide the list" : "문서 접기"), salesDocs.length > 0 && /*#__PURE__*/React.createElement(TotalsBox, {
+    title: en ? `Sales invoices: ${salesDocs.length}` : `매출 인보이스 ${salesDocs.length}건 합계`,
+    rows: [[en ? "Taxable supply (before VAT)" : "과세 공급가액 (VAT 제외)", usd(salesSumUSD)], [en ? "Non-taxable supply" : "면세 공급가액", usd(nonTaxSumUSD)], [en ? "VAT" : "부가세 (VAT)", usd(salesVatUSD)], [en ? "Total incl. VAT" : "합계 (VAT 포함)", usd(salesSumUSD + nonTaxSumUSD + salesVatUSD), true]]
+  }), purchaseDocs.length > 0 && /*#__PURE__*/React.createElement(TotalsBox, {
+    title: en ? `Purchase invoices: ${purchaseDocs.length}` : `매입 인보이스 ${purchaseDocs.length}건 합계`,
+    rows: [[en ? "Supply (before VAT)" : "공급가액 (VAT 제외)", usd(purSumUSD - purVatUSD)], [en ? "VAT" : "부가세 (VAT)", usd(purVatUSD)], [en ? "Total incl. VAT" : "합계 (VAT 포함)", usd(purSumUSD), true]]
+  }), salesDocs.length > 0 && (Math.abs(salesSumUSD - (Number(local.revenue) || 0)) > 0.01 || Math.abs(nonTaxSumUSD - (Number(local.nonTaxableRevenue) || 0)) > 0.01) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.brassText,
@@ -13125,6 +13170,103 @@ function AttachDocBox({
     }
   }, error));
 }
+// 목록 정렬 고르기 (날짜순, 경비는 항목별도)
+function SortSelect({
+  value,
+  onChange,
+  withCategory
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  return /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement("span", null, en ? "Sort" : "정렬"), /*#__PURE__*/React.createElement("select", {
+    "data-sort": true,
+    "aria-label": en ? "Sort order" : "정렬 순서",
+    value: value,
+    onChange: e => onChange(e.target.value),
+    style: {
+      ...S.select,
+      minHeight: 36,
+      padding: "4px 8px",
+      fontSize: 13.5,
+      width: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "added"
+  }, en ? "As registered" : "등록한 순서"), /*#__PURE__*/React.createElement("option", {
+    value: "dateAsc"
+  }, en ? "Date — oldest first" : "날짜 — 오래된 순"), /*#__PURE__*/React.createElement("option", {
+    value: "dateDesc"
+  }, en ? "Date — newest first" : "날짜 — 최근 순"), withCategory && /*#__PURE__*/React.createElement("option", {
+    value: "category"
+  }, en ? "By type" : "항목별")));
+}
+function sortDocs(list, mode, dateOf, catOf) {
+  if (mode === "added" || !mode) return list;
+  const arr = list.map((x, i) => [x, i]);
+  const dkey = x => dateOf(x) || "9999-99-99";
+  arr.sort((a, b) => {
+    if (mode === "category") {
+      const c = String(catOf(a[0])).localeCompare(String(catOf(b[0])));
+      if (c) return c;
+      return dkey(a[0]).localeCompare(dkey(b[0])) || a[1] - b[1];
+    }
+    const c = dkey(a[0]).localeCompare(dkey(b[0]));
+    return (mode === "dateDesc" ? -c : c) || a[1] - b[1];
+  });
+  return arr.map(x => x[0]);
+}
+// 목록 아래 합계 상자
+function TotalsBox({
+  title,
+  rows
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    "data-totals": true,
+    style: {
+      marginTop: 8,
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: PALETTE.paper,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, title && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, title), rows.filter(Boolean).map(([label, value, strong]) => /*#__PURE__*/React.createElement("div", {
+    key: label,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 12,
+      fontSize: 13.5,
+      color: PALETTE.ink,
+      ...(strong ? {
+        fontWeight: 700,
+        borderTop: "1px solid #DDE3E8",
+        paddingTop: 4,
+        marginTop: 2
+      } : {})
+    }
+  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      whiteSpace: "nowrap"
+    }
+  }, value))));
+}
+
 // 등록 건수와 증빙이 붙은 건수를 나란히 — 빠진 건만 골라 보기
 function DocCountBar({
   total,
@@ -13330,12 +13472,15 @@ function EvidencePanel({
   onRemove,
   onUploadImage,
   onAttachDrive,
-  showDrive
+  showDrive,
+  withholding
 }) {
   // 증빙(사진·스캔본)이 붙어 있는지 — 엑셀로만 올린 경비는 증빙이 없다
   const hasDoc = e => !!(e.thumbnail || e.driveUrl);
   const missingCount = (evidence || []).filter(e => !hasDoc(e)).length;
   const [onlyMissing, setOnlyMissing] = useState(false);
+  const [sortMode, setSortMode] = useState("added");
+  const [listOpen, setListOpen] = useState(true);
   const [attachBusy, setAttachBusy] = useState("");
   const [attachErr, setAttachErr] = useState("");
   // 이미 등록된 경비에 증빙 사진(또는 PDF 한 쪽)만 따로 올려 붙인다 — 금액 등은 바꾸지 않는다
@@ -13966,28 +14111,259 @@ function EvidencePanel({
     }
   })), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "data-list-toggle": true,
+    "aria-expanded": listOpen,
+    style: {
+      ...S.buttonGhostSmall2,
+      flex: 1,
+      minWidth: 160
+    },
+    onClick: () => setListOpen(!listOpen)
+  }, listOpen ? lang === "en" ? "Hide the list" : "목록 접기" : lang === "en" ? `Show ${evidence.length} receipts` : `증빙 ${evidence.length}건 펼치기`), listOpen && evidence.length > 1 && /*#__PURE__*/React.createElement(SortSelect, {
+    value: sortMode,
+    onChange: setSortMode,
+    withCategory: true
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       ...S.panel,
       padding: "4px 14px"
     }
-  }, evidence.filter(e => !onlyMissing || !missingCount || !hasDoc(e) || editingId === e.id).map(e => {
-    const caption = [e.txDate, e.vendor, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`].filter(Boolean).join(" · ");
-    if (editingId === e.id && draft) {
-      const set = patch => setDraft({
-        ...draft,
-        ...patch
-      });
+  }, (listOpen || onlyMissing && missingCount > 0 ? sortDocs(evidence, sortMode, e => e.txDate, e => categoryLabel(e.category, lang)) : []).filter(e => !onlyMissing || !missingCount || !hasDoc(e) || editingId === e.id).map((e, idx, arr) => {
+    const groupHead = sortMode === "category" && (idx === 0 || arr[idx - 1].category !== e.category) ? (() => {
+      const g = evidence.filter(x => x.category === e.category);
       return /*#__PURE__*/React.createElement("div", {
-        key: e.id,
-        style: S.evidenceEdit,
-        className: "evidence-edit"
-      }, /*#__PURE__*/React.createElement("div", {
+        key: "g-" + e.category,
+        "data-cat-head": true,
         style: {
           display: "flex",
-          gap: 12,
-          alignItems: "flex-start",
-          flexWrap: "wrap"
+          justifyContent: "space-between",
+          gap: 8,
+          padding: "10px 0 4px",
+          fontSize: 13.5,
+          fontWeight: 700,
+          color: PALETTE.tealDeep,
+          borderBottom: "1px solid #EEF1F4"
         }
-      }, e.thumbnail && /*#__PURE__*/React.createElement("button", {
+      }, /*#__PURE__*/React.createElement("span", null, categoryLabel(e.category, lang), " · ", lang === "en" ? g.length : `${g.length}건`), /*#__PURE__*/React.createElement("span", null, fmt(g.reduce((a, x) => a + (Number(x.amountKHR) || 0), 0)), " KHR"));
+    })() : null;
+    const rowEl = (() => {
+      const caption = [e.txDate, e.vendor, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`].filter(Boolean).join(" · ");
+      if (editingId === e.id && draft) {
+        const set = patch => setDraft({
+          ...draft,
+          ...patch
+        });
+        return /*#__PURE__*/React.createElement("div", {
+          key: e.id,
+          style: S.evidenceEdit,
+          className: "evidence-edit"
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 12,
+            alignItems: "flex-start",
+            flexWrap: "wrap"
+          }
+        }, e.thumbnail && /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          style: S.thumbButton,
+          onClick: () => setViewing({
+            src: e.thumbnail,
+            caption,
+            driveId: e.driveId,
+            link: e.driveUrl
+          }),
+          "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
+        }, /*#__PURE__*/React.createElement("img", {
+          src: e.thumbnail,
+          alt: "",
+          style: {
+            ...S.thumb,
+            width: 84,
+            height: 84
+          }
+        })), /*#__PURE__*/React.createElement("div", {
+          style: {
+            flex: 1,
+            minWidth: 200
+          }
+        }, typeSeg(draft.evidenceType, t => set({
+          evidenceType: t
+        })))), onAttachDrive && /*#__PURE__*/React.createElement("div", {
+          style: {
+            marginTop: 10
+          }
+        }, /*#__PURE__*/React.createElement(AttachDocBox, {
+          has: hasDoc(e),
+          busy: attachBusy === e.id,
+          error: attachErr,
+          onPick: f => attachDoc(e, f)
+        })), /*#__PURE__*/React.createElement("div", {
+          className: "form-row",
+          style: {
+            ...S.formRow,
+            marginTop: 12
+          }
+        }, /*#__PURE__*/React.createElement("input", {
+          type: "date",
+          style: {
+            ...S.input,
+            width: 160
+          },
+          "aria-label": lang === "en" ? "Transaction date" : "거래일자",
+          value: draft.txDate || "",
+          onChange: ev => set({
+            txDate: ev.target.value
+          })
+        }), /*#__PURE__*/React.createElement("select", {
+          style: {
+            ...S.select,
+            minWidth: 190
+          },
+          "aria-label": lang === "en" ? "Payment type" : "지급 유형",
+          value: draft.category,
+          onChange: ev => set({
+            category: ev.target.value
+          })
+        }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+          key: c.id,
+          value: c.id
+        }, lang === "en" ? c.en : c.ko))), /*#__PURE__*/React.createElement("input", {
+          style: {
+            ...S.input,
+            flex: "1 1 180px"
+          },
+          "aria-label": lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
+          placeholder: lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
+          value: draft.vendor || "",
+          onChange: ev => set({
+            vendor: ev.target.value
+          })
+        }), draft.evidenceType === "vat" && /*#__PURE__*/React.createElement("input", {
+          style: {
+            ...S.input,
+            width: 180,
+            ...(draft.supplierTin && !isValidKhTin(draft.supplierTin) ? S.inputNeedsCheck : {})
+          },
+          "aria-label": lang === "en" ? "Supplier VATTIN (edit)" : "공급자 VATTIN 수정",
+          placeholder: lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN",
+          value: draft.supplierTin || "",
+          onChange: ev => set({
+            supplierTin: ev.target.value
+          })
+        }), /*#__PURE__*/React.createElement("input", {
+          type: "number",
+          inputMode: "decimal",
+          style: {
+            ...S.input,
+            width: 130
+          },
+          "aria-label": lang === "en" ? "Amount" : "금액",
+          placeholder: lang === "en" ? "Amount" : "금액",
+          value: draft.amount,
+          onChange: ev => set({
+            amount: ev.target.value
+          })
+        }), /*#__PURE__*/React.createElement("select", {
+          style: {
+            ...S.select,
+            width: 90
+          },
+          "aria-label": lang === "en" ? "Currency" : "통화",
+          value: draft.currency,
+          onChange: ev => set({
+            currency: ev.target.value
+          })
+        }, /*#__PURE__*/React.createElement("option", {
+          value: "USD"
+        }, "USD"), /*#__PURE__*/React.createElement("option", {
+          value: "KHR"
+        }, "KHR"))), /*#__PURE__*/React.createElement("div", {
+          className: "form-row",
+          style: {
+            ...S.formRow,
+            marginTop: 10,
+            alignItems: "center"
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontSize: 14,
+            color: PALETTE.inkSoft
+          }
+        }, lang === "en" ? "Withholding" : "원천세"), /*#__PURE__*/React.createElement("select", {
+          style: {
+            ...S.select,
+            minWidth: 220
+          },
+          "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
+          value: draft.whtCategory || "",
+          onChange: ev => set({
+            whtCategory: ev.target.value
+          })
+        }, /*#__PURE__*/React.createElement("option", {
+          value: ""
+        }, lang === "en" ? "Not applicable" : "해당 없음"), WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
+          key: c.id,
+          value: c.id
+        }, lang === "en" ? c.en : c.ko, " (", (c.rate * 100).toFixed(0), "%)"))), /*#__PURE__*/React.createElement("input", {
+          style: {
+            ...S.input,
+            flex: "1 1 200px"
+          },
+          "aria-label": lang === "en" ? "Note" : "메모",
+          placeholder: lang === "en" ? "Note (optional)" : "메모 (선택)",
+          value: draft.description || "",
+          onChange: ev => set({
+            description: ev.target.value
+          })
+        })), /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 8,
+            marginTop: 12,
+            flexWrap: "wrap",
+            alignItems: "center"
+          }
+        }, /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          style: S.buttonPrimary,
+          disabled: !(Number(draft.amount) > 0),
+          onClick: () => {
+            onUpdate(e.id, {
+              ...draft,
+              amount: Number(draft.amount) || 0,
+              vendor: (draft.vendor || "").trim(),
+              supplierTin: draft.evidenceType === "vat" ? normalizeKhTin(draft.supplierTin) : ""
+            });
+            setEditingId(null);
+            setDraft(null);
+          }
+        }, lang === "en" ? "Apply changes" : "수정 적용"), /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          style: S.buttonGhost,
+          onClick: () => {
+            setEditingId(null);
+            setDraft(null);
+          }
+        }, lang === "en" ? "Cancel" : "취소"), /*#__PURE__*/React.createElement("span", {
+          style: {
+            fontSize: 13,
+            color: PALETTE.inkSoft
+          }
+        }, lang === "en" ? "Then press Save at the bottom to keep it." : "적용 후 하단 [저장]을 눌러야 기록됩니다.")));
+      }
+      return /*#__PURE__*/React.createElement("div", {
+        key: e.id,
+        style: S.evidenceRow
+      }, e.thumbnail ? /*#__PURE__*/React.createElement("button", {
         type: "button",
         style: S.thumbButton,
         onClick: () => setViewing({
@@ -14000,283 +14376,102 @@ function EvidencePanel({
       }, /*#__PURE__*/React.createElement("img", {
         src: e.thumbnail,
         alt: "",
-        style: {
-          ...S.thumb,
-          width: 84,
-          height: 84
-        }
-      })), /*#__PURE__*/React.createElement("div", {
+        style: S.thumbSmall
+      })) : null, /*#__PURE__*/React.createElement("div", {
         style: {
           flex: 1,
-          minWidth: 200
+          minWidth: 0
         }
-      }, typeSeg(draft.evidenceType, t => set({
-        evidenceType: t
-      })))), onAttachDrive && /*#__PURE__*/React.createElement("div", {
+      }, /*#__PURE__*/React.createElement("div", {
         style: {
-          marginTop: 10
+          fontSize: 15,
+          fontWeight: 600,
+          color: PALETTE.ink,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
         }
-      }, /*#__PURE__*/React.createElement(AttachDocBox, {
-        has: hasDoc(e),
-        busy: attachBusy === e.id,
-        error: attachErr,
-        onPick: f => attachDoc(e, f)
-      })), /*#__PURE__*/React.createElement("div", {
-        className: "form-row",
+      }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력")), /*#__PURE__*/React.createElement("div", {
+        style: S.evidenceMeta
+      }, !hasDoc(e) && /*#__PURE__*/React.createElement("span", {
+        "data-nodoc": true,
         style: {
-          ...S.formRow,
-          marginTop: 12
+          ...S.statusBadge,
+          marginRight: 6,
+          background: "#FFF1D6",
+          color: PALETTE.brassText
         }
-      }, /*#__PURE__*/React.createElement("input", {
-        type: "date",
+      }, lang === "en" ? "No document" : "증빙 없음"), e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.isVatInvoice && /*#__PURE__*/React.createElement("div", {
         style: {
-          ...S.input,
-          width: 160
-        },
-        "aria-label": lang === "en" ? "Transaction date" : "거래일자",
-        value: draft.txDate || "",
-        onChange: ev => set({
-          txDate: ev.target.value
-        })
-      }), /*#__PURE__*/React.createElement("select", {
-        style: {
-          ...S.select,
-          minWidth: 190
-        },
-        "aria-label": lang === "en" ? "Payment type" : "지급 유형",
-        value: draft.category,
-        onChange: ev => set({
-          category: ev.target.value
-        })
-      }, EXPENSE_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
-        key: c.id,
-        value: c.id
-      }, lang === "en" ? c.en : c.ko))), /*#__PURE__*/React.createElement("input", {
-        style: {
-          ...S.input,
-          flex: "1 1 180px"
-        },
-        "aria-label": lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
-        placeholder: lang === "en" ? "Vendor (payee)" : "거래처 (지급처)",
-        value: draft.vendor || "",
-        onChange: ev => set({
-          vendor: ev.target.value
-        })
-      }), draft.evidenceType === "vat" && /*#__PURE__*/React.createElement("input", {
-        style: {
-          ...S.input,
-          width: 180,
-          ...(draft.supplierTin && !isValidKhTin(draft.supplierTin) ? S.inputNeedsCheck : {})
-        },
-        "aria-label": lang === "en" ? "Supplier VATTIN (edit)" : "공급자 VATTIN 수정",
-        placeholder: lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN",
-        value: draft.supplierTin || "",
-        onChange: ev => set({
-          supplierTin: ev.target.value
-        })
-      }), /*#__PURE__*/React.createElement("input", {
-        type: "number",
-        inputMode: "decimal",
-        style: {
-          ...S.input,
-          width: 130
-        },
-        "aria-label": lang === "en" ? "Amount" : "금액",
-        placeholder: lang === "en" ? "Amount" : "금액",
-        value: draft.amount,
-        onChange: ev => set({
-          amount: ev.target.value
-        })
-      }), /*#__PURE__*/React.createElement("select", {
-        style: {
-          ...S.select,
-          width: 90
-        },
-        "aria-label": lang === "en" ? "Currency" : "통화",
-        value: draft.currency,
-        onChange: ev => set({
-          currency: ev.target.value
-        })
-      }, /*#__PURE__*/React.createElement("option", {
-        value: "USD"
-      }, "USD"), /*#__PURE__*/React.createElement("option", {
-        value: "KHR"
-      }, "KHR"))), /*#__PURE__*/React.createElement("div", {
-        className: "form-row",
-        style: {
-          ...S.formRow,
-          marginTop: 10,
-          alignItems: "center"
+          ...S.evidenceMeta,
+          color: isValidKhTin(e.supplierTin) ? PALETTE.inkSoft : PALETTE.brassText,
+          fontWeight: isValidKhTin(e.supplierTin) ? 400 : 600
         }
-      }, /*#__PURE__*/React.createElement("span", {
-        style: {
-          fontSize: 14,
-          color: PALETTE.inkSoft
-        }
-      }, lang === "en" ? "Withholding" : "원천세"), /*#__PURE__*/React.createElement("select", {
-        style: {
-          ...S.select,
-          minWidth: 220
-        },
-        "aria-label": lang === "en" ? "Withholding type" : "원천세 유형",
-        value: draft.whtCategory || "",
-        onChange: ev => set({
-          whtCategory: ev.target.value
-        })
-      }, /*#__PURE__*/React.createElement("option", {
-        value: ""
-      }, lang === "en" ? "Not applicable" : "해당 없음"), WITHHOLDING_CATEGORIES.map(c => /*#__PURE__*/React.createElement("option", {
-        key: c.id,
-        value: c.id
-      }, lang === "en" ? c.en : c.ko, " (", (c.rate * 100).toFixed(0), "%)"))), /*#__PURE__*/React.createElement("input", {
-        style: {
-          ...S.input,
-          flex: "1 1 200px"
-        },
-        "aria-label": lang === "en" ? "Note" : "메모",
-        placeholder: lang === "en" ? "Note (optional)" : "메모 (선택)",
-        value: draft.description || "",
-        onChange: ev => set({
-          description: ev.target.value
-        })
-      })), /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: "flex",
-          gap: 8,
-          marginTop: 12,
-          flexWrap: "wrap",
-          alignItems: "center"
-        }
-      }, /*#__PURE__*/React.createElement("button", {
-        type: "button",
-        style: S.buttonPrimary,
-        disabled: !(Number(draft.amount) > 0),
-        onClick: () => {
-          onUpdate(e.id, {
-            ...draft,
-            amount: Number(draft.amount) || 0,
-            vendor: (draft.vendor || "").trim(),
-            supplierTin: draft.evidenceType === "vat" ? normalizeKhTin(draft.supplierTin) : ""
-          });
-          setEditingId(null);
-          setDraft(null);
-        }
-      }, lang === "en" ? "Apply changes" : "수정 적용"), /*#__PURE__*/React.createElement("button", {
-        type: "button",
-        style: S.buttonGhost,
-        onClick: () => {
-          setEditingId(null);
-          setDraft(null);
-        }
-      }, lang === "en" ? "Cancel" : "취소"), /*#__PURE__*/React.createElement("span", {
+      }, isValidKhTin(e.supplierTin) ? `VATTIN ${e.supplierTin}` : lang === "en" ? "⚠ No supplier VATTIN — tap Edit to add" : "⚠ 공급자 VATTIN 없음 — [수정]에서 넣어 주세요"), showDrive && e.driveUrl && /*#__PURE__*/React.createElement("a", {
+        href: e.driveUrl,
+        target: "_blank",
+        rel: "noopener noreferrer",
         style: {
           fontSize: 13,
-          color: PALETTE.inkSoft
+          color: PALETTE.teal
         }
-      }, lang === "en" ? "Then press Save at the bottom to keep it." : "적용 후 하단 [저장]을 눌러야 기록됩니다.")));
-    }
-    return /*#__PURE__*/React.createElement("div", {
-      key: e.id,
-      style: S.evidenceRow
-    }, e.thumbnail ? /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      style: S.thumbButton,
-      onClick: () => setViewing({
-        src: e.thumbnail,
-        caption,
-        driveId: e.driveId,
-        link: e.driveUrl
-      }),
-      "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
-    }, /*#__PURE__*/React.createElement("img", {
-      src: e.thumbnail,
-      alt: "",
-      style: S.thumbSmall
-    })) : null, /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 15,
-        fontWeight: 600,
-        color: PALETTE.ink,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap"
-      }
-    }, e.vendor || (lang === "en" ? "Vendor not entered" : "거래처 미입력")), /*#__PURE__*/React.createElement("div", {
-      style: S.evidenceMeta
-    }, !hasDoc(e) && /*#__PURE__*/React.createElement("span", {
-      "data-nodoc": true,
-      style: {
-        ...S.statusBadge,
-        marginRight: 6,
-        background: "#FFF1D6",
-        color: PALETTE.brassText
-      }
-    }, lang === "en" ? "No document" : "증빙 없음"), e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.isVatInvoice && /*#__PURE__*/React.createElement("div", {
-      style: {
-        ...S.evidenceMeta,
-        color: isValidKhTin(e.supplierTin) ? PALETTE.inkSoft : PALETTE.brassText,
-        fontWeight: isValidKhTin(e.supplierTin) ? 400 : 600
-      }
-    }, isValidKhTin(e.supplierTin) ? `VATTIN ${e.supplierTin}` : lang === "en" ? "⚠ No supplier VATTIN — tap Edit to add" : "⚠ 공급자 VATTIN 없음 — [수정]에서 넣어 주세요"), showDrive && e.driveUrl && /*#__PURE__*/React.createElement("a", {
-      href: e.driveUrl,
-      target: "_blank",
-      rel: "noopener noreferrer",
-      style: {
-        fontSize: 13,
-        color: PALETTE.teal
-      }
-    }, lang === "en" ? "Original on Drive" : "Drive 원본 보기"), e.description && /*#__PURE__*/React.createElement("div", {
-      style: S.evidenceDesc
-    }, e.description), (() => {
-      const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
-      return shown ? /*#__PURE__*/React.createElement("div", {
-        style: S.evidenceSummary
-      }, shown) : null;
-    })()), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 14.5,
-        fontWeight: 600,
-        color: PALETTE.ink,
-        whiteSpace: "nowrap"
-      }
-    }, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      style: S.buttonGhostSmall2,
-      onClick: () => {
-        setEditingId(e.id);
-        setDraft({
-          evidenceType: e.evidenceType || (e.isVatInvoice ? "vat" : "general"),
-          txDate: e.txDate || "",
-          category: e.category,
-          vendor: e.vendor || "",
-          supplierTin: e.supplierTin || "",
-          amount: e.amount ?? "",
-          currency: e.currency || "USD",
-          whtCategory: e.whtCategory || "",
-          description: e.description || ""
-        });
-      }
-    }, hasDoc(e) ? lang === "en" ? "Edit" : "수정" : lang === "en" ? "Edit / Add" : "수정/추가"), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      style: S.buttonGhostSmall,
-      "aria-label": lang === "en" ? "Delete receipt" : "증빙 삭제",
-      onClick: () => onRemove(e.id)
-    }, "✕"));
+      }, lang === "en" ? "Original on Drive" : "Drive 원본 보기"), e.description && /*#__PURE__*/React.createElement("div", {
+        style: S.evidenceDesc
+      }, e.description), (() => {
+        const shown = lang === "en" ? e.summaryEn || e.summaryKo || e.summary : e.summaryKo || e.summaryEn || e.summary;
+        return shown ? /*#__PURE__*/React.createElement("div", {
+          style: S.evidenceSummary
+        }, shown) : null;
+      })()), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 14.5,
+          fontWeight: 600,
+          color: PALETTE.ink,
+          whiteSpace: "nowrap"
+        }
+      }, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonGhostSmall2,
+        onClick: () => {
+          setEditingId(e.id);
+          setDraft({
+            evidenceType: e.evidenceType || (e.isVatInvoice ? "vat" : "general"),
+            txDate: e.txDate || "",
+            category: e.category,
+            vendor: e.vendor || "",
+            supplierTin: e.supplierTin || "",
+            amount: e.amount ?? "",
+            currency: e.currency || "USD",
+            whtCategory: e.whtCategory || "",
+            description: e.description || ""
+          });
+        }
+      }, hasDoc(e) ? lang === "en" ? "Edit" : "수정" : lang === "en" ? "Edit / Add" : "수정/추가"), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        style: S.buttonGhostSmall,
+        "aria-label": lang === "en" ? "Delete receipt" : "증빙 삭제",
+        onClick: () => onRemove(e.id)
+      }, "✕"));
+    })();
+    return groupHead ? /*#__PURE__*/React.createElement(React.Fragment, {
+      key: e.id
+    }, groupHead, rowEl) : rowEl;
   }), /*#__PURE__*/React.createElement("div", {
     style: S.divider
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Supply before VAT" : "공급가액 합계 (VAT 제외)",
+    value: totalExpenseKHR - totalVatKHR
+  }), /*#__PURE__*/React.createElement(NumberRow, {
+    label: lang === "en" ? "Total input VAT from receipts" : "증빙 기반 매입세액 합계",
+    value: totalVatKHR,
+    bold: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Total expenses from receipts" : "증빙 기반 경비 합계",
     value: totalExpenseKHR,
     bold: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
-    label: lang === "en" ? "Total input VAT from receipts" : "증빙 기반 매입세액 합계",
-    value: totalVatKHR,
-    bold: true
+    label: lang === "en" ? "Withholding tax on these receipts" : "원천세 합계 (이 증빙에서 생긴 것)",
+    value: (withholding || []).filter(w => w.fromEvidenceId && evidence.some(x => x.id === w.fromEvidenceId)).reduce((a, w) => a + (Number(w.taxKHR) || 0), 0)
   }))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,

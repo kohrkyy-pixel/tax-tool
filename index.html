@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.1";
+const APP_RELEASE = "2026.11.17.2";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.2",
+  ko: ["매출 인보이스에 인보이스별 환율이 있으면 그 환율로 KHR을 계산해요 — 국세청 신고 금액(인보이스 날짜 환율 기준)과 맞아요", "급여 환율을 월 환율과 따로 정할 수 있어요 (② 급여)"],
+  en: ["Sales invoices with their own exchange rate are converted to KHR at that rate — matching the amounts filed with GDT", "A separate salary exchange rate can be set (step 2)"]
+}, {
   version: "2026.11.17.1",
   ko: ["이미 등록한 증빙(예: 엑셀로 올린 건)에 스캔본만 붙일 수 있어요 — 스캔 PDF를 올리면 같은 건을 찾아 다시 등록하지 않고 이미지만 붙여요", "자동으로 못 찾은 쪽은 목록에서 붙일 문서를 직접 고를 수 있어요"],
   en: ["Attach scans to documents already registered (e.g. from Excel) — upload the scanned PDF and matching pages are attached instead of being added again", "For pages not matched automatically, choose the document to attach to from a list"]
@@ -1540,8 +1544,28 @@ function vatBreakdown(supplyUSD, rate) {
 function calcMonthly(f) {
   const rate = getRate(f);
   const revenue = vatBreakdown(f?.revenue, rate);
+  // 매출 인보이스에 인보이스별 환율이 있으면 그 환율로 환산한 KHR이 되도록 차이만큼 보정한다
+  // (국세청 신고는 인보이스 날짜 환율의 KHR 합계 기준)
+  let salesFxAdjNonTax = 0;
+  {
+    let adjTax = 0;
+    for (const d of f?.salesDocs || []) {
+      const fx = Number(d?.fx);
+      if (!(fx > 0) || d.currency === "KHR") continue;
+      const adj = (Number(d.subtotal) || 0) * (fx - rate);
+      if (d.taxType === "nontax") salesFxAdjNonTax += adj;else adjTax += adj;
+    }
+    if (adjTax) {
+      revenue.supplyKHR += adjTax;
+      revenue.vatKHR += adjTax * VAT_RATE;
+      revenue.totalKHR += adjTax * (1 + VAT_RATE);
+      revenue.fxAdjKHR = adjTax;
+    }
+  }
   const purchase = vatBreakdown(f?.purchase, rate);
   const employees = f?.employees || [];
+  // 급여 환율: 급여세는 월 환율과 다른 환율(국세청 고시 급여세 환율)을 쓰는 경우가 있어 따로 둘 수 있다
+  const payRate = Number(f?.salaryRate) > 0 ? Number(f.salaryRate) : rate;
   const {
     totalExpenseKHR,
     totalVatKHR
@@ -1555,7 +1579,7 @@ function calcMonthly(f) {
   const totalExpenses = expensesManualKHR + purchase.supplyKHR + totalExpenseKHR;
   const outputVAT = revenue.vatKHR;
   // 면세(비과세) 매출: VAT는 없지만 선납이윤세 1%와 연간 매출에는 들어간다
-  const nonTaxableKHR = (Number(f?.nonTaxableRevenue) || 0) * rate;
+  const nonTaxableKHR = (Number(f?.nonTaxableRevenue) || 0) * rate + salesFxAdjNonTax;
   const turnoverKHR = revenue.supplyKHR + nonTaxableKHR;
   // 전월에서 넘어온 매입세액 공제(이월) — 다 쓰지 못하면 다음 달로 다시 넘긴다
   const vatCreditBF = Math.max(0, Number(f?.vatCreditBF) || 0);
@@ -1565,11 +1589,11 @@ function calcMonthly(f) {
   const ppt = turnoverKHR * 0.01;
   const pltBaseKHR = (Number(f?.alcoholTobaccoRevenue) || 0) * rate;
   const plt = pltBaseKHR * PLT_RATE;
-  const salaryTaxTotal = employees.reduce((s, e) => s + employeeSalaryTax(e, employeeGrossKHR(e, rate)), 0);
-  const fringeTaxTotal = employees.reduce((s, e) => s + employeeFringeTax(e, rate), 0);
+  const salaryTaxTotal = employees.reduce((s, e) => s + employeeSalaryTax(e, employeeGrossKHR(e, payRate)), 0);
+  const fringeTaxTotal = employees.reduce((s, e) => s + employeeFringeTax(e, payRate), 0);
   // NSSF는 가입 대상 사업장(직원 8인 이상 등)으로 지정된 경우에만 계산한다
   const nssfApplicable = f?.nssfApplicable === true;
-  const nssf = nssfApplicable ? calcNssfTotals(employees, rate) : {
+  const nssf = nssfApplicable ? calcNssfTotals(employees, payRate) : {
     employerTotal: 0,
     employeeTotal: 0,
     grandTotal: 0
@@ -1577,6 +1601,7 @@ function calcMonthly(f) {
   const totalDue = vatPayable + ppt + plt + salaryTaxTotal + fringeTaxTotal + withholdingTaxTotal;
   return {
     rate,
+    payRate,
     revenue,
     purchase,
     revenueKHR: revenue.supplyKHR,
@@ -1853,7 +1878,7 @@ function calcIncomeStatement(f) {
   const m = calcMonthly(f);
   const rate = m.rate;
   const employees = f?.employees || [];
-  const grossPayroll = employees.reduce((s, e) => s + employeeGrossKHR(e, rate), 0);
+  const grossPayroll = employees.reduce((s, e) => s + employeeGrossKHR(e, m.payRate), 0);
   const payroll = grossPayroll + m.nssfEmployerTotal; // 총급여 + 고용주 NSSF 부담분(직업재해+건강보험+연금) = 실제 인건비 총액
   const expensesManualKHR = (Number(f?.expenses) || 0) * rate;
   const revenue = m.turnoverKHR;
@@ -3995,7 +4020,12 @@ const KM_DICT = {
   "Register as a new document": "ចុះបញ្ជីជាឯកសារថ្មី",
   "Skip this page": "រំលងទំព័រនេះ",
   "Attach the scan to an existing document": "ភ្ជាប់ឯកសារស្កេនទៅឯកសារដែលមានស្រាប់",
-  "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it.": "ទំព័រដែលត្រូវនឹងឯកសារដែលបានចុះបញ្ជីរួច (ឧ. ពី Excel) មិនត្រូវបញ្ចូលម្តងទៀតទេ — គ្រាន់តែភ្ជាប់ឯកសារស្កេនទៅវា។"
+  "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it.": "ទំព័រដែលត្រូវនឹងឯកសារដែលបានចុះបញ្ជីរួច (ឧ. ពី Excel) មិនត្រូវបញ្ចូលម្តងទៀតទេ — គ្រាន់តែភ្ជាប់ឯកសារស្កេនទៅវា។",
+  "Sales invoices with their own exchange rate are converted to KHR at that rate — matching the amounts filed with GDT": "វិក្កយបត្រលក់ដែលមានអត្រាប្តូរប្រាក់ផ្ទាល់ខ្លួន ត្រូវបានគណនាជា KHR តាមអត្រានោះ — ត្រូវនឹងចំនួនដែលបានប្រកាសជាមួយ អពដ",
+  "A separate salary exchange rate can be set (step 2)": "អាចកំណត់អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្សដោយឡែក (ជំហានទី 2)",
+  "Salary exchange rate (KHR per USD)": "អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្ស (KHR ក្នុង 1 USD)",
+  "Salary exchange rate": "អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្ស",
+  "— leave empty to use the monthly rate ({0})": "— ទុកទទេដើម្បីប្រើអត្រាប្រចាំខែ ({0})"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -7855,7 +7885,7 @@ function MonthlyView({
       ...local,
       employees: (local.employees || []).map(e => {
         if (e.id !== id) return e;
-        const rate = calc.rate;
+        const rate = calc.payRate;
         const grossKHR = employeeGrossKHR(e, rate);
         if (e.mode === "net") {
           // net -> gross: 현재 총급여(KHR)를 USD로 환산해 세전 입력값으로 전환
@@ -8395,18 +8425,48 @@ function MonthlyView({
     rate: calc.rate,
     disabled: locked,
     onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "payroll") : null
-  }), isNewFiling && (local.employees || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      margin: "4px 0 10px",
+      fontSize: 13.5,
+      color: PALETTE.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "salary-rate"
+  }, lang === "en" ? "Salary exchange rate (KHR per USD)" : "급여 환율 (1 USD = KHR)"), /*#__PURE__*/React.createElement("input", {
+    id: "salary-rate",
+    type: "number",
+    inputMode: "numeric",
+    "aria-label": lang === "en" ? "Salary exchange rate" : "급여 환율",
+    placeholder: String(calc.rate),
+    disabled: locked,
+    value: local.salaryRate ?? "",
+    onChange: e => setLocal({
+      ...local,
+      salaryRate: e.target.value
+    }),
+    style: {
+      ...S.input,
+      width: 110,
+      minHeight: 38,
+      padding: "6px 10px"
+    }
+  }), /*#__PURE__*/React.createElement("span", null, lang === "en" ? `— leave empty to use the monthly rate (${fmt(calc.rate)})` : `— 비워 두면 월 환율(${fmt(calc.rate)})을 써요`)), isNewFiling && (local.employees || []).length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: PALETTE.brassText,
       marginBottom: 8
     }
   }, lang === "en" ? "Carried forward from the most recent previous month with payroll data — check the names and amounts for this month, then press Save." : "가장 최근 이전 달의 직원 명단·급여가 이월되어 화면에 채워졌습니다 — 이번 달 기준으로 확인·수정한 뒤 [저장]을 눌러야 실제로 기록됩니다."), (local.employees || []).map(e => {
-    const grossKHR = employeeGrossKHR(e, calc.rate);
+    const grossKHR = employeeGrossKHR(e, calc.payRate);
     const tax = employeeSalaryTax(e, grossKHR);
     const netKHR = grossKHR - tax;
     const isNet = e.mode === "net";
-    const fringeTax = employeeFringeTax(e, calc.rate);
+    const fringeTax = employeeFringeTax(e, calc.payRate);
     return /*#__PURE__*/React.createElement("div", {
       key: e.id,
       style: S.employeeCard
@@ -8535,7 +8595,7 @@ function MonthlyView({
     }
   }), /*#__PURE__*/React.createElement(NssfPanel, {
     employees: local.employees || [],
-    exchangeRate: calc.rate,
+    exchangeRate: calc.payRate,
     applicable: local.nssfApplicable,
     onChangeApplicable: v => setLocal({
       ...local,
@@ -8611,7 +8671,7 @@ function MonthlyView({
     }
   }), /*#__PURE__*/React.createElement(WithholdingPanel, {
     items: local.withholding || [],
-    exchangeRate: calc.rate,
+    exchangeRate: calc.payRate,
     onUpdate: (id, patch) => setLocal({
       ...local,
       withholding: (local.withholding || []).map(w => w.id === id ? {
@@ -16169,7 +16229,7 @@ function DraftView({
       padding: "6px 0"
     }
   }, lang === "en" ? "No employees registered for this period." : "이번 기간에 등록된 직원이 없습니다.")) : (filing.employees || []).map((e, i) => {
-    const grossKHR = employeeGrossKHR(e, calc.rate);
+    const grossKHR = employeeGrossKHR(e, calc.payRate);
     const allowanceKHR = e.nonResident ? 0 : (Number(e.dependents) || 0) * DEPENDENT_ALLOWANCE_KHR;
     const baseKHR = employeeTaxableBase(e, grossKHR);
     const breakdown = e.nonResident ? {
@@ -16850,7 +16910,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v11-bulk';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v12-fx';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -17356,7 +17416,15 @@ function empGrossKHR(e, rate) {
 
 function calcRow(f) {
   var rate = Number(f && f.exchangeRate) || DEFAULT_RATE;
+  var payRate = Number(f && f.salaryRate) > 0 ? Number(f.salaryRate) : rate;
   var revenueSupply = (Number(f && f.revenue) || 0) * rate;
+  var fxAdjNonTax = 0, sd = (f && f.salesDocs) || [];
+  for (var q = 0; q < sd.length; q++) {
+    var fx = Number(sd[q] && sd[q].fx);
+    if (!(fx > 0) || sd[q].currency === 'KHR') continue;
+    var adj = (Number(sd[q].subtotal) || 0) * (fx - rate);
+    if (sd[q].taxType === 'nontax') fxAdjNonTax += adj; else revenueSupply += adj;
+  }
   var purchaseSupply = (Number(f && f.purchase) || 0) * rate;
   var outputVAT = revenueSupply * VAT_RATE;
   var purchaseVAT = purchaseSupply * VAT_RATE;
@@ -17376,10 +17444,10 @@ function calcRow(f) {
   var tos = 0, fbt = 0, nssfEmployer = 0, nssfEmployee = 0, payroll = 0;
   var nssfOn = (f && f.nssfApplicable) === true;
   for (var k = 0; k < emps.length; k++) {
-    var g = empGrossKHR(emps[k], rate);
+    var g = empGrossKHR(emps[k], payRate);
     payroll += g;
     tos += empTax(emps[k], g);
-    fbt += Math.round((Number(emps[k].fringe) || 0) * rate * 0.2);
+    fbt += Math.round((Number(emps[k].fringe) || 0) * payRate * 0.2);
     if (nssfOn) {
       var wage = g > 0 ? Math.min(Math.max(g, NSSF_MIN), NSSF_MAX) : 0;
       nssfEmployer += wage * 0.041;
@@ -17388,7 +17456,7 @@ function calcRow(f) {
   }
 
   var inputVAT = purchaseVAT + evVat;
-  var nonTaxable = (Number(f && f.nonTaxableRevenue) || 0) * rate;
+  var nonTaxable = (Number(f && f.nonTaxableRevenue) || 0) * rate + fxAdjNonTax;
   var creditBF = Math.max(0, Number(f && f.vatCreditBF) || 0);
   var vatPayable = Math.max(outputVAT - inputVAT - creditBF, 0);
   var ppt = (revenueSupply + nonTaxable) * 0.01;

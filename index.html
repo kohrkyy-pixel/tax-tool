@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.7";
+const APP_RELEASE = "2026.11.17.8";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.8",
+  ko: ["여러 건 올리기를 매출용과 매입·경비용으로 나눴어요 — 매출 인보이스는 위쪽, 영수증·매입 증빙은 ‘매입·경비 증빙’ 아래에서 올려요", "매출 쪽에 매입 증빙을 잘못 올리면 알려 주고 등록하지 않아요"],
+  en: ["Bulk upload is now separate for sales and for receipts — sales invoices at the top, receipts and purchase invoices under “Receipts & purchase invoices”", "If purchase documents are uploaded on the sales side, the app warns you and does not register them"]
+}, {
   version: "2026.11.17.7",
   ko: ["스캔본 붙이기가 통화가 달라도 맞는 건을 찾아요 — 장부는 USD, 영수증은 KHR이어도 환율로 바꿔 금액이 맞고 날짜나 거래처가 같으면 그 경비에 붙여요", "어떻게 맞췄는지(환산 금액과 환율)를 쪽마다 보여 줘요"],
   en: ["Attaching scans now works across currencies — a KHR receipt is matched to an expense recorded in USD when the converted amount agrees and the date or supplier is the same", "Each page shows how it was matched (converted amount and rate)"]
@@ -4129,7 +4133,15 @@ const KM_DICT = {
   "Pension (4%)": "ប្រាក់សោធន (4%)",
   "Attaching scans now works across currencies — a KHR receipt is matched to an expense recorded in USD when the converted amount agrees and the date or supplier is the same": "ការភ្ជាប់ឯកសារស្កេនឥឡូវដំណើរការទោះរូបិយប័ណ្ណខុសគ្នា — បង្កាន់ដៃជា KHR ត្រូវផ្គូផ្គងនឹងចំណាយដែលកត់ជា USD ពេលចំនួនបន្ទាប់ពីប្តូរត្រូវគ្នា ហើយកាលបរិច្ឆេទ ឬអ្នកផ្គត់ផ្គង់ដូចគ្នា",
   "Each page shows how it was matched (converted amount and rate)": "ទំព័រនីមួយៗបង្ហាញពីរបៀបផ្គូផ្គង (ចំនួនបន្ទាប់ពីប្តូរ និងអត្រា)",
-  "Matched after converting: {0} ≈ {1} (rate {2})": "ផ្គូផ្គងបន្ទាប់ពីប្តូរ៖ {0} ≈ {1} (អត្រា {2})"
+  "Matched after converting: {0} ≈ {1} (rate {2})": "ផ្គូផ្គងបន្ទាប់ពីប្តូរ៖ {0} ≈ {1} (អត្រា {2})",
+  "Bulk upload is now separate for sales and for receipts — sales invoices at the top, receipts and purchase invoices under “Receipts & purchase invoices”": "ការផ្ទុកឡើងច្រើនឥឡូវបំបែកសម្រាប់ការលក់ និងសម្រាប់បង្កាន់ដៃ — វិក្កយបត្រលក់នៅខាងលើ បង្កាន់ដៃ និងវិក្កយបត្រទិញនៅក្រោម “បង្កាន់ដៃ និងវិក្កយបត្រទិញ”",
+  "If purchase documents are uploaded on the sales side, the app warns you and does not register them": "បើផ្ទុកឯកសារទិញនៅខាងការលក់ កម្មវិធីនឹងព្រមាន ហើយមិនចុះបញ្ជីទេ",
+  "Looks like a purchase": "ទំនងជាឯកសារទិញ",
+  "On {0} page(s) the customer reads as this company itself. These look like purchase or expense documents — cancel and upload the file under “Receipts & purchase invoices” below instead.": "នៅ {0} ទំព័រ អតិថិជនត្រូវបានអានថាជាក្រុមហ៊ុននេះផ្ទាល់។ ទាំងនេះទំនងជាឯកសារទិញ ឬចំណាយ — សូមបោះបង់ ហើយផ្ទុកឯកសារនៅក្រោម “បង្កាន់ដៃ និងវិក្កយបត្រទិញ” ខាងក្រោមវិញ។",
+  "Upload many SALES invoices at once (PDF · Excel)": "ផ្ទុកវិក្កយបត្រលក់ច្រើនក្នុងពេលតែមួយ (PDF · Excel)",
+  "Upload many RECEIPTS / purchase invoices at once (PDF · Excel)": "ផ្ទុកបង្កាន់ដៃ / វិក្កយបត្រទិញច្រើនក្នុងពេលតែមួយ (PDF · Excel)",
+  "Choose sales PDF or Excel file": "ជ្រើសរើសឯកសារ PDF ឬ Excel នៃការលក់",
+  "Choose receipts PDF or Excel file": "ជ្រើសរើសឯកសារ PDF ឬ Excel នៃបង្កាន់ដៃ"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8695,6 +8707,8 @@ function MonthlyView({
     setLocal: setLocal,
     rate: calc.rate,
     disabled: locked,
+    kinds: ["sales"],
+    ownName: selectedClient?.name,
     onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
   }), /*#__PURE__*/React.createElement(MoneyField, {
     id: "mf-revenue",
@@ -8817,7 +8831,18 @@ function MonthlyView({
       ...S.stepIntro,
       marginTop: 0
     }
-  }, lang === "en" ? "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register." : "영수증·세금계산서를 사진으로 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement(EvidencePanel, {
+  }, lang === "en" ? "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register." : "영수증·세금계산서를 사진으로 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement(BulkImportPanel, {
+    local: local,
+    setLocal: setLocal,
+    rate: calc.rate,
+    disabled: locked,
+    kinds: ["purchase"],
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
+  })), /*#__PURE__*/React.createElement(EvidencePanel, {
     evidence: local.evidence || [],
     exchangeRate: local.exchangeRate,
     onChangeExchangeRate: v => setLocal({
@@ -10421,7 +10446,8 @@ function BulkImportPanel({
   rate,
   onUploadImage,
   disabled,
-  kinds = ["sales", "purchase"]
+  kinds = ["sales", "purchase"],
+  ownName
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -10445,7 +10471,18 @@ function BulkImportPanel({
   // 이미 등록된 문서와 겹치는 행은 처음부터 선택을 빼 둔다 (PDF와 엑셀을 둘 다 올려도 두 번 잡히지 않게)
   // PDF 쪽이 이미 등록된 건과 맞으면 새로 등록하지 않고 '스캔본만 붙이기'로 돌린다
   const matchRef = useRef(null);
+  // 매출로 올렸는데 '고객'이 우리 회사로 읽히면 매입 증빙을 잘못 올린 것 — 선택을 빼고 알려 준다
+  const ownKey = String(ownName || "").toLowerCase().replace(/\b(co|ltd|limited|company|plc|inc)\b|[^a-z0-9\u1780-\u17ff가-힣]/g, "").slice(0, 14);
+  const isSelf = name => {
+    const n = String(name || "").toLowerCase().replace(/[^a-z0-9\u1780-\u17ff가-힣]/g, "");
+    return ownKey.length >= 5 && n.length >= 5 && (n.includes(ownKey.slice(0, 10)) || ownKey.includes(n.slice(0, 10)));
+  };
   const dropDups = (rows, k, pdf) => rows.map(x => {
+    if (k === "sales" && pdf && !x.empty && isSelf(x.party)) return {
+      ...x,
+      include: false,
+      selfParty: true
+    };
     if (!x.include) return x;
     const m = pdf && matchRef.current ? matchRef.current(x, k) : null;
     if (m) return {
@@ -10973,7 +11010,13 @@ function BulkImportPanel({
         background: "#EEF1F4",
         color: PALETTE.inkSoft
       }
-    }, row.readError ? en ? "Not read" : "읽기 실패" : en ? "No document" : "문서 없음"), row.attachTo && !row.include && /*#__PURE__*/React.createElement("span", {
+    }, row.readError ? en ? "Not read" : "읽기 실패" : en ? "No document" : "문서 없음"), row.selfParty && /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...S.statusBadge,
+        background: "#FBEDEA",
+        color: PALETTE.red
+      }
+    }, en ? "Looks like a purchase" : "매입 증빙으로 보임"), row.attachTo && !row.include && /*#__PURE__*/React.createElement("span", {
       style: {
         ...S.statusBadge,
         background: PALETTE.tealTint,
@@ -11239,6 +11282,7 @@ function BulkImportPanel({
     }, en ? "Note in file: " : "파일의 비고: ", row.noteText));
   };
   return /*#__PURE__*/React.createElement("section", {
+    "data-bulk-kind": kinds.join("+"),
     "aria-label": en ? "Bulk upload" : "여러 건 한 번에 올리기",
     style: {
       border: `1px dashed #B9C9C2`,
@@ -11255,7 +11299,7 @@ function BulkImportPanel({
       fontWeight: 700,
       color: PALETTE.ink
     }
-  }, en ? "Upload many at once (PDF · Excel)" : "여러 건 한 번에 올리기 (PDF · 엑셀)"), /*#__PURE__*/React.createElement("div", {
+  }, kinds.length > 1 ? en ? "Upload many at once (PDF · Excel)" : "여러 건 한 번에 올리기 (PDF · 엑셀)" : kinds[0] === "sales" ? en ? "Upload many SALES invoices at once (PDF · Excel)" : "매출 인보이스 여러 건 한 번에 올리기 (PDF · 엑셀)" : en ? "Upload many RECEIPTS / purchase invoices at once (PDF · Excel)" : "매입·경비 증빙 여러 건 한 번에 올리기 (PDF · 엑셀)"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
@@ -11322,7 +11366,7 @@ function BulkImportPanel({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "gallery",
     size: 20
-  }), en ? "Choose PDF or Excel file" : "PDF·엑셀 파일 고르기")), job && /*#__PURE__*/React.createElement("div", {
+  }), kinds.length > 1 ? en ? "Choose PDF or Excel file" : "PDF·엑셀 파일 고르기" : kinds[0] === "sales" ? en ? "Choose sales PDF or Excel file" : "매출 PDF·엑셀 파일 고르기" : en ? "Choose receipts PDF or Excel file" : "매입·경비 PDF·엑셀 파일 고르기")), job && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -11374,7 +11418,14 @@ function BulkImportPanel({
       fontSize: 13,
       color: PALETTE.inkSoft
     }
-  }, en ? "This PDF's structure could not be read, so the scanned images inside were taken out directly. Check that the page order is right." : "PDF 구조를 읽지 못해, 안에 든 스캔 이미지를 직접 꺼내 읽었어요. 쪽 순서가 맞는지 확인해 주세요."), job.truncated > 0 && /*#__PURE__*/React.createElement("div", {
+  }, en ? "This PDF's structure could not be read, so the scanned images inside were taken out directly. Check that the page order is right." : "PDF 구조를 읽지 못해, 안에 든 스캔 이미지를 직접 꺼내 읽었어요. 쪽 순서가 맞는지 확인해 주세요."), job.kind === "sales" && job.rows.filter(x => x.selfParty).length > 0 && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.red,
+      lineHeight: 1.6
+    }
+  }, en ? `On ${job.rows.filter(x => x.selfParty).length} page(s) the customer reads as this company itself. These look like purchase or expense documents — cancel and upload the file under “Receipts & purchase invoices” below instead.` : `${job.rows.filter(x => x.selfParty).length}건은 고객이 이 회사 자신으로 읽혔어요. 매입·경비 증빙으로 보입니다 — 취소하고 아래 ‘매입·경비 증빙’ 쪽에 올려 주세요.`), job.truncated > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.brassText

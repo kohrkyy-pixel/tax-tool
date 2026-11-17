@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.11.2";
+const APP_RELEASE = "2026.11.17.1";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.1",
+  ko: ["이미 등록한 증빙(예: 엑셀로 올린 건)에 스캔본만 붙일 수 있어요 — 스캔 PDF를 올리면 같은 건을 찾아 다시 등록하지 않고 이미지만 붙여요", "자동으로 못 찾은 쪽은 목록에서 붙일 문서를 직접 고를 수 있어요"],
+  en: ["Attach scans to documents already registered (e.g. from Excel) — upload the scanned PDF and matching pages are attached instead of being added again", "For pages not matched automatically, choose the document to attach to from a list"]
+}, {
   version: "2026.11.11.2",
   ko: ["여러 증빙을 스캔한 PDF를 한 번에 — 쪽별로 나눠 자동으로 읽고, 목록에서 확인한 뒤 한꺼번에 등록해요 (1단계 매출·매입, 3단계 증빙)", "엑셀 매출·매입 장부(.xlsx)도 그대로 올려 행별로 등록해요 — 이미 등록한 건은 자동으로 빼요", "면세 매출, 소비자 매출 구분, 전월 이월 VAT 공제를 신고 계산에 반영했어요"],
   en: ["Scanned PDFs with many documents — split page by page, read automatically, checked in a list and registered together (step 1 sales & purchases, step 3 receipts)", "Excel sales / purchase records (.xlsx) can be uploaded and registered row by row — documents already added are skipped", "Non-taxable sales, sales to consumers and VAT credit brought forward are now part of the monthly calculation"]
@@ -3981,7 +3985,17 @@ const KM_DICT = {
   "This page could not be opened.": "មិនអាចបើកទំព័រនេះបានទេ។",
   "The content of this file is not a PDF. If your company's document security (DRM) encrypts files on this PC, the browser cannot read it — remove the protection first, or upload from a phone or another PC.": "មាតិកាឯកសារនេះមិនមែនជា PDF ទេ។ បើកុំព្យូទ័រនេះមានប្រព័ន្ធសុវត្ថិភាពឯកសារ (DRM) របស់ក្រុមហ៊ុន កម្មវិធីរុករកមិនអាចអានវាបានទេ — សូមដកការការពារចេញជាមុន ឬផ្ទុកឡើងពីទូរសព្ទ ឬកុំព្យូទ័រផ្សេង។",
   "This PDF is password-protected. Remove the password and try again.": "PDF នេះជាប់ពាក្យសម្ងាត់។ សូមដកពាក្យសម្ងាត់ចេញ រួចព្យាយាមម្តងទៀត។",
-  "Could not open this PDF.": "មិនអាចបើក PDF នេះបានទេ។"
+  "Could not open this PDF.": "មិនអាចបើក PDF នេះបានទេ។",
+  "Attach scans to documents already registered (e.g. from Excel) — upload the scanned PDF and matching pages are attached instead of being added again": "ភ្ជាប់ឯកសារស្កេនទៅឯកសារដែលបានចុះបញ្ជីរួច (ឧ. ពី Excel) — ផ្ទុក PDF ស្កេនឡើង ហើយទំព័រដែលត្រូវគ្នានឹងត្រូវភ្ជាប់ ជំនួសឱ្យការបញ្ចូលម្តងទៀត",
+  "For pages not matched automatically, choose the document to attach to from a list": "សម្រាប់ទំព័រដែលរកមិនឃើញដោយស្វ័យប្រវត្តិ សូមជ្រើសរើសឯកសារដែលត្រូវភ្ជាប់ពីបញ្ជី",
+  " · attach {0} scan(s)": " · ភ្ជាប់ឯកសារស្កេន {0}",
+  "Scans attached to {0} existing document(s).": "បានភ្ជាប់ឯកសារស្កេនទៅឯកសារដែលមានស្រាប់ {0}។",
+  "Attach scan": "ភ្ជាប់ឯកសារស្កេន",
+  "What to do with this page": "ធ្វើអ្វីជាមួយទំព័រនេះ",
+  "Register as a new document": "ចុះបញ្ជីជាឯកសារថ្មី",
+  "Skip this page": "រំលងទំព័រនេះ",
+  "Attach the scan to an existing document": "ភ្ជាប់ឯកសារស្កេនទៅឯកសារដែលមានស្រាប់",
+  "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it.": "ទំព័រដែលត្រូវនឹងឯកសារដែលបានចុះបញ្ជីរួច (ឧ. ពី Excel) មិនត្រូវបញ្ចូលម្តងទៀតទេ — គ្រាន់តែភ្ជាប់ឯកសារស្កេនទៅវា។"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -10055,10 +10069,21 @@ function BulkImportPanel({
   };
   const dupRef = useRef(null);
   // 이미 등록된 문서와 겹치는 행은 처음부터 선택을 빼 둔다 (PDF와 엑셀을 둘 다 올려도 두 번 잡히지 않게)
-  const dropDups = (rows, k) => rows.map(x => x.include && dupRef.current && dupRef.current(x, k) ? {
-    ...x,
-    include: false
-  } : x);
+  // PDF 쪽이 이미 등록된 건과 맞으면 새로 등록하지 않고 '스캔본만 붙이기'로 돌린다
+  const matchRef = useRef(null);
+  const dropDups = (rows, k, pdf) => rows.map(x => {
+    if (!x.include) return x;
+    const m = pdf && matchRef.current ? matchRef.current(x, k) : "";
+    if (m) return {
+      ...x,
+      include: false,
+      attachTo: m
+    };
+    return dupRef.current && dupRef.current(x, k) ? {
+      ...x,
+      include: false
+    } : x;
+  });
   const runPdf = async (file, k) => {
     const token = ++runRef.current;
     pagesRef.current = {};
@@ -10116,7 +10141,7 @@ function BulkImportPanel({
       const readPage = async (n, hi) => {
         let rows;
         try {
-          rows = dropDups(normalizeBulkPage(await readImageJson(hi, BULK_PROMPT(k)), k, n), k);
+          rows = dropDups(normalizeBulkPage(await readImageJson(hi, BULK_PROMPT(k)), k, n), k, true);
         } catch (e) {
           rows = [bulkBlankRow({
             page: n,
@@ -10249,6 +10274,42 @@ function BulkImportPanel({
     return (local.evidence || []).some(d => Math.abs((Number(d.amount) || 0) - total) < 0.005 && (d.txDate || "") === row.date && (row.invoiceNo ? norm(d.invoiceNo) === norm(row.invoiceNo) || norm(d.vendor) === norm(row.party) : norm(d.vendor) === norm(row.party)));
   };
   dupRef.current = isDup;
+  // 스캔본을 붙일 기존 문서 찾기: 금액이 같고 (번호 → 날짜 → 유일한 금액) 순으로 하나로 좁혀지면 그 문서
+  const alnum = v => String(v || "").toLowerCase().replace(/[^a-z0-9\u1780-\u17ff가-힣]/g, "");
+  const existingDocs = k => k === "sales" ? (local.salesDocs || []).map(d => ({
+    id: d.id,
+    date: d.date,
+    no: d.invoiceNo,
+    party: d.customer,
+    amount: Number(d.subtotal) || 0,
+    total: r2((Number(d.subtotal) || 0) + (Number(d.vat) || 0)),
+    currency: d.currency,
+    has: !!(d.thumbnail || d.driveUrl)
+  })) : (local.evidence || []).map(d => ({
+    id: d.id,
+    date: d.txDate,
+    no: d.invoiceNo,
+    party: d.vendor,
+    amount: Number(d.amount) || 0,
+    total: Number(d.amount) || 0,
+    currency: d.currency,
+    has: !!(d.thumbnail || d.driveUrl)
+  }));
+  const findMatch = (row, k) => {
+    const sub = Number(row.subtotal) || 0;
+    if (!(sub > 0)) return "";
+    const total = r2(sub + (Number(row.vat) || 0));
+    const same = existingDocs(k).filter(d => d.currency === row.currency && (Math.abs(d.amount - (k === "sales" ? sub : total)) < 0.005 || Math.abs(d.total - total) < 0.005));
+    if (!same.length) return "";
+    const byNo = row.invoiceNo ? same.filter(d => d.no && (alnum(d.no) === alnum(row.invoiceNo) || alnum(d.no).endsWith(alnum(row.invoiceNo)) || alnum(row.invoiceNo).endsWith(alnum(d.no)))) : [];
+    if (byNo.length === 1) return byNo[0].id;
+    const byDate = same.filter(d => d.date && d.date === row.date);
+    if (byDate.length === 1) return byDate[0].id;
+    const pool = byDate.length ? byDate : same;
+    const free = pool.filter(d => !d.has);
+    return free.length === 1 ? free[0].id : pool.length === 1 ? pool[0].id : "";
+  };
+  matchRef.current = findMatch;
   const setRow = (id, patch) => setJob(j => ({
     ...j,
     rows: j.rows.map(x => x.id === id ? {
@@ -10258,10 +10319,24 @@ function BulkImportPanel({
   }));
   const vatOf = row => job.kind === "sales" && row.taxType === "nontax" ? 0 : row.vat !== "" ? Number(row.vat) || 0 : r2((Number(row.subtotal) || 0) * 0.1);
   const picked = job ? job.rows.filter(x => x.include && Number(x.subtotal) > 0) : [];
+  const attachRows = job && job.type === "pdf" ? job.rows.filter(x => !x.include && x.attachTo && x.page && existingDocs(job.kind).some(d => d.id === x.attachTo)) : [];
+  const regLabel = (en ? `Register ${picked.length} selected` : `선택한 ${picked.length}건 등록`) + (attachRows.length ? en ? ` · attach ${attachRows.length} scan(s)` : ` · 스캔본 ${attachRows.length}건 붙이기` : "");
   const register = () => {
     const k = job.kind;
     const now = new Date().toISOString();
     const byPage = {};
+    const attachThumb = {};
+    for (const row of attachRows) {
+      (byPage[row.page] = byPage[row.page] || []).push({
+        id: row.attachTo,
+        row
+      });
+      attachThumb[row.attachTo] = pagesRef.current[row.page]?.thumb;
+    }
+    const withThumb = d => attachThumb[d.id] ? {
+      ...d,
+      thumbnail: attachThumb[d.id]
+    } : d;
     const made = picked.map(row => {
       const id = uid();
       const thumb = row.page ? pagesRef.current[row.page]?.thumb : undefined;
@@ -10319,13 +10394,13 @@ function BulkImportPanel({
         };
         return {
           ...acc,
-          salesDocs: [...(prev.salesDocs || []), ...made]
+          salesDocs: [...(prev.salesDocs || []).map(withThumb), ...made]
         };
       }
       const wht = made.map(e => linkedWithholdingFor(e, null, R, lang)).filter(Boolean);
       return {
         ...prev,
-        evidence: [...(prev.evidence || []), ...made],
+        evidence: [...(prev.evidence || []).map(withThumb), ...made],
         withholding: wht.length ? [...(prev.withholding || []), ...wht] : prev.withholding
       };
     });
@@ -10360,7 +10435,7 @@ function BulkImportPanel({
         }
       })();
     }
-    setDoneMsg(k === "sales" ? en ? `${made.length} sales invoice(s) added to Sales.` : `매출 인보이스 ${made.length}건을 매출에 등록했어요.` : en ? `${made.length} document(s) registered as receipts (step 3).` : `증빙 ${made.length}건을 ③ 증빙으로 등록했어요.`);
+    setDoneMsg([made.length ? k === "sales" ? en ? `${made.length} sales invoice(s) added to Sales.` : `매출 인보이스 ${made.length}건을 매출에 등록했어요.` : en ? `${made.length} document(s) registered as receipts (step 3).` : `증빙 ${made.length}건을 ③ 증빙으로 등록했어요.` : "", attachRows.length ? en ? `Scans attached to ${attachRows.length} existing document(s).` : `이미 등록된 ${attachRows.length}건에 스캔본을 붙였어요.` : ""].filter(Boolean).join(" "));
     runRef.current++;
     setJob(null);
   };
@@ -10379,6 +10454,7 @@ function BulkImportPanel({
     padding: "8px 10px",
     fontSize: 14
   };
+  const attachOptions = job && job.type === "pdf" ? existingDocs(job.kind).slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))) : [];
   const rowCard = row => {
     const dup = isDup(row);
     const img = row.page ? pagesRef.current[row.page] : null;
@@ -10450,7 +10526,10 @@ function BulkImportPanel({
       type: "checkbox",
       checked: !!row.include,
       onChange: e => setRow(row.id, {
-        include: e.target.checked
+        include: e.target.checked,
+        ...(e.target.checked ? {
+          attachTo: ""
+        } : {})
       }),
       style: {
         width: 20,
@@ -10470,13 +10549,19 @@ function BulkImportPanel({
         background: "#EEF1F4",
         color: PALETTE.inkSoft
       }
-    }, row.readError ? en ? "Not read" : "읽기 실패" : en ? "No document" : "문서 없음"), dup && /*#__PURE__*/React.createElement("span", {
+    }, row.readError ? en ? "Not read" : "읽기 실패" : en ? "No document" : "문서 없음"), row.attachTo && !row.include && /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...S.statusBadge,
+        background: PALETTE.tealTint,
+        color: PALETTE.tealDeep
+      }
+    }, en ? "Attach scan" : "스캔본 붙이기"), dup && !(row.attachTo && !row.include) && /*#__PURE__*/React.createElement("span", {
       style: {
         ...S.statusBadge,
         background: "#FBEFD9",
         color: PALETTE.brassText
       }
-    }, en ? "Already added?" : "중복 의심"), !row.empty && !dup && needs && /*#__PURE__*/React.createElement("span", {
+    }, en ? "Already added?" : "중복 의심"), !row.empty && !dup && !row.attachTo && needs && /*#__PURE__*/React.createElement("span", {
       style: {
         ...S.statusBadge,
         background: "#FBEFD9",
@@ -10487,7 +10572,48 @@ function BulkImportPanel({
         fontSize: 12.5,
         color: PALETTE.red
       }
-    }, row.readError), !open && !row.empty && /*#__PURE__*/React.createElement("div", {
+    }, row.readError), job.type === "pdf" && img && attachOptions.length > 0 && /*#__PURE__*/React.createElement("label", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        fontSize: 11.5,
+        color: PALETTE.inkSoft
+      }
+    }, /*#__PURE__*/React.createElement("span", null, en ? "What to do with this page" : "이 쪽을 어떻게 할까요"), /*#__PURE__*/React.createElement("select", {
+      "data-bulk-attach": true,
+      "aria-label": en ? "What to do with this page" : "이 쪽을 어떻게 할까요",
+      style: {
+        ...sel,
+        ...(row.attachTo && !row.include ? {
+          borderColor: PALETTE.teal
+        } : {})
+      },
+      value: row.include ? "" : row.attachTo || (row.empty ? "__skip" : ""),
+      onChange: e => {
+        const v = e.target.value;
+        setRow(row.id, v === "" ? {
+          attachTo: "",
+          include: true,
+          open: row.empty ? true : row.open
+        } : v === "__skip" ? {
+          attachTo: "",
+          include: false
+        } : {
+          attachTo: v,
+          include: false
+        });
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, en ? "Register as a new document" : "새 문서로 등록"), /*#__PURE__*/React.createElement("option", {
+      value: "__skip"
+    }, en ? "Skip this page" : "이 쪽은 건너뛰기"), /*#__PURE__*/React.createElement("optgroup", {
+      label: en ? "Attach the scan to an existing document" : "이미 등록된 문서에 스캔본만 붙이기"
+    }, attachOptions.map(d => /*#__PURE__*/React.createElement("option", {
+      key: d.id,
+      value: d.id
+    }, `${d.has ? "✓ " : ""}${[d.date, d.no, d.party].filter(Boolean).join(" · ")} · ${d.currency === "KHR" ? fmt(d.total) + " KHR" : "$" + fmtUsd(d.total)}`))))), !open && !row.empty && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 8,
@@ -10702,7 +10828,7 @@ function BulkImportPanel({
       color: PALETTE.inkSoft,
       lineHeight: 1.6
     }
-  }, en ? "A scanned PDF with many invoices is split page by page and read automatically. An Excel sales/purchase record is read row by row. Check the list, then register everything together." : "여러 증빙을 스캔한 PDF는 쪽별로 나눠 자동으로 읽어요. 엑셀 매출·매입 장부는 행별로 읽어요. 목록을 확인한 뒤 한 번에 등록하세요.")), doneMsg && /*#__PURE__*/React.createElement("div", {
+  }, en ? "A scanned PDF with many invoices is split page by page and read automatically. An Excel sales/purchase record is read row by row. Check the list, then register everything together." : "여러 증빙을 스캔한 PDF는 쪽별로 나눠 자동으로 읽어요. 엑셀 매출·매입 장부는 행별로 읽어요. 목록을 확인한 뒤 한 번에 등록하세요.", " ", en ? "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it." : "이미 등록된 문서(예: 엑셀로 올린 건)와 같은 쪽은 다시 등록하지 않고 스캔본만 그 문서에 붙여요.")), doneMsg && /*#__PURE__*/React.createElement("div", {
     role: "status",
     style: {
       fontSize: 13.5,
@@ -10852,18 +10978,18 @@ function BulkImportPanel({
   }, job.phase !== "error" && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonPrimary,
-    disabled: reading || !picked.length,
+    disabled: reading || !(picked.length + attachRows.length),
     onClick: register
-  }, en ? `Register ${picked.length} selected` : `선택한 ${picked.length}건 등록`), /*#__PURE__*/React.createElement("button", {
+  }, regLabel), /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonGhost,
     onClick: cancel
   }, job.phase === "error" ? en ? "Close" : "닫기" : en ? "Cancel" : "취소"))), job.rows.map(rowCard), job.phase === "review" && job.rows.length > 6 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.buttonPrimary,
-    disabled: !picked.length,
+    disabled: !(picked.length + attachRows.length),
     onClick: register
-  }, en ? `Register ${picked.length} selected` : `선택한 ${picked.length}건 등록`)), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+  }, regLabel)), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
     onClose: () => setViewing(null)

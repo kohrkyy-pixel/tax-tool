@@ -514,11 +514,11 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.6";
+const APP_RELEASE = "2026.11.17.7";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
-  version: "2026.11.17.6",
+  version: "2026.11.17.7",
   ko: ["스캔본 붙이기가 통화가 달라도 맞는 건을 찾아요 — 장부는 USD, 영수증은 KHR이어도 환율로 바꿔 금액이 맞고 날짜나 거래처가 같으면 그 경비에 붙여요", "어떻게 맞췄는지(환산 금액과 환율)를 쪽마다 보여 줘요"],
   en: ["Attaching scans now works across currencies — a KHR receipt is matched to an expense recorded in USD when the converted amount agrees and the date or supplier is the same", "Each page shows how it was matched (converted amount and rate)"]
 }, {
@@ -10187,13 +10187,13 @@ async function renderJpegBlob(blob) {
 }
 const BULK_PROMPT = kind => `You are reading ONE scanned page from a bundle of ${kind === "sales" ? "SALES invoices issued by our company to customers" : "PURCHASE / EXPENSE documents of our company (supplier tax invoices, bills, receipts, bank transfer slips, payment vouchers)"} in Cambodia.
 The page may contain ONE document, SEVERAL separate documents (e.g. two bank slips or small receipts scanned together), or NO document (blank page, cover sheet, attachment, or a continuation page without totals).
-Return every separate document on the page, top to bottom. Read digit by digit; do not guess. Khmer numerals (០-៩) → 0-9. Dates are usually DAY/MONTH/YEAR.
+Return every separate document on the page, top to bottom. A photo of the purchased goods placed next to a receipt is not a document — ignore it. For handwritten receipts read the date boxes as DAY, MONTH, YEAR and leave "party_name" null if no seller name is written. Read digit by digit; do not guess. Khmer numerals (០-៩) → 0-9. Dates are usually DAY/MONTH/YEAR.
 For each document:
 - "party_name": the ${kind === "sales" ? "CUSTOMER (buyer)" : "SUPPLIER / payee (who issued the document or received the money)"}; prefer the English/Latin name if both are printed.
 - "party_vattin": that party's VAT TIN (one letter + 3 digits + 9 digits, e.g. K001-901234567) or null. Never return our own company's TIN.
 - "description": short English description of what was ${kind === "sales" ? "sold" : "bought or paid for"} (max 8 words).
 - "subtotal": amount BEFORE VAT; "vat": VAT amount (0 if no VAT is charged); "total": final amount.
-- "currency": "USD" or "KHR" (the currency the total is mainly stated in). "exchange_rate": KHR per 1 USD if printed, else null.
+- "currency": "USD" or "KHR" (the currency the total is mainly stated in). Handwritten receipts without a currency sign: whole amounts of 1,000 or more are riel (KHR). "exchange_rate": KHR per 1 USD if printed, else null.
 - "non_taxable": true if no VAT is charged (non-taxable / exempt supply, commercial invoice or receipt without VAT), else false.
 ${kind === "sales" ? '- "buyer_type": "taxpayer" if a customer VAT TIN is printed (tax invoice), otherwise "consumer" (commercial invoice).' : '- "category": one of "purchase_invoice" (goods/materials), "rent", "service_fee", "telecom", "utilities" (electricity/water), "supplies", "vehicle", "entertainment" (meals with guests), "travel", "commission" (bank fees/commissions), "welfare", "fines", "donation", "other".'}
 Return ONLY raw JSON:
@@ -10693,7 +10693,7 @@ function BulkImportPanel({
         for (const [khr, usd] of pairs) {
           if (!(usd > 0) || amt) continue;
           const implied = khr / usd;
-          const refs = [Number(d.fx), Number(row.fx), 4000].filter(x => x > 0);
+          const refs = [Number(d.fx), Number(row.fx), R, 4000].filter(x => x > 0);
           if (refs.some(x => Math.abs(implied - x) / x <= 0.004)) {
             amt = 2;
             rateUsed = implied;
@@ -10713,6 +10713,7 @@ function BulkImportPanel({
         cross: d.currency !== row.currency,
         amt,
         support,
+        dd,
         score: amt + support + (d.has ? 0 : 0.5),
         rateUsed
       });
@@ -10722,7 +10723,9 @@ function BulkImportPanel({
     const best = cands[0],
       second = cands[1];
     // 같은 통화: 금액이 같은 문서가 하나뿐이면 충분. 통화가 다르면 날짜·거래처·번호 중 하나는 맞아야 한다
-    const enough = best.cross ? best.support >= 2 : best.support >= 1 || cands.filter(c => !c.cross).length === 1 || cands.filter(c => !c.cross && !c.d.has).length === 1;
+    // (손으로 쓴 간이영수증처럼 판매처 이름이 없고 날짜가 며칠 어긋나는 경우: 환율이 딱 맞고 후보가 하나뿐이며 5일 이내면 연결)
+    const loneExact = best.cross && best.amt === 2 && cands.length === 1 && (best.dd <= 5 || !row.date);
+    const enough = best.cross ? best.support >= 2 || loneExact : best.support >= 1 || cands.filter(c => !c.cross).length === 1 || cands.filter(c => !c.cross && !c.d.has).length === 1;
     if (!enough || second && second.score >= best.score && !(best.cross === false && second.cross)) return null;
     const money = (n, c) => c === "KHR" ? `${fmt(n)} KHR` : `$${fmtUsd(n)}`;
     return {

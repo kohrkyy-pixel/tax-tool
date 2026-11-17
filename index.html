@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.16";
+const APP_RELEASE = "2026.11.17.17";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.17",
+  ko: ["매입은 한 곳에서만 — 위쪽은 매출 인보이스 전용으로 바꾸고, 매입 인보이스·영수증은 모두 아래 ‘매입·경비 증빙’에서 올려요", "증빙 사진을 올리면 공급자 이름, 인보이스 번호, VAT 여부도 함께 읽어 채워요"],
+  en: ["Purchases in one place — the top section is now for sales invoices only; purchase invoices and receipts all go under “Receipts & purchase invoices”", "A receipt photo now also fills in the supplier name, invoice number and whether VAT was charged"]
+}, {
   version: "2026.11.17.16",
   ko: ["입력 방법을 한 줄에 나란히 — 파일 고르기(PDF·엑셀) · 촬영 · 사진 고르기 · 직접 입력 버튼을 같은 크기로, 색 아이콘과 함께 (매출·매입 인보이스와 경비 증빙 모두)", "매출·매입 인보이스도 사진 없이 직접 입력할 수 있어요"],
   en: ["Ways to enter are side by side — Choose file (PDF · Excel) · Take photo · Choose photo · Enter by hand, same size with coloured icons (sales / purchase invoices and receipts)", "Sales and purchase invoices can now be entered by hand without a photo"]
@@ -2381,7 +2385,7 @@ function parseReceiptDate(v) {
 // 증빙 이미지에서 거래일자와 금액만 읽어온다 (계정과목·거래처는 사용자가 직접 선택)
 // 읽을 수 없는 항목은 null, 의심스러운 항목은 flags에 이유를 담아 화면에서 "확인 필요"로 표시한다
 const RECEIPT_PROMPT = `You are reading ONE expense receipt, tax invoice, or bill photographed in Cambodia.
-Extract ONLY the transaction date and the final total. Read carefully digit by digit; do not guess.
+Extract the transaction date and the final total, plus the seller's name, the invoice/receipt number and the VAT amount when they are printed. Read carefully digit by digit; do not guess.
 
 Cambodian receipt conventions:
 - Dates are usually DAY/MONTH/YEAR (e.g. 05/11/2026 = 5 November 2026). Some POS slips print YYYY-MM-DD or "05-Nov-26".
@@ -2402,6 +2406,9 @@ Return ONLY raw JSON, no markdown, no extra text, with exactly these keys:
   "other_total": number or null  // the same total shown in the OTHER currency, if printed
   "other_currency": "USD" or "KHR" or null,
   "supplier_vattin": "seller's VATTIN exactly as printed, or null",
+  "seller_name": "the SELLER / supplier / payee name (prefer the English or Latin name if both are printed), or null — never the buyer",
+  "invoice_no": "invoice or receipt number exactly as printed, or null",
+  "vat": number or null  // the VAT amount charged (0 if the document shows no VAT), in the same currency as the total
   "confidence": "high" | "medium" | "low"
 }
 If the image is not a receipt/invoice or is too blurry, return nulls with "confidence": "low".`;
@@ -2511,7 +2518,14 @@ async function readReceiptBasics({
     if (e.message !== "AI_BAD_JSON" && !(e instanceof SyntaxError)) throw e;
     parsed = parseAiJson(await ask()); // 형식이 깨진 응답은 한 번 더 요청
   }
-  return checkReceiptReading(parsed, exchangeRate);
+  const txt = v => typeof v === "string" && v.trim() && !/^(null|n\/a|none)$/i.test(v.trim()) ? v.trim().slice(0, 120) : "";
+  const vat = parsed && parsed.vat != null ? parseReceiptAmount(parsed.vat) : null;
+  return {
+    ...checkReceiptReading(parsed, exchangeRate),
+    vendor: txt(parsed?.seller_name),
+    invoiceNo: txt(parsed?.invoice_no),
+    vat: parsed && (parsed.vat === 0 || parsed.vat === "0") ? 0 : vat
+  };
 }
 
 // AI가 읽은 값을 검증해 확정값과 "확인 필요" 사유를 만든다 (네트워크 없이 단독 테스트 가능)
@@ -4227,7 +4241,12 @@ const KM_DICT = {
   "One invoice": "មួយសន្លឹក",
   "From album": "ពីអាល់ប៊ុម",
   "Without a photo": "គ្មានរូបថត",
-  "Fill in the invoice, then press Add.": "បំពេញវិក្កយបត្រ រួចចុច បន្ថែម។"
+  "Fill in the invoice, then press Add.": "បំពេញវិក្កយបត្រ រួចចុច បន្ថែម។",
+  "Purchases in one place — the top section is now for sales invoices only; purchase invoices and receipts all go under “Receipts & purchase invoices”": "ការទិញនៅកន្លែងតែមួយ — ផ្នែកខាងលើឥឡូវសម្រាប់តែវិក្កយបត្រលក់ ហើយវិក្កយបត្រទិញ និងបង្កាន់ដៃទាំងអស់នៅក្រោម “បង្កាន់ដៃ និងវិក្កយបត្រទិញ”",
+  "A receipt photo now also fills in the supplier name, invoice number and whether VAT was charged": "រូបថតបង្កាន់ដៃឥឡូវបំពេញឈ្មោះអ្នកផ្គត់ផ្គង់ លេខវិក្កយបត្រ និងថាតើមាន អតប ឬអត់",
+  "Invoices you issued to customers. Each one is added to Sales; you can edit everything afterwards. Purchase invoices and receipts go under “Receipts & purchase invoices” below.": "វិក្កយបត្រដែលអ្នកចេញឱ្យអតិថិជន។ នីមួយៗត្រូវបូកចូលការលក់ ហើយអ្នកអាចកែទាំងអស់នៅពេលក្រោយ។ វិក្កយបត្រទិញ និងបង្កាន់ដៃ សូមដាក់នៅក្រោម “បង្កាន់ដៃ និងវិក្កយបត្រទិញ” ខាងក្រោម។",
+  "Invoice / receipt no. (optional)": "លេខវិក្កយបត្រ / បង្កាន់ដៃ (ស្រេចចិត្ត)",
+  "Invoice or receipt number": "លេខវិក្កយបត្រ ឬបង្កាន់ដៃ"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8816,10 +8835,7 @@ function MonthlyView({
     setLocal: setLocal,
     rate: calc.rate,
     disabled: locked,
-    onPickFile: k => {
-      const r = k === "purchase" ? evBulkRef : salesBulkRef;
-      if (r.current) r.current();
-    },
+    onPickFile: () => salesBulkRef.current && salesBulkRef.current(),
     onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
   }), /*#__PURE__*/React.createElement(BulkImportPanel, {
     embedded: true,
@@ -11839,7 +11855,7 @@ function InvoiceDocsPanel({
   const r2 = n => Math.round(n * 100) / 100;
   const usd = n => `$${fmtUsd(n)}`;
   const salesDocs = local.salesDocs || [];
-  const purchaseDocs = (local.evidence || []).filter(e => e.source === "invoice-upload");
+  const purchaseDocs = []; // 매입 인보이스는 아래 '매입·경비 증빙' 한 곳에서만 다룬다 (예전에 여기서 올린 건도 그 목록에 있다)
   const pickFile = async (file, k) => {
     if (!file.type || !file.type.startsWith("image/")) {
       setPending({
@@ -12342,42 +12358,19 @@ function InvoiceDocsPanel({
       fontWeight: 700,
       color: PALETTE.ink
     }
-  }, en ? "Enter from invoice photos" : "인보이스 사진으로 입력"), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Sales invoices" : "매출 인보이스"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
       lineHeight: 1.6
     }
-  }, en ? "Sales invoices are added to Sales; purchase invoices are registered as receipts below. You can edit everything afterwards." : "매출 인보이스는 매출액에 더해지고, 매입 인보이스는 아래 증빙으로 등록돼요. 읽은 내용은 언제든 고칠 수 있어요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
+  }, en ? "Invoices you issued to customers. Each one is added to Sales; you can edit everything afterwards. Purchase invoices and receipts go under “Receipts & purchase invoices” below." : "고객에게 발행한 인보이스예요. 올리면 매출액에 더해지고, 읽은 내용은 언제든 고칠 수 있어요. 매입 인보이스와 영수증은 아래 ‘매입·경비 증빙’에 올리세요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 8
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    role: "group",
-    "aria-label": en ? "Invoice type" : "인보이스 종류",
-    style: {
-      display: "flex",
-      gap: 6
-    }
-  }, [["sales", en ? "Sales invoice" : "매출 인보이스"], ["purchase", en ? "Purchase invoice" : "매입 인보이스"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
-    key: k,
-    type: "button",
-    "aria-pressed": kind === k,
-    style: {
-      ...S.buttonGhostSmall2,
-      flex: 1,
-      minHeight: 40,
-      ...(kind === k ? {
-        background: PALETTE.tealTint,
-        color: PALETTE.tealDeep,
-        borderColor: PALETTE.teal,
-        fontWeight: 700
-      } : {})
-    },
-    onClick: () => setKind(k)
-  }, l))), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement("input", {
     ref: camRef,
     type: "file",
     accept: "image/*",
@@ -12506,8 +12499,8 @@ function InvoiceDocsPanel({
     onlyMissing: onlyMissing,
     onToggle: () => setOnlyMissing(!onlyMissing),
     noun: {
-      ko: "인보이스",
-      en: "Invoices"
+      ko: "매출 인보이스",
+      en: "Sales invoices"
     }
   })), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -14015,6 +14008,7 @@ function EvidencePanel({
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].id); // 지급 유형 (드롭다운)
   const [txDate, setTxDate] = useState(""); // 거래일자 (이미지에서 자동 인식)
   const [vendor, setVendor] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [readResult, setReadResult] = useState(null); // 인식 결과 안내 { date: bool, amount: bool }
@@ -14053,6 +14047,7 @@ function EvidencePanel({
     setPendingHiRes(null);
     setDescription("");
     setVendor("");
+    setInvoiceNo("");
     setSupplierTin("");
     setAmount("");
     setTxDate("");
@@ -14143,6 +14138,9 @@ function EvidencePanel({
       txDate,
       category,
       vendor: vendor.trim(),
+      ...(invoiceNo.trim() ? {
+        invoiceNo: invoiceNo.trim()
+      } : {}),
       supplierTin: evidenceType === "vat" ? normalizeKhTin(supplierTin) : "",
       amount: Number(amount) || 0,
       currency,
@@ -14181,6 +14179,10 @@ function EvidencePanel({
       if (r.amount) setAmount(String(r.amount));
       if (r.currency) setCurrency(r.currency);
       if (r.vattin) setSupplierTin(r.vattin);
+      // 세금계산서에서 공급자·인보이스 번호도 읽어 채운다 (이미 입력한 값은 덮어쓰지 않는다)
+      if (r.vendor) setVendor(v => v || r.vendor);
+      if (r.invoiceNo) setInvoiceNo(v => v || r.invoiceNo);
+      if (r.vat > 0 || r.vattin) setEvidenceType("vat");else if (r.vat === 0) setEvidenceType("general");
       setReadResult({
         ...r,
         date: Boolean(r.date),
@@ -14465,6 +14467,13 @@ function EvidencePanel({
     placeholder: lang === "en" ? "Shop or company name" : "가게·회사 이름",
     value: vendor,
     onChange: e => setVendor(e.target.value)
+  })), /*#__PURE__*/React.createElement("label", {
+    style: S.stackLabel
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Invoice / receipt no. (optional)" : "인보이스·영수증 번호 (선택)"), /*#__PURE__*/React.createElement("input", {
+    "aria-label": lang === "en" ? "Invoice or receipt number" : "인보이스·영수증 번호",
+    style: S.input,
+    value: invoiceNo,
+    onChange: e => setInvoiceNo(e.target.value)
   })), evidenceType === "vat" && /*#__PURE__*/React.createElement("label", {
     style: S.stackLabel
   }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Supplier VATTIN" : "공급자 VATTIN"), /*#__PURE__*/React.createElement("input", {
@@ -14889,7 +14898,7 @@ function EvidencePanel({
           background: "#FFF1D6",
           color: PALETTE.brassText
         }
-      }, lang === "en" ? "No document" : "증빙 없음"), e.txDate ? `${e.txDate.slice(5)} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.isVatInvoice && /*#__PURE__*/React.createElement("div", {
+      }, lang === "en" ? "No document" : "증빙 없음"), e.txDate ? `${e.txDate.slice(5)} · ` : "", e.invoiceNo ? `${e.invoiceNo} · ` : "", categoryLabel(e.category, lang), e.isVatInvoice ? ` · VAT ${fmt(e.vatAmountKHR)} KHR` : lang === "en" ? " · general receipt" : " · 일반 영수증", e.whtCategory ? ` · ${lang === "en" ? "WHT" : "원천세"} ${withholdingLabel(e.whtCategory, lang)}` : ""), e.isVatInvoice && /*#__PURE__*/React.createElement("div", {
         style: {
           ...S.evidenceMeta,
           color: isValidKhTin(e.supplierTin) ? PALETTE.inkSoft : PALETTE.brassText,

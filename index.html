@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.13";
+const APP_RELEASE = "2026.11.17.14";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.14",
+  ko: ["금액을 달러와 리엘로 함께 보여 줘요 — 목록의 각 건, 합계, 세목별 계산, 신고서 표", "입력할 때 통화를 고를 수 있어요 — 매출·매입·경비 금액, 직원 급여, 원천세 지급액을 USD나 KHR로 입력"],
+  en: ["Amounts are shown in both dollars and riel — each row, the totals, the tax calculations and the return table", "Choose the currency when entering — sales, purchases, expenses, salaries and withholding payments in USD or KHR"]
+}, {
   version: "2026.11.17.13",
   ko: ["목록을 접으면 한 건도 보이지 않아요 (매출·매입 인보이스, 경비 증빙)", "날짜순으로 정렬할 수 있어요 — 경비 증빙은 항목별로도 묶어 볼 수 있어요", "목록 아래에 합계를 보여 줘요 — 공급가액 · 부가세 · 원천세"],
   en: ["Hiding a list now hides every row (sales / purchase invoices, receipts)", "Sort by date — receipts can also be grouped by type", "Totals under each list — supply, VAT and withholding tax"]
@@ -1531,7 +1535,8 @@ function grossFromNetFor(e, netKHR) {
 
 // 직원 입력값(세전 또는 세후, USD)과 환율로부터 세전 총급여(KHR)를 계산
 function employeeGrossKHR(e, rate) {
-  const enteredKHR = (Number(e.gross) || 0) * rate;
+  // 급여를 리엘로 입력한 직원(currency === "KHR")은 환산하지 않는다
+  const enteredKHR = e?.currency === "KHR" ? Number(e.gross) || 0 : (Number(e.gross) || 0) * rate;
   return e.mode === "net" ? grossFromNetFor(e, enteredKHR) : enteredKHR;
 }
 
@@ -2036,6 +2041,9 @@ function carryForwardEmployees(filingsForClient, year, month) {
         name: e.name || "",
         gross: e.gross || "",
         mode: e.mode || "gross",
+        ...(e.currency === "KHR" ? {
+          currency: "KHR"
+        } : {}),
         ...(Number(e.dependents) > 0 ? {
           dependents: Number(e.dependents)
         } : {}),
@@ -4194,7 +4202,17 @@ const KM_DICT = {
   "Total incl. VAT": "សរុបរួមទាំង អតប",
   "Supply (before VAT)": "តម្លៃផ្គត់ផ្គង់ (មុន អតប)",
   "Supply before VAT": "តម្លៃផ្គត់ផ្គង់មុន អតប",
-  "Withholding tax on these receipts": "ពន្ធកាត់ទុកលើបង្កាន់ដៃទាំងនេះ"
+  "Withholding tax on these receipts": "ពន្ធកាត់ទុកលើបង្កាន់ដៃទាំងនេះ",
+  "Amounts are shown in both dollars and riel — each row, the totals, the tax calculations and the return table": "ចំនួនទឹកប្រាក់ត្រូវបង្ហាញទាំងដុល្លារ និងរៀល — គ្រប់ជួរ សរុប ការគណនាពន្ធ និងតារាងលិខិតប្រកាស",
+  "Choose the currency when entering — sales, purchases, expenses, salaries and withholding payments in USD or KHR": "ជ្រើសរើសរូបិយប័ណ្ណពេលបញ្ចូល — ការលក់ ការទិញ ចំណាយ ប្រាក់បៀវត្ស និងការបង់ដែលជាប់ពន្ធកាត់ទុក ជា USD ឬ KHR",
+  "Salary currency": "រូបិយប័ណ្ណប្រាក់បៀវត្ស",
+  "Payment currency": "រូបិយប័ណ្ណបង់ប្រាក់",
+  "Net salary (KHR)": "ប្រាក់បៀវត្សសុទ្ធ (KHR)",
+  "Gross salary (KHR)": "ប្រាក់បៀវត្សដុល (KHR)",
+  "Net (KHR)": "សុទ្ធ (KHR)",
+  "Gross (KHR)": "ដុល (KHR)",
+  "Net paid (KHR)": "បានបង់សុទ្ធ (KHR)",
+  "Gross payment (KHR)": "ការបង់ដុល (KHR)"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8136,6 +8154,28 @@ function MonthlyView({
     done: !!local.filed || local.reviewStatus === "submitted"
   }];
   const LAST_STEP = 6;
+  // 입력 통화: 칸마다 USD/KHR을 고를 수 있다 (저장 값은 USD, 고른 통화는 inputCcy 에 기억)
+  const ccyOf = field => local.inputCcy && local.inputCcy[field] || "USD";
+  const setCcy = (field, c) => setLocal({
+    ...local,
+    inputCcy: {
+      ...(local.inputCcy || {}),
+      [field]: c
+    }
+  });
+  // 환율을 바꿔도 KHR로 입력한 칸의 리엘 금액은 그대로 두고 USD 쪽을 다시 계산한다
+  const changeRate = v => {
+    const oldR = calc.rate,
+      newR = Number(v) || 0;
+    const next = {
+      ...local,
+      exchangeRate: v
+    };
+    if (newR > 0 && oldR > 0) for (const [field, c] of Object.entries(local.inputCcy || {})) {
+      if (c === "KHR" && local[field] !== "" && local[field] != null) next[field] = String(Number(local[field]) * oldR / newR);
+    }
+    setLocal(next);
+  };
   const whtSplit = (local.withholding || []).reduce((a, w) => {
     const k = w.category === "rent" ? "rent" : w.category === "nonresident" ? "nonresident" : "resident";
     a[k] += Number(w.taxKHR) || 0;
@@ -8442,6 +8482,7 @@ function MonthlyView({
     disabled: locked,
     style: S.lockFieldset
   }, step === 1 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    rate: calc.rate,
     code: "70013",
     title: en ? "Salary Tax · Fringe Benefit Tax" : "급여세 · 부가급여세",
     intro: en ? "Tax on salaries paid this month. Enter the staff below; the tax is calculated from their salaries and dependents." : "이번 달 지급한 급여에 대한 세금이에요. 아래에 직원을 입력하면 급여와 부양가족으로 세금이 계산돼요.",
@@ -8527,15 +8568,19 @@ function MonthlyView({
       title: lang === "en" ? "Switch between gross/net entry" : "세전/세후 입력 전환"
     }, isNet ? lang === "en" ? "Net" : "세후" : lang === "en" ? "Gross" : "세전"), /*#__PURE__*/React.createElement("input", {
       className: "employee-amount",
-      "aria-label": isNet ? lang === "en" ? "Net salary (USD)" : "세후 급여 (USD)" : lang === "en" ? "Gross salary (USD)" : "세전 급여 (USD)",
+      "aria-label": (isNet ? lang === "en" ? "Net salary (USD)" : "세후 급여 (USD)" : lang === "en" ? "Gross salary (USD)" : "세전 급여 (USD)").replace("USD", e.currency === "KHR" ? "KHR" : "USD"),
       style: {
         ...S.input,
         width: 110
       },
       type: "number",
-      placeholder: isNet ? lang === "en" ? "Net (USD)" : "세후 (USD)" : lang === "en" ? "Gross (USD)" : "세전 (USD)",
+      placeholder: (isNet ? lang === "en" ? "Net (USD)" : "세후 (USD)" : lang === "en" ? "Gross (USD)" : "세전 (USD)").replace("USD", e.currency === "KHR" ? "KHR" : "USD"),
       value: e.gross,
       onChange: ev => updateEmployee(e.id, "gross", ev.target.value)
+    }), /*#__PURE__*/React.createElement(CcySelect, {
+      value: e.currency,
+      label: lang === "en" ? "Salary currency" : "급여 통화",
+      onChange: c => updateEmployee(e.id, "currency", c)
     }), /*#__PURE__*/React.createElement("button", {
       style: S.buttonGhostSmall,
       "aria-label": lang === "en" ? "Remove employee" : "직원 삭제",
@@ -8644,6 +8689,7 @@ function MonthlyView({
     }),
     disabled: locked
   })), step === 2 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    rate: calc.rate,
     code: "70012",
     title: en ? "Prepayment of Income Tax (1%)" : "선납이윤세 (매출의 1%)",
     intro: en ? "1% of this month's sales before VAT, including non-taxable sales. Sales are entered in the VAT tab." : "이번 달 매출(VAT 제외)의 1%예요. 면세 매출도 포함돼요. 매출은 VAT 탭에서 입력해요.",
@@ -8669,6 +8715,7 @@ function MonthlyView({
     style: S.buttonGhost,
     onClick: () => goStep(4)
   }, en ? "Enter sales in the VAT tab" : "VAT 탭에서 매출 입력"))), step === 3 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    rate: calc.rate,
     code: "70014 · 70012",
     title: en ? "Withholding Tax" : "원천세",
     intro: en ? "Tax withheld when paying rent, service fees, interest or non-residents. Receipts registered in the VAT tab with a withholding type appear here automatically; add others below." : "임차료·용역비·이자나 비거주자에게 지급할 때 떼는 세금이에요. VAT 탭에서 원천세 유형을 고른 증빙은 여기에 자동으로 들어오고, 그 밖의 건은 아래에서 추가하세요.",
@@ -8693,6 +8740,7 @@ function MonthlyView({
       withholding: (local.withholding || []).filter(w => w.id !== id)
     })
   })), step === 4 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    rate: calc.rate,
     code: "70022",
     title: en ? "Value Added Tax" : "부가가치세 (VAT)",
     intro: en ? "Output VAT on sales minus input VAT on purchases. Enter sales, purchases and receipts below." : "매출세액에서 매입세액을 뺀 금액이에요. 아래에 매출과 매입·경비 증빙을 입력하세요.",
@@ -8743,10 +8791,7 @@ function MonthlyView({
     onClick: () => setRateOpen(!rateOpen)
   }, rateOpen ? en ? "Close" : "닫기" : en ? "Change" : "바꾸기")), rateOpen && /*#__PURE__*/React.createElement(ExchangeRatePanel, {
     rate: local.exchangeRate,
-    onChangeRate: v => setLocal({
-      ...local,
-      exchangeRate: v
-    }),
+    onChangeRate: changeRate,
     settings: settings,
     onUpdateSettings: onUpdateSettings
   }), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
@@ -8768,6 +8813,9 @@ function MonthlyView({
     label: en ? "Sales" : "매출액",
     ariaLabel: en ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)",
     value: local.revenue,
+    rate: calc.rate,
+    ccy: ccyOf("revenue"),
+    onCcy: c => setCcy("revenue", c),
     onChange: v => setLocal({
       ...local,
       revenue: v
@@ -8779,6 +8827,9 @@ function MonthlyView({
     sub: en ? "— no VAT (counted for the 1% prepayment)" : "— VAT 없는 매출 (선납이윤세 1%에는 포함)",
     ariaLabel: en ? "Non-taxable sales (USD)" : "면세 매출 (USD)",
     value: local.nonTaxableRevenue,
+    rate: calc.rate,
+    ccy: ccyOf("nonTaxableRevenue"),
+    onCcy: c => setCcy("nonTaxableRevenue", c),
     onChange: v => setLocal({
       ...local,
       nonTaxableRevenue: v
@@ -8790,6 +8841,9 @@ function MonthlyView({
     sub: en ? "— only those without an uploaded invoice" : "— 증빙을 안 올린 분만",
     ariaLabel: en ? "Purchases without an uploaded invoice (USD, before VAT)" : "매입액 — 증빙을 올리지 않은 분 (USD, VAT 제외)",
     value: local.purchase,
+    rate: calc.rate,
+    ccy: ccyOf("purchase"),
+    onCcy: c => setCcy("purchase", c),
     onChange: v => setLocal({
       ...local,
       purchase: v
@@ -8801,6 +8855,9 @@ function MonthlyView({
     sub: en ? "— without receipts" : "— 증빙 없는 분",
     ariaLabel: en ? "Other expenses without receipts (USD)" : "기타 경비 — 증빙 없는 분 (USD)",
     value: local.expenses,
+    rate: calc.rate,
+    ccy: ccyOf("expenses"),
+    onCcy: c => setCcy("expenses", c),
     onChange: v => setLocal({
       ...local,
       expenses: v
@@ -8899,10 +8956,7 @@ function MonthlyView({
     withholding: local.withholding || [],
     evidence: local.evidence || [],
     exchangeRate: local.exchangeRate,
-    onChangeExchangeRate: v => setLocal({
-      ...local,
-      exchangeRate: v
-    }),
+    onChangeExchangeRate: changeRate,
     onAdd: (item, whtItem) => setLocal({
       ...local,
       evidence: [...(local.evidence || []), item],
@@ -8945,6 +8999,7 @@ function MonthlyView({
       withholding: (local.withholding || []).filter(w => w.fromEvidenceId !== id)
     })
   }))), step === 5 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    rate: calc.rate,
     code: "70035 · 70031 · 70034 · 70045",
     title: en ? "Other taxes" : "기타 세목",
     intro: en ? "Public Lighting Tax, Specific Tax and Accommodation Tax. Most companies have nothing to enter here." : "공공조명세·특별세·숙박세예요. 대부분의 회사는 여기에 입력할 것이 없어요.",
@@ -9076,7 +9131,14 @@ function MonthlyView({
         fontWeight: 600,
         padding: "4px 0 4px 10px"
       }
-    }, en ? "Tax to pay" : "납부세액"), credit && /*#__PURE__*/React.createElement("th", {
+    }, en ? "Tax to pay" : "납부세액", " (KHR)"), /*#__PURE__*/React.createElement("th", {
+      scope: "col",
+      style: {
+        ...num,
+        fontWeight: 600,
+        padding: "4px 0 4px 10px"
+      }
+    }, "USD"), credit && /*#__PURE__*/React.createElement("th", {
       scope: "col",
       style: {
         ...num,
@@ -9119,7 +9181,13 @@ function MonthlyView({
         ...num,
         fontWeight: v ? 600 : 400
       }
-    }, fmt(v)), credit && /*#__PURE__*/React.createElement("td", {
+    }, fmt(v)), /*#__PURE__*/React.createElement("td", {
+      "data-usd": true,
+      style: {
+        ...num,
+        color: PALETTE.inkSoft
+      }
+    }, fmtUsd(v / calc.rate)), credit && /*#__PURE__*/React.createElement("td", {
       style: num
     }, cf ? fmt(cf) : "0"))), /*#__PURE__*/React.createElement("tr", {
       style: {
@@ -9136,7 +9204,10 @@ function MonthlyView({
     }, fmt(calc.vatCreditBF)), /*#__PURE__*/React.createElement("td", {
       "data-p101-total": true,
       style: num
-    }, fmt(calc.totalDue)), credit && /*#__PURE__*/React.createElement("td", {
+    }, fmt(calc.totalDue)), /*#__PURE__*/React.createElement("td", {
+      "data-usd": true,
+      style: num
+    }, fmtUsd(calc.totalDue / calc.rate)), credit && /*#__PURE__*/React.createElement("td", {
       style: num
     }, fmt(calc.vatCreditCF)))));
   })(), /*#__PURE__*/React.createElement("div", {
@@ -9357,7 +9428,13 @@ function MonthlyView({
       fontWeight: 600,
       color: PALETTE.inkSoft
     }
-  }, "KHR"))), /*#__PURE__*/React.createElement("div", {
+  }, "KHR"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 500,
+      color: PALETTE.inkSoft
+    }
+  }, ` · $${fmtUsd(calc.totalDue / calc.rate)}`))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: step > 1 ? "48px minmax(0, 1fr) minmax(0, 1.4fr)" : "minmax(0, 1fr) minmax(0, 1.4fr)",
@@ -11985,12 +12062,22 @@ function InvoiceDocsPanel({
   // 접으면 한 건도 보이지 않는다 (증빙 없는 건만 보기는 접혀 있어도 그 건들을 보여 준다)
   const shownRows = filterOn ? sortedRows.filter(([d]) => !hasDoc(d) || editId === d.id) : listOpen ? sortedRows : [];
   const salesVatUSD = salesDocs.filter(d => d.taxType !== "nontax").reduce((a, d) => a + toUSD(Number(d.vat) || 0, d.currency), 0);
+  // 리엘 합계는 인보이스별 환율이 있으면 그 환율로
+  const toKHR = (n, d) => d.currency === "KHR" ? Number(n) || 0 : (Number(n) || 0) * (Number(d.fx) || R);
+  const sumKHR = (list, pick) => list.reduce((a, d) => a + toKHR(pick(d), d), 0);
+  const taxDocs = salesDocs.filter(d => d.taxType !== "nontax"),
+    ntDocs = salesDocs.filter(d => d.taxType === "nontax");
+  const both = (u, k) => `${usd(u)} · ${fmt(k)} KHR`;
   const purSumUSD = purchaseDocs.reduce((a, d) => a + (d.currency === "KHR" ? (Number(d.amountKHR) || 0) / R : Number(d.amount) || 0), 0);
   const purVatUSD = purchaseDocs.reduce((a, d) => a + (Number(d.vatAmountKHR) || 0) / (Number(d.fx) || R), 0);
   const row = (d, k) => {
     const name = k === "sales" ? d.customer : d.vendor;
     const date = k === "sales" ? d.date : d.txDate;
-    const amt = k === "sales" ? money(d.subtotal, d.currency) : money(d.amount, d.currency);
+    const amt = /*#__PURE__*/React.createElement(DualAmount, {
+      amount: k === "sales" ? d.subtotal : d.amount,
+      currency: d.currency,
+      rate: Number(d.fx) || R
+    });
     if (editId === d.id && editF) {
       return /*#__PURE__*/React.createElement("div", {
         key: d.id,
@@ -12030,7 +12117,10 @@ function InvoiceDocsPanel({
     }
     return /*#__PURE__*/React.createElement("div", {
       key: d.id,
-      style: S.evidenceRow
+      style: {
+        ...S.evidenceRow,
+        flexWrap: "wrap"
+      }
     }, /*#__PURE__*/React.createElement(ZoomThumb, {
       src: d.thumbnail,
       driveId: d.driveId,
@@ -12038,7 +12128,7 @@ function InvoiceDocsPanel({
       caption: [d.date || d.txDate, d.invoiceNo, d.customer || d.vendor].filter(Boolean).join(" · ")
     }), /*#__PURE__*/React.createElement("div", {
       style: {
-        flex: 1,
+        flex: "1 1 170px",
         minWidth: 0
       }
     }, /*#__PURE__*/React.createElement("div", {
@@ -12069,11 +12159,12 @@ function InvoiceDocsPanel({
       }
     }, en ? "No document" : "증빙 없음"), [date, k === "sales" ? d.invoiceNo : (d.description || "").replace(/^Invoice /, "#"), k === "sales" ? d.taxType === "nontax" ? en ? "non-taxable" : "면세" : d.taxType === "b2c" ? en ? "consumer · before VAT" : "소비자 · VAT 제외" : en ? "before VAT" : "VAT 제외" : d.isVatInvoice ? en ? "incl. VAT" : "VAT 포함" : ""].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 14,
-        fontWeight: 600,
-        whiteSpace: "nowrap"
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        marginLeft: "auto"
       }
-    }, amt), !disabled && /*#__PURE__*/React.createElement("button", {
+    }, amt, !disabled && /*#__PURE__*/React.createElement("button", {
       type: "button",
       style: S.buttonGhostSmall2,
       onClick: () => startEdit(d, k)
@@ -12082,7 +12173,7 @@ function InvoiceDocsPanel({
       style: S.buttonGhostSmall,
       "aria-label": en ? "Delete document" : "문서 삭제",
       onClick: () => remove(d, k)
-    }, "✕"));
+    }, "✕")));
   };
   return /*#__PURE__*/React.createElement("section", {
     "aria-label": en ? "Invoices by photo" : "인보이스 사진으로 입력",
@@ -12237,10 +12328,10 @@ function InvoiceDocsPanel({
     onClick: () => setOpenState(false)
   }, en ? "Hide the list" : "문서 접기"), salesDocs.length > 0 && /*#__PURE__*/React.createElement(TotalsBox, {
     title: en ? `Sales invoices: ${salesDocs.length}` : `매출 인보이스 ${salesDocs.length}건 합계`,
-    rows: [[en ? "Taxable supply (before VAT)" : "과세 공급가액 (VAT 제외)", usd(salesSumUSD)], [en ? "Non-taxable supply" : "면세 공급가액", usd(nonTaxSumUSD)], [en ? "VAT" : "부가세 (VAT)", usd(salesVatUSD)], [en ? "Total incl. VAT" : "합계 (VAT 포함)", usd(salesSumUSD + nonTaxSumUSD + salesVatUSD), true]]
+    rows: [[en ? "Taxable supply (before VAT)" : "과세 공급가액 (VAT 제외)", both(salesSumUSD, sumKHR(taxDocs, d => d.subtotal))], [en ? "Non-taxable supply" : "면세 공급가액", both(nonTaxSumUSD, sumKHR(ntDocs, d => d.subtotal))], [en ? "VAT" : "부가세 (VAT)", both(salesVatUSD, sumKHR(taxDocs, d => d.vat))], [en ? "Total incl. VAT" : "합계 (VAT 포함)", both(salesSumUSD + nonTaxSumUSD + salesVatUSD, sumKHR(salesDocs, d => (Number(d.subtotal) || 0) + (d.taxType === "nontax" ? 0 : Number(d.vat) || 0))), true]]
   }), purchaseDocs.length > 0 && /*#__PURE__*/React.createElement(TotalsBox, {
     title: en ? `Purchase invoices: ${purchaseDocs.length}` : `매입 인보이스 ${purchaseDocs.length}건 합계`,
-    rows: [[en ? "Supply (before VAT)" : "공급가액 (VAT 제외)", usd(purSumUSD - purVatUSD)], [en ? "VAT" : "부가세 (VAT)", usd(purVatUSD)], [en ? "Total incl. VAT" : "합계 (VAT 포함)", usd(purSumUSD), true]]
+    rows: [[en ? "Supply (before VAT)" : "공급가액 (VAT 제외)", both(purSumUSD - purVatUSD, purchaseDocs.reduce((a, d) => a + (Number(d.amountKHR) || 0) - (Number(d.vatAmountKHR) || 0), 0))], [en ? "VAT" : "부가세 (VAT)", both(purVatUSD, purchaseDocs.reduce((a, d) => a + (Number(d.vatAmountKHR) || 0), 0))], [en ? "Total incl. VAT" : "합계 (VAT 포함)", both(purSumUSD, purchaseDocs.reduce((a, d) => a + (Number(d.amountKHR) || 0), 0)), true]]
   }), salesDocs.length > 0 && (Math.abs(salesSumUSD - (Number(local.revenue) || 0)) > 0.01 || Math.abs(nonTaxSumUSD - (Number(local.nonTaxableRevenue) || 0)) > 0.01) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
@@ -12560,8 +12651,10 @@ function TaxCalcCard({
   intro,
   rows,
   total,
-  foot
+  foot,
+  rate
 }) {
+  const r = Number(rate) || DEFAULT_EXCHANGE_RATE;
   return /*#__PURE__*/React.createElement("section", {
     "data-taxcard": true,
     style: {
@@ -12616,7 +12709,13 @@ function TaxCalcCard({
       whiteSpace: "nowrap",
       fontWeight: v ? 600 : 400
     }
-  }, v < 0 ? "−" : "", fmt(Math.abs(v))))), /*#__PURE__*/React.createElement("div", {
+  }, v < 0 ? "−" : "", fmt(Math.abs(v)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: PALETTE.inkSoft,
+      fontSize: 12.5
+    }
+  }, ` KHR · $${fmtUsd(Math.abs(v) / r)}`)))), /*#__PURE__*/React.createElement("div", {
     "data-taxcard-total": true,
     style: {
       display: "flex",
@@ -12636,6 +12735,12 @@ function TaxCalcCard({
     }
   }, total[0]), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: "inline-flex",
+      flexDirection: "column",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
       fontSize: 19,
       whiteSpace: "nowrap"
     }
@@ -12644,7 +12749,13 @@ function TaxCalcCard({
       fontSize: 13,
       fontWeight: 600
     }
-  }, "KHR"))), foot && /*#__PURE__*/React.createElement("div", {
+  }, "KHR")), /*#__PURE__*/React.createElement("span", {
+    "data-usd": true,
+    style: {
+      fontSize: 12.5,
+      fontWeight: 600
+    }
+  }, "≈ $", fmtUsd(total[1] / r)))), foot && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
@@ -12659,8 +12770,15 @@ function MoneyField({
   ariaLabel,
   value,
   onChange,
-  helper
+  helper,
+  ccy,
+  onCcy,
+  rate
 }) {
+  // 저장은 항상 USD. KHR로 고르면 화면에는 리엘로 보이고, 입력한 리엘을 환율로 나눠 USD로 저장한다
+  const r = Number(rate) || DEFAULT_EXCHANGE_RATE;
+  const khr = ccy === "KHR";
+  const shown = value === "" || value == null ? "" : khr ? String(Math.round(Number(value) * r)) : value;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -12688,22 +12806,35 @@ function MoneyField({
       fontSize: 18,
       color: PALETTE.inkSoft
     }
-  }, "$"), /*#__PURE__*/React.createElement("input", {
+  }, khr ? "៛" : "$"), /*#__PURE__*/React.createElement("input", {
     id: id,
-    "aria-label": ariaLabel,
+    "aria-label": khr ? String(ariaLabel || "").replace("USD", "KHR") : ariaLabel,
     type: "number",
     inputMode: "decimal",
-    placeholder: "0.00",
-    value: value ?? "",
-    onChange: e => onChange(e.target.value),
+    placeholder: khr ? "0" : "0.00",
+    value: shown,
+    onChange: e => onChange(e.target.value === "" ? "" : khr ? String(Number(e.target.value) / r) : e.target.value),
     style: S.moneyInput
-  }), /*#__PURE__*/React.createElement("span", {
+  }), onCcy ? /*#__PURE__*/React.createElement(CcySelect, {
+    value: ccy,
+    onChange: onCcy,
+    label: `Currency: ${id}`,
+    style: {
+      border: "none",
+      background: "transparent"
+    }
+  }) : /*#__PURE__*/React.createElement("span", {
     "aria-hidden": "true",
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft
     }
-  }, "USD")), helper ? /*#__PURE__*/React.createElement("div", {
+  }, "USD")), khr && Number(value) > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, "≈ $", fmtUsd(Number(value))) : helper ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: PALETTE.inkSoft,
@@ -13170,6 +13301,72 @@ function AttachDocBox({
     }
   }, error));
 }
+// 금액을 두 통화로 함께: 원래 통화를 앞에, 환산 금액을 뒤에
+function dualMoney(amount, currency, rate) {
+  const a = Number(amount) || 0,
+    r = Number(rate) || DEFAULT_EXCHANGE_RATE;
+  return currency === "KHR" ? `${fmt(a)} KHR · $${fmtUsd(a / r)}` : `$${fmtUsd(a)} · ${fmt(a * r)} KHR`;
+}
+const khrUsd = (khr, rate) => `${fmt(khr)} KHR · $${fmtUsd((Number(khr) || 0) / (Number(rate) || DEFAULT_EXCHANGE_RATE))}`;
+// 목록 행 오른쪽의 금액: 원래 통화(굵게) 아래에 환산 금액(작게)
+function DualAmount({
+  amount,
+  currency,
+  rate
+}) {
+  const a = Number(amount) || 0,
+    r = Number(rate) || DEFAULT_EXCHANGE_RATE;
+  const khr = currency === "KHR";
+  return /*#__PURE__*/React.createElement("span", {
+    "data-dual": true,
+    style: {
+      display: "inline-flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      whiteSpace: "nowrap",
+      lineHeight: 1.35
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14.5,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, khr ? `${fmt(a)} KHR` : `$${fmtUsd(a)}`), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: PALETTE.inkSoft
+    }
+  }, khr ? `$${fmtUsd(a / r)}` : `${fmt(a * r)} KHR`));
+}
+// 입력 칸 옆의 통화 고르기
+function CcySelect({
+  value,
+  onChange,
+  label,
+  style
+}) {
+  return /*#__PURE__*/React.createElement("select", {
+    "data-ccy": true,
+    "aria-label": label || "Currency",
+    value: value || "USD",
+    onChange: e => onChange(e.target.value),
+    style: {
+      ...S.select,
+      width: 78,
+      minHeight: 36,
+      padding: "4px 6px",
+      fontSize: 13.5,
+      flexShrink: 0,
+      ...(style || {})
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"), /*#__PURE__*/React.createElement("option", {
+    value: "KHR"
+  }, "KHR"));
+}
+
 // 목록 정렬 고르기 (날짜순, 경비는 항목별도)
 function SortSelect({
   value,
@@ -13262,7 +13459,7 @@ function TotalsBox({
     }
   }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
     style: {
-      whiteSpace: "nowrap"
+      textAlign: "right"
     }
   }, value))));
 }
@@ -14362,7 +14559,10 @@ function EvidencePanel({
       }
       return /*#__PURE__*/React.createElement("div", {
         key: e.id,
-        style: S.evidenceRow
+        style: {
+          ...S.evidenceRow,
+          flexWrap: "wrap"
+        }
       }, e.thumbnail ? /*#__PURE__*/React.createElement("button", {
         type: "button",
         style: S.thumbButton,
@@ -14379,7 +14579,7 @@ function EvidencePanel({
         style: S.thumbSmall
       })) : null, /*#__PURE__*/React.createElement("div", {
         style: {
-          flex: 1,
+          flex: "1 1 170px",
           minWidth: 0
         }
       }, /*#__PURE__*/React.createElement("div", {
@@ -14424,12 +14624,16 @@ function EvidencePanel({
         }, shown) : null;
       })()), /*#__PURE__*/React.createElement("span", {
         style: {
-          fontSize: 14.5,
-          fontWeight: 600,
-          color: PALETTE.ink,
-          whiteSpace: "nowrap"
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          marginLeft: "auto"
         }
-      }, e.currency === "USD" ? `$${(Number(e.amount) || 0).toFixed(2)}` : `${fmt(e.amount)} KHR`), /*#__PURE__*/React.createElement("button", {
+      }, /*#__PURE__*/React.createElement(DualAmount, {
+        amount: e.amount,
+        currency: e.currency,
+        rate: Number(e.fx) || Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
+      }), /*#__PURE__*/React.createElement("button", {
         type: "button",
         style: S.buttonGhostSmall2,
         onClick: () => {
@@ -14451,7 +14655,7 @@ function EvidencePanel({
         style: S.buttonGhostSmall,
         "aria-label": lang === "en" ? "Delete receipt" : "증빙 삭제",
         onClick: () => onRemove(e.id)
-      }, "✕"));
+      }, "✕")));
     })();
     return groupHead ? /*#__PURE__*/React.createElement(React.Fragment, {
       key: e.id
@@ -14460,18 +14664,22 @@ function EvidencePanel({
     style: S.divider
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Supply before VAT" : "공급가액 합계 (VAT 제외)",
-    value: totalExpenseKHR - totalVatKHR
+    value: totalExpenseKHR - totalVatKHR,
+    usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Total input VAT from receipts" : "증빙 기반 매입세액 합계",
     value: totalVatKHR,
-    bold: true
+    bold: true,
+    usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Total expenses from receipts" : "증빙 기반 경비 합계",
     value: totalExpenseKHR,
-    bold: true
+    bold: true,
+    usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Withholding tax on these receipts" : "원천세 합계 (이 증빙에서 생긴 것)",
-    value: (withholding || []).filter(w => w.fromEvidenceId && evidence.some(x => x.id === w.fromEvidenceId)).reduce((a, w) => a + (Number(w.taxKHR) || 0), 0)
+    value: (withholding || []).filter(w => w.fromEvidenceId && evidence.some(x => x.id === w.fromEvidenceId)).reduce((a, w) => a + (Number(w.taxKHR) || 0), 0),
+    usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
   }))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
@@ -14735,8 +14943,11 @@ function WithholdingPanel({
   const {
     totalTaxKHR
   } = withholdingTotals(items);
+  const [addCcy, setAddCcy] = useState("USD");
+  // 리엘로 입력하면 환율로 나눠 USD로 바꿔 계산·저장한다 (원래 입력한 리엘 금액도 함께 기록)
+  const amountUSD = addCcy === "KHR" ? (Number(amount) || 0) / (Number(exchangeRate) || DEFAULT_EXCHANGE_RATE) : amount;
   const preview = withholdingAmountsFromEntry({
-    amountUSD: amount,
+    amountUSD,
     mode,
     category,
     rate: exchangeRate
@@ -14744,7 +14955,7 @@ function WithholdingPanel({
   const handleAdd = () => {
     if (!payee.trim() || !amount || Number(amount) <= 0) return;
     const calc = withholdingAmountsFromEntry({
-      amountUSD: amount,
+      amountUSD,
       mode,
       category,
       rate: exchangeRate
@@ -14753,7 +14964,11 @@ function WithholdingPanel({
       id: uid(),
       category,
       payee: payee.trim(),
-      amount: Number(amount),
+      amount: Number(amountUSD),
+      ...(addCcy === "KHR" ? {
+        currency: "KHR",
+        enteredKHR: Number(amount)
+      } : {}),
       mode,
       amountKHR: calc.grossKHR,
       rate: calc.catRate,
@@ -14907,16 +15122,23 @@ function WithholdingPanel({
     onClick: () => setMode(mode === "net" ? "gross" : "net"),
     title: lang === "en" ? "Switch between gross (before withholding) / net (after withholding) entry" : "공제 전(세전)/공제 후(세후) 입력 전환"
   }, mode === "net" ? lang === "en" ? "Net (after WHT)" : "세후 (공제 후)" : lang === "en" ? "Gross (before WHT)" : "세전 (공제 전)"), /*#__PURE__*/React.createElement("input", {
-    "aria-label": mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross payment (USD)" : "총지급액 (USD)",
+    "aria-label": (mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross payment (USD)" : "총지급액 (USD)").replace("USD", addCcy),
     style: {
       ...S.input,
       flex: "1 1 150px",
       minWidth: 120
     },
     type: "number",
-    placeholder: mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross (USD)" : "총지급액 (USD)",
+    placeholder: (mode === "net" ? lang === "en" ? "Net paid (USD)" : "실지급액 (USD)" : lang === "en" ? "Gross (USD)" : "총지급액 (USD)").replace("USD", addCcy),
     value: amount,
     onChange: e => setAmount(e.target.value)
+  }), /*#__PURE__*/React.createElement(CcySelect, {
+    value: addCcy,
+    onChange: setAddCcy,
+    label: lang === "en" ? "Payment currency" : "지급 통화",
+    style: {
+      minHeight: 44
+    }
   }), /*#__PURE__*/React.createElement("button", {
     style: S.buttonGhost,
     onClick: handleAdd
@@ -18122,7 +18344,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v13-nssf';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v14-ccy';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -18622,7 +18844,7 @@ function empGrossFromNet(e, net) {
   return Math.round(hi);
 }
 function empGrossKHR(e, rate) {
-  var entered = (Number(e.gross) || 0) * rate;
+  var entered = e.currency === 'KHR' ? (Number(e.gross) || 0) : (Number(e.gross) || 0) * rate;
   return e.mode === 'net' ? empGrossFromNet(e, entered) : entered;
 }
 
@@ -19655,7 +19877,8 @@ function NumberRow({
   value,
   bold,
   big,
-  noFmt
+  noFmt,
+  usdRate
 }) {
   return /*#__PURE__*/React.createElement("div", {
     style: S.numRow
@@ -19683,7 +19906,13 @@ function NumberRow({
       fontSize: big ? 20 : 14,
       color: big ? PALETTE.teal : PALETTE.ink
     }
-  }, noFmt ? value : `${fmt(value)} KHR`));
+  }, noFmt ? value : `${fmt(value)} KHR`, !noFmt && usdRate > 0 && value > 0 ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FONT.body,
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, ` · $${fmtUsd(value / usdRate)}`) : null));
 }
 function VatBreakdownRow({
   bd

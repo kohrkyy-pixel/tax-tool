@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.11";
+const APP_RELEASE = "2026.11.17.12";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.12",
+  ko: ["매출·매입 인보이스 목록에도 등록 건수와 증빙 건수를 보여 줘요 — 증빙 없는 인보이스만 골라 보고, [수정/추가]에서 사진이나 PDF를 그 건에 바로 올릴 수 있어요"],
+  en: ["Sales and purchase invoice lists now show how many have a document — filter to the ones missing, and press Edit / Add to upload a photo or PDF to that invoice"]
+}, {
   version: "2026.11.17.11",
   ko: ["경비 건수와 증빙이 붙은 건수를 나란히 보여 줘요 — 증빙 없는 건만 골라 볼 수 있어요", "증빙 없는 경비는 [수정/추가]에서 사진이나 PDF를 그 건에 바로 올릴 수 있어요"],
   en: ["Expense count and documents attached are shown side by side — filter to the ones still missing a document", "For an expense without a document, press Edit / Add to upload a photo or PDF straight to that expense"]
@@ -4161,7 +4165,12 @@ const KM_DICT = {
   "Replace document": "ប្តូរឯកសារ",
   "Add document": "បន្ថែមឯកសារ",
   "Document for this expense": "ឯកសារសម្រាប់ចំណាយនេះ",
-  "Edit / Add": "កែ / បន្ថែម"
+  "Edit / Add": "កែ / បន្ថែម",
+  "Sales and purchase invoice lists now show how many have a document — filter to the ones missing, and press Edit / Add to upload a photo or PDF to that invoice": "បញ្ជីវិក្កយបត្រលក់ និងទិញ ឥឡូវបង្ហាញថាមានប៉ុន្មានដែលមានឯកសារ — ត្រងមើលតែអ្វីដែលខ្វះ ហើយចុច កែ / បន្ថែម ដើម្បីផ្ទុករូបថត ឬ PDF ទៅវិក្កយបត្រនោះ",
+  "{0} {1} · with document {2} · missing {3}": "{0} {1} · មានឯកសារ {2} · ខ្វះ {3}",
+  " — nothing is missing": " — គ្មានអ្វីខ្វះទេ",
+  "Invoices": "វិក្កយបត្រ",
+  "Expenses": "ចំណាយ"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -11899,7 +11908,53 @@ function InvoiceDocsPanel({
   const nonTaxSumUSD = salesDocs.filter(d => d.taxType === "nontax").reduce((a, d) => a + toUSD(d.subtotal, d.currency), 0);
   const [showAll, setShowAll] = useState(false);
   const allRows = [...salesDocs.map(d => [d, "sales"]), ...purchaseDocs.map(d => [d, "purchase"])];
-  const shownRows = showAll || allRows.length <= 6 ? allRows : allRows.slice(-5);
+  // 인보이스 사진·스캔본이 붙어 있는지 — 엑셀로만 올린 건은 증빙이 없다
+  const hasDoc = d => !!(d.thumbnail || d.driveUrl);
+  const missingCount = allRows.filter(([d]) => !hasDoc(d)).length;
+  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [attachBusy, setAttachBusy] = useState("");
+  const [attachErr, setAttachErr] = useState("");
+  const patchDoc = (id, k, patch) => setLocal(prev => k === "sales" ? {
+    ...prev,
+    salesDocs: (prev.salesDocs || []).map(x => x.id === id ? {
+      ...x,
+      ...patch
+    } : x)
+  } : {
+    ...prev,
+    evidence: (prev.evidence || []).map(x => x.id === id ? {
+      ...x,
+      ...patch
+    } : x)
+  });
+  const attachDoc = async (d, k, file) => {
+    setAttachErr("");
+    setAttachBusy(d.id);
+    try {
+      const {
+        thumb,
+        hi
+      } = await fileToDocImages(file);
+      patchDoc(d.id, k, {
+        thumbnail: thumb
+      });
+      if (onUploadImage) {
+        const nm = [k === "sales" ? d.date : d.txDate, d.invoiceNo || (k === "sales" ? d.customer : d.vendor) || "invoice"].filter(Boolean).join("_").replace(/[^\w\u1780-\u17ff가-힣.-]+/g, "_").slice(0, 60);
+        onUploadImage(hi, nm, k).then(info => {
+          if (info && info.url) patchDoc(d.id, k, {
+            driveId: info.id,
+            driveUrl: info.url
+          });
+        }).catch(() => {});
+      }
+    } catch (err) {
+      setAttachErr(docFileError(err, lang));
+    } finally {
+      setAttachBusy("");
+    }
+  };
+  const filterOn = onlyMissing && missingCount > 0;
+  const shownRows = filterOn ? allRows.filter(([d]) => !hasDoc(d) || editId === d.id) : showAll || allRows.length <= 6 ? allRows : allRows.slice(-5);
   const row = (d, k) => {
     const name = k === "sales" ? d.customer : d.vendor;
     const date = k === "sales" ? d.date : d.txDate;
@@ -11913,7 +11968,12 @@ function InvoiceDocsPanel({
           flexDirection: "column",
           gap: 10
         }
-      }, fields(editF, x => setEditF({
+      }, !disabled && /*#__PURE__*/React.createElement(AttachDocBox, {
+        has: hasDoc(d),
+        busy: attachBusy === d.id,
+        error: attachErr,
+        onPick: f => attachDoc(d, k, f)
+      }), fields(editF, x => setEditF({
         ...editF,
         ...x
       }), k), /*#__PURE__*/React.createElement("div", {
@@ -11967,7 +12027,15 @@ function InvoiceDocsPanel({
       }
     }, k === "sales" ? en ? "Sales" : "매출" : en ? "Purchase" : "매입"), name || (en ? "Name not read" : "이름 없음")), /*#__PURE__*/React.createElement("div", {
       style: S.evidenceMeta
-    }, [date, k === "sales" ? d.invoiceNo : (d.description || "").replace(/^Invoice /, "#"), k === "sales" ? d.taxType === "nontax" ? en ? "non-taxable" : "면세" : d.taxType === "b2c" ? en ? "consumer · before VAT" : "소비자 · VAT 제외" : en ? "before VAT" : "VAT 제외" : d.isVatInvoice ? en ? "incl. VAT" : "VAT 포함" : ""].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("span", {
+    }, !hasDoc(d) && /*#__PURE__*/React.createElement("span", {
+      "data-nodoc": true,
+      style: {
+        ...S.statusBadge,
+        marginRight: 6,
+        background: "#FFF1D6",
+        color: PALETTE.brassText
+      }
+    }, en ? "No document" : "증빙 없음"), [date, k === "sales" ? d.invoiceNo : (d.description || "").replace(/^Invoice /, "#"), k === "sales" ? d.taxType === "nontax" ? en ? "non-taxable" : "면세" : d.taxType === "b2c" ? en ? "consumer · before VAT" : "소비자 · VAT 제외" : en ? "before VAT" : "VAT 제외" : d.isVatInvoice ? en ? "incl. VAT" : "VAT 포함" : ""].filter(Boolean).join(" · "))), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 14,
         fontWeight: 600,
@@ -11977,7 +12045,7 @@ function InvoiceDocsPanel({
       type: "button",
       style: S.buttonGhostSmall2,
       onClick: () => startEdit(d, k)
-    }, en ? "Edit" : "수정"), !disabled && /*#__PURE__*/React.createElement("button", {
+    }, hasDoc(d) ? en ? "Edit" : "수정" : en ? "Edit / Add" : "수정/추가"), !disabled && /*#__PURE__*/React.createElement("button", {
       type: "button",
       style: S.buttonGhostSmall,
       "aria-label": en ? "Delete document" : "문서 삭제",
@@ -12095,7 +12163,18 @@ function InvoiceDocsPanel({
     type: "button",
     style: S.buttonGhost,
     onClick: () => setPending(null)
-  }, en ? "Cancel" : "취소"))), (salesDocs.length > 0 || purchaseDocs.length > 0) && /*#__PURE__*/React.createElement("div", null, allRows.length > shownRows.length && /*#__PURE__*/React.createElement("button", {
+  }, en ? "Cancel" : "취소"))), (salesDocs.length > 0 || purchaseDocs.length > 0) && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    "data-invoice-count": true
+  }, /*#__PURE__*/React.createElement(DocCountBar, {
+    total: allRows.length,
+    missing: missingCount,
+    onlyMissing: onlyMissing,
+    onToggle: () => setOnlyMissing(!onlyMissing),
+    noun: {
+      ko: "인보이스",
+      en: "Invoices"
+    }
+  })), !filterOn && allRows.length > shownRows.length && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonGhostSmall2,
@@ -12103,7 +12182,7 @@ function InvoiceDocsPanel({
       marginBottom: 4
     },
     onClick: () => setShowAll(true)
-  }, en ? `Show all ${allRows.length} documents` : `문서 ${allRows.length}건 모두 보기`), shownRows.map(([d, k]) => row(d, k)), showAll && allRows.length > 6 && /*#__PURE__*/React.createElement("button", {
+  }, en ? `Show all ${allRows.length} documents` : `문서 ${allRows.length}건 모두 보기`), shownRows.map(([d, k]) => row(d, k)), !filterOn && showAll && allRows.length > 6 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: {
       ...S.buttonGhostSmall2,
@@ -12960,6 +13039,134 @@ function UpdatePopup({
   }, en ? "OK" : "확인"))));
 }
 
+// 증빙으로 붙일 파일 → 저장용 작은 사진 + 원본 보관용 사진. 사진 또는 PDF(첫 쪽)
+async function fileToDocImages(file) {
+  if (file && (file.type === "application/pdf" || /\.pdf$/i.test(file.name || ""))) {
+    const pdfjs = await loadVendor("pdfjs");
+    const pdf = await pdfjs.getDocument({
+      data: await file.arrayBuffer(),
+      isEvalSupported: false
+    }).promise;
+    const img = await renderPdfPage(await pdf.getPage(1));
+    try {
+      pdf.destroy();
+    } catch (x) {/* 무시 */}
+    return img;
+  }
+  if (file && file.type && file.type.startsWith("image/")) {
+    const [thumb, hi] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
+    return {
+      thumb,
+      hi
+    };
+  }
+  throw new Error("TYPE");
+}
+function docFileError(err, lang) {
+  return err.message === "TYPE" ? lang === "en" ? "Choose a photo (JPG, PNG) or a PDF file." : "사진(JPG, PNG)이나 PDF 파일을 골라 주세요." : err.message === "HEIC_UNSUPPORTED" ? describeAiError(err.message, lang) : (lang === "en" ? "Could not load the file: " : "파일을 불러오지 못했어요: ") + err.message;
+}
+// 수정 화면 안의 '증빙 올리기 / 바꾸기' 칸
+function AttachDocBox({
+  has,
+  busy,
+  error,
+  onPick
+}) {
+  const lang = useLang();
+  return /*#__PURE__*/React.createElement("div", {
+    "data-attach-doc": true,
+    style: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: `1px dashed ${has ? "#B9C9C2" : PALETTE.brass}`,
+      background: has ? "#FAFCFB" : "#FFF7E6",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 160,
+      fontSize: 13.5,
+      color: has ? PALETTE.inkSoft : PALETTE.brassText
+    }
+  }, busy ? lang === "en" ? "Loading the file…" : "파일을 불러오는 중…" : has ? lang === "en" ? "A document is attached. You can replace it." : "증빙이 붙어 있어요. 다른 파일로 바꿀 수 있어요." : lang === "en" ? "No document yet — add a photo or a PDF of the receipt." : "아직 증빙이 없어요 — 영수증 사진이나 PDF를 올려 주세요."), /*#__PURE__*/React.createElement("label", {
+    style: {
+      ...S.buttonGhostSmall2,
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "gallery",
+    size: 18
+  }), has ? lang === "en" ? "Replace document" : "증빙 바꾸기" : lang === "en" ? "Add document" : "증빙 올리기", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*,.pdf,application/pdf",
+    style: {
+      display: "none"
+    },
+    "aria-label": lang === "en" ? "Document for this expense" : "이 경비의 증빙 파일",
+    onChange: ev => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (f) onPick(f);
+    }
+  })), error && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      flexBasis: "100%",
+      fontSize: 13,
+      color: PALETTE.red
+    }
+  }, error));
+}
+// 등록 건수와 증빙이 붙은 건수를 나란히 — 빠진 건만 골라 보기
+function DocCountBar({
+  total,
+  missing,
+  onlyMissing,
+  onToggle,
+  noun
+}) {
+  const lang = useLang();
+  const en = lang === "en";
+  return /*#__PURE__*/React.createElement("div", {
+    "data-doc-count": true,
+    role: "status",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      padding: "8px 12px",
+      marginBottom: 8,
+      borderRadius: 10,
+      fontSize: 14,
+      background: missing ? "#FFF7E6" : PALETTE.tealTint,
+      color: missing ? PALETTE.brassText : PALETTE.tealDeep
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 180,
+      fontWeight: 600
+    }
+  }, en ? `${noun.en} ${total} · with document ${total - missing} · missing ${missing}` : `${noun.ko} ${total}건 · 증빙 있음 ${total - missing}건 · 증빙 없음 ${missing}건`, !missing && (en ? " — nothing is missing" : " — 빠진 증빙이 없어요")), missing > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    "aria-pressed": onlyMissing,
+    style: {
+      ...S.buttonGhostSmall2,
+      background: onlyMissing ? "#fff" : "transparent"
+    },
+    onClick: onToggle
+  }, onlyMissing ? en ? "Show all" : "전체 보기" : en ? "Show missing only" : "증빙 없는 건만 보기"));
+}
+
 // 목록의 작은 증빙 사진: 누르면 크게 보기 (보기 상태를 스스로 관리)
 function ZoomThumb({
   src,
@@ -13137,22 +13344,10 @@ function EvidencePanel({
     setAttachErr("");
     setAttachBusy(e.id);
     try {
-      let thumb, hi;
-      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name || "")) {
-        const pdfjs = await loadVendor("pdfjs");
-        const pdf = await pdfjs.getDocument({
-          data: await file.arrayBuffer(),
-          isEvalSupported: false
-        }).promise;
-        const img = await renderPdfPage(await pdf.getPage(1));
-        try {
-          pdf.destroy();
-        } catch (x) {/* 무시 */}
-        thumb = img.thumb;
-        hi = img.hi;
-      } else if (file.type && file.type.startsWith("image/")) {
-        [thumb, hi] = await Promise.all([fileToResizedDataUrl(file), fileToRecognitionDataUrl(file)]);
-      } else throw new Error("TYPE");
+      const {
+        thumb,
+        hi
+      } = await fileToDocImages(file);
       onAttachDrive(e.id, {
         thumbnail: thumb
       });
@@ -13166,7 +13361,7 @@ function EvidencePanel({
         }).catch(() => {});
       }
     } catch (err) {
-      setAttachErr(err.message === "TYPE" ? lang === "en" ? "Choose a photo (JPG, PNG) or a PDF file." : "사진(JPG, PNG)이나 PDF 파일을 골라 주세요." : err.message === "HEIC_UNSUPPORTED" ? describeAiError(err.message, lang) : (lang === "en" ? "Could not load the file: " : "파일을 불러오지 못했어요: ") + err.message);
+      setAttachErr(docFileError(err, lang));
     } finally {
       setAttachBusy("");
     }
@@ -13759,35 +13954,17 @@ function EvidencePanel({
       color: PALETTE.inkSoft
     }
   }, lang === "en" ? "Total" : "합계", " ", fmt(totalExpenseKHR), " KHR")), /*#__PURE__*/React.createElement("div", {
-    "data-evidence-count": true,
-    role: "status",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      flexWrap: "wrap",
-      padding: "8px 12px",
-      marginBottom: 8,
-      borderRadius: 10,
-      fontSize: 14,
-      background: missingCount ? "#FFF7E6" : PALETTE.tealTint,
-      color: missingCount ? PALETTE.brassText : PALETTE.tealDeep
+    "data-evidence-count": true
+  }, /*#__PURE__*/React.createElement(DocCountBar, {
+    total: evidence.length,
+    missing: missingCount,
+    onlyMissing: onlyMissing,
+    onToggle: () => setOnlyMissing(!onlyMissing),
+    noun: {
+      ko: "경비",
+      en: "Expenses"
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1,
-      minWidth: 180,
-      fontWeight: 600
-    }
-  }, lang === "en" ? `Expenses ${evidence.length} · with document ${evidence.length - missingCount} · missing ${missingCount}` : `경비 ${evidence.length}건 · 증빙 있음 ${evidence.length - missingCount}건 · 증빙 없음 ${missingCount}건`, !missingCount && (lang === "en" ? " — every expense has its document" : " — 모든 경비에 증빙이 있어요")), missingCount > 0 && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    "aria-pressed": onlyMissing,
-    style: {
-      ...S.buttonGhostSmall2,
-      background: onlyMissing ? "#fff" : "transparent"
-    },
-    onClick: () => setOnlyMissing(!onlyMissing)
-  }, onlyMissing ? lang === "en" ? "Show all" : "전체 보기" : lang === "en" ? "Show missing only" : "증빙 없는 건만 보기")), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.panel,
       padding: "4px 14px"
@@ -13836,57 +14013,15 @@ function EvidencePanel({
       }, typeSeg(draft.evidenceType, t => set({
         evidenceType: t
       })))), onAttachDrive && /*#__PURE__*/React.createElement("div", {
-        "data-attach-doc": true,
         style: {
-          marginTop: 10,
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: `1px dashed ${hasDoc(e) ? "#B9C9C2" : PALETTE.brass}`,
-          background: hasDoc(e) ? "#FAFCFB" : "#FFF7E6",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flexWrap: "wrap"
+          marginTop: 10
         }
-      }, /*#__PURE__*/React.createElement("span", {
-        style: {
-          flex: 1,
-          minWidth: 160,
-          fontSize: 13.5,
-          color: hasDoc(e) ? PALETTE.inkSoft : PALETTE.brassText
-        }
-      }, attachBusy === e.id ? lang === "en" ? "Loading the file…" : "파일을 불러오는 중…" : hasDoc(e) ? lang === "en" ? "A document is attached. You can replace it." : "증빙이 붙어 있어요. 다른 파일로 바꿀 수 있어요." : lang === "en" ? "No document yet — add a photo or a PDF of the receipt." : "아직 증빙이 없어요 — 영수증 사진이나 PDF를 올려 주세요."), /*#__PURE__*/React.createElement("label", {
-        style: {
-          ...S.buttonGhostSmall2,
-          cursor: "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          background: "#fff"
-        }
-      }, /*#__PURE__*/React.createElement(Icon, {
-        name: "gallery",
-        size: 18
-      }), hasDoc(e) ? lang === "en" ? "Replace document" : "증빙 바꾸기" : lang === "en" ? "Add document" : "증빙 올리기", /*#__PURE__*/React.createElement("input", {
-        type: "file",
-        accept: "image/*,.pdf,application/pdf",
-        style: {
-          display: "none"
-        },
-        "aria-label": lang === "en" ? "Document for this expense" : "이 경비의 증빙 파일",
-        onChange: ev => {
-          const f = ev.target.files?.[0];
-          ev.target.value = "";
-          attachDoc(e, f);
-        }
-      })), attachErr && /*#__PURE__*/React.createElement("div", {
-        role: "alert",
-        style: {
-          flexBasis: "100%",
-          fontSize: 13,
-          color: PALETTE.red
-        }
-      }, attachErr)), /*#__PURE__*/React.createElement("div", {
+      }, /*#__PURE__*/React.createElement(AttachDocBox, {
+        has: hasDoc(e),
+        busy: attachBusy === e.id,
+        error: attachErr,
+        onPick: f => attachDoc(e, f)
+      })), /*#__PURE__*/React.createElement("div", {
         className: "form-row",
         style: {
           ...S.formRow,

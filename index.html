@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.4";
+const APP_RELEASE = "2026.11.17.5";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.5",
+  ko: ["NSSF를 직원별로 — 가입 여부와 NSSF에 신고한 임금을 직원마다 따로 넣을 수 있어요 (급여세 탭 아래 NSSF)", "NSSF 납부 확인서와 바로 비교할 수 있게 직업재해·건강보험·연금 금액을 나눠 보여 줘요"],
+  en: ["NSSF per employee — set for each person whether they are registered and the wage declared to NSSF (under the Salary tax tab)", "Occupational risk, health care and pension amounts are shown separately so they can be checked against the NSSF receipt"]
+}, {
   version: "2026.11.17.4",
   ko: ["올린 증빙·인보이스 사진을 누르면 크게 볼 수 있어요 — 매출·매입 인보이스 목록, 올리는 중인 사진, 납부 영수증 모두", "사무소 계정은 크게 보기에서 Google Drive 원본으로 더 선명하게 보이고, [원본 열기]로 바로 열 수 있어요"],
   en: ["Tap any uploaded receipt or invoice photo to view it large — sales / purchase invoice lists, photos being uploaded and payment receipts", "Office accounts see the sharper Google Drive original in the viewer and can open it with Open original"]
@@ -1325,7 +1329,9 @@ function nssfContributoryWageKHR(grossKHR) {
 }
 function calcEmployeeNssf(e, rate) {
   const grossKHR = employeeGrossKHR(e, rate);
-  const wage = nssfContributoryWageKHR(grossKHR);
+  // 직원별 설정: NSSF 미가입이면 0, NSSF에 신고한 임금이 급여와 다르면 그 금액(KHR)을 기준으로 한다
+  const declared = Number(e?.nssfWage) > 0 ? Number(e.nssfWage) : grossKHR;
+  const wage = e?.nssfExempt ? 0 : nssfContributoryWageKHR(declared);
   const employerOR = wage * NSSF_RATES.occupationalRiskEmployer;
   const employerHealthcare = wage * NSSF_RATES.healthcareEmployer;
   const employeeHealthcare = wage * NSSF_RATES.healthcareEmployee;
@@ -2004,11 +2010,24 @@ function carryForwardEmployees(filingsForClient, year, month) {
     }
     const f = filingsForClient?.[monthKey(y, m)];
     if (f && Array.isArray(f.employees) && f.employees.length > 0) {
+      // 이름·급여와 함께 잘 바뀌지 않는 설정(부양가족, 비거주자, NSSF 가입·신고 임금)도 이어받는다
       return f.employees.map(e => ({
         id: uid(),
         name: e.name || "",
         gross: e.gross || "",
-        mode: e.mode || "gross"
+        mode: e.mode || "gross",
+        ...(Number(e.dependents) > 0 ? {
+          dependents: Number(e.dependents)
+        } : {}),
+        ...(e.nonResident ? {
+          nonResident: true
+        } : {}),
+        ...(e.nssfExempt ? {
+          nssfExempt: true
+        } : {}),
+        ...(Number(e.nssfWage) > 0 ? {
+          nssfWage: e.nssfWage
+        } : {})
       }));
     }
   }
@@ -4091,7 +4110,19 @@ const KM_DICT = {
   "Receipts are picked up by their type in the VAT tab of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group.": "បង្កាន់ដៃត្រូវបានប្រមូលតាមប្រភេទរបស់វាក្នុងផ្ទាំង អតប នៃការប្រកាសប្រចាំខែ (ការកម្សាន្ត ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)។ បើបង្កាន់ដៃនៅខុសក្រុម សូមកែប្រភេទនៅទីនោះ។",
   "Tap any uploaded receipt or invoice photo to view it large — sales / purchase invoice lists, photos being uploaded and payment receipts": "ចុចលើរូបថតបង្កាន់ដៃ ឬវិក្កយបត្រដែលបានផ្ទុកឡើង ដើម្បីមើលធំ — បញ្ជីវិក្កយបត្រលក់ / ទិញ រូបថតដែលកំពុងផ្ទុកឡើង និងបង្កាន់ដៃបង់ប្រាក់",
   "Office accounts see the sharper Google Drive original in the viewer and can open it with Open original": "គណនីការិយាល័យឃើញរូបដើមច្បាស់ពី Google Drive ក្នុងផ្ទាំងមើល ហើយអាចបើកវាដោយ បើករូបដើម",
-  "Open original": "បើករូបដើម"
+  "Open original": "បើករូបដើម",
+  "NSSF per employee — set for each person whether they are registered and the wage declared to NSSF (under the Salary tax tab)": "ប.ស.ស. តាមបុគ្គលិកម្នាក់ៗ — កំណត់សម្រាប់ម្នាក់ៗថាបានចុះបញ្ជីឬអត់ និងប្រាក់ឈ្នួលដែលបានប្រកាសទៅ ប.ស.ស. (ក្រោមផ្ទាំងពន្ធលើប្រាក់បៀវត្ស)",
+  "Occupational risk, health care and pension amounts are shown separately so they can be checked against the NSSF receipt": "ចំនួនហានិភ័យការងារ ថែទាំសុខភាព និងប្រាក់សោធន ត្រូវបង្ហាញដាច់ដោយឡែក ដើម្បីផ្ទៀងផ្ទាត់ជាមួយលិខិតបញ្ជាក់ការបង់ ប.ស.ស.",
+  "{0}: registered with NSSF": "{0}៖ បានចុះបញ្ជី ប.ស.ស.",
+  "Registered": "បានចុះបញ្ជី",
+  "Not registered": "មិនបានចុះបញ្ជី",
+  "{0}: wage declared to NSSF (KHR)": "{0}៖ ប្រាក់ឈ្នួលប្រកាសទៅ ប.ស.ស. (KHR)",
+  "counted as {0}": "គណនាជា {0}",
+  "Leave the wage empty to use the salary (capped at 400,000–1,200,000 KHR). Enter the wage declared to NSSF if it is different, and untick staff who are not registered.": "ទុកប្រាក់ឈ្នួលទទេ ដើម្បីប្រើប្រាក់បៀវត្ស (កំណត់ចន្លោះ 400,000–1,200,000 KHR)។ បញ្ចូលប្រាក់ឈ្នួលដែលបានប្រកាសទៅ ប.ស.ស. បើវាខុសគ្នា ហើយដោះធីកបុគ្គលិកដែលមិនបានចុះបញ្ជី។",
+  "As on the NSSF receipt — {0} registered, wage base {1} KHR": "ដូចលើលិខិតបញ្ជាក់ ប.ស.ស. — បានចុះបញ្ជី {0} នាក់ មូលដ្ឋានប្រាក់ឈ្នួល {1} KHR",
+  "Occupational risk (0.8%)": "ហានិភ័យការងារ (0.8%)",
+  "Health care (2.6%)": "ថែទាំសុខភាព (2.6%)",
+  "Pension (4%)": "ប្រាក់សោធន (4%)"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8531,7 +8562,15 @@ function MonthlyView({
     onChangeApplicable: v => setLocal({
       ...local,
       nssfApplicable: v
-    })
+    }),
+    onUpdateEmployee: (id, patch) => setLocal({
+      ...local,
+      employees: (local.employees || []).map(x => x.id === id ? {
+        ...x,
+        ...patch
+      } : x)
+    }),
+    disabled: locked
   })), step === 2 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
     code: "70012",
     title: en ? "Prepayment of Income Tax (1%)" : "선납이윤세 (매출의 1%)",
@@ -13820,7 +13859,9 @@ function NssfPanel({
   employees,
   exchangeRate,
   applicable,
-  onChangeApplicable
+  onChangeApplicable,
+  onUpdateEmployee,
+  disabled
 }) {
   const lang = useLang();
   const rows = employees.filter(e => e.name?.trim() && e.gross).map(e => ({
@@ -13829,6 +13870,22 @@ function NssfPanel({
   }));
   const totals = calcNssfTotals(employees, exchangeRate);
   const empCount = employees.filter(e => e.name?.trim()).length;
+  const enrolled = rows.filter(({
+    e
+  }) => !e.nssfExempt).length;
+  const scheme = rows.reduce((a, {
+    n
+  }) => ({
+    or: a.or + n.employerOR,
+    hc: a.hc + n.employerHealthcare + n.employeeHealthcare,
+    pen: a.pen + n.employerPension + n.employeePension,
+    wage: a.wage + n.wage
+  }), {
+    or: 0,
+    hc: 0,
+    pen: 0,
+    wage: 0
+  });
 
   // 가입 여부 선택 영역 — 대상 사업장으로 지정해야 부담금이 계산된다
   const selector = /*#__PURE__*/React.createElement("div", {
@@ -13910,18 +13967,98 @@ function NssfPanel({
     e,
     n
   }) => /*#__PURE__*/React.createElement("tr", {
-    key: e.id
+    key: e.id,
+    style: e.nssfExempt ? {
+      color: PALETTE.inkSoft
+    } : undefined
   }, /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, e.name), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("div", null, e.name), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12.5,
+      color: PALETTE.inkSoft,
+      marginTop: 4,
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !e.nssfExempt,
+    disabled: disabled || !onUpdateEmployee,
+    "aria-label": lang === "en" ? `${e.name}: registered with NSSF` : `${e.name}: NSSF 가입`,
+    onChange: ev => onUpdateEmployee(e.id, {
+      nssfExempt: !ev.target.checked
+    }),
+    style: {
+      width: 16,
+      height: 16
+    }
+  }), lang === "en" ? "Registered" : "NSSF 가입")), /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, fmt(n.wage)), /*#__PURE__*/React.createElement("td", {
+  }, e.nssfExempt ? lang === "en" ? "Not registered" : "미가입" : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    inputMode: "numeric",
+    disabled: disabled || !onUpdateEmployee,
+    "aria-label": lang === "en" ? `${e.name}: wage declared to NSSF (KHR)` : `${e.name}: NSSF 신고 임금 (KHR)`,
+    placeholder: String(Math.round(nssfContributoryWageKHR(employeeGrossKHR(e, exchangeRate)))),
+    value: e.nssfWage ?? "",
+    onChange: ev => onUpdateEmployee(e.id, {
+      nssfWage: ev.target.value
+    }),
+    style: {
+      ...S.input,
+      width: 120,
+      minHeight: 36,
+      padding: "4px 8px",
+      fontSize: 14
+    }
+  }), Number(e.nssfWage) > 0 && Math.round(n.wage) !== Math.round(Number(e.nssfWage)) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: PALETTE.brassText,
+      marginTop: 2
+    }
+  }, lang === "en" ? `counted as ${fmt(n.wage)}` : `${fmt(n.wage)}으로 계산`))), /*#__PURE__*/React.createElement("td", {
     style: S.td
   }, fmt(n.employerTotal)), /*#__PURE__*/React.createElement("td", {
     style: S.td
   }, fmt(n.employeeTotal)), /*#__PURE__*/React.createElement("td", {
     style: S.td
   }, fmt(n.grandTotal))))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.7,
+      marginTop: 8
+    }
+  }, lang === "en" ? "Leave the wage empty to use the salary (capped at 400,000–1,200,000 KHR). Enter the wage declared to NSSF if it is different, and untick staff who are not registered." : "신고 임금을 비워 두면 급여(40만~120만 KHR 상하한)로 계산해요. NSSF에 신고한 임금이 급여와 다르면 그 금액을 넣고, 가입하지 않은 직원은 체크를 푸세요."), /*#__PURE__*/React.createElement("div", {
+    "data-nssf-scheme": true,
+    style: {
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 10,
+      background: PALETTE.paper,
+      fontSize: 13.5,
+      color: PALETTE.ink,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600
+    }
+  }, lang === "en" ? `As on the NSSF receipt — ${enrolled} registered, wage base ${fmt(scheme.wage)} KHR` : `NSSF 납부 확인서 기준 — 가입 ${enrolled}명, 기준임금 합계 ${fmt(scheme.wage)} KHR`), [[lang === "en" ? "Occupational risk (0.8%)" : "직업재해 (0.8%)", scheme.or], [lang === "en" ? "Health care (2.6%)" : "건강보험 (2.6%)", scheme.hc], [lang === "en" ? "Pension (4%)" : "연금 (4%)", scheme.pen]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
+    key: l,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", null, l), /*#__PURE__*/React.createElement("span", null, fmt(v), " KHR")))), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.draftTotal,
       marginTop: 10
@@ -17353,7 +17490,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v12-fx';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v13-nssf';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -17892,7 +18029,8 @@ function calcRow(f) {
     tos += empTax(emps[k], g);
     fbt += Math.round((Number(emps[k].fringe) || 0) * payRate * 0.2);
     if (nssfOn) {
-      var wage = g > 0 ? Math.min(Math.max(g, NSSF_MIN), NSSF_MAX) : 0;
+      var declared = Number(emps[k].nssfWage) > 0 ? Number(emps[k].nssfWage) : g;
+      var wage = emps[k].nssfExempt ? 0 : (declared > 0 ? Math.min(Math.max(declared, NSSF_MIN), NSSF_MAX) : 0);
       nssfEmployer += wage * 0.041;
       nssfEmployee += wage * 0.033;
     }

@@ -514,11 +514,11 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.8";
+const APP_RELEASE = "2026.11.17.9";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
-  version: "2026.11.17.8",
+  version: "2026.11.17.9",
   ko: ["여러 건 올리기를 매출용과 매입·경비용으로 나눴어요 — 매출 인보이스는 위쪽, 영수증·매입 증빙은 ‘매입·경비 증빙’ 아래에서 올려요", "매출 쪽에 매입 증빙을 잘못 올리면 알려 주고 등록하지 않아요"],
   en: ["Bulk upload is now separate for sales and for receipts — sales invoices at the top, receipts and purchase invoices under “Receipts & purchase invoices”", "If purchase documents are uploaded on the sales side, the app warns you and does not register them"]
 }, {
@@ -10624,7 +10624,12 @@ function BulkImportPanel({
     });
     try {
       const XLSX = await loadVendor("xlsx");
-      const wb = XLSX.read(await file.arrayBuffer(), {
+      // CSV 는 UTF-8 글자로 먼저 풀어서 넘긴다 (그냥 넘기면 크메르어·한글이 깨진다)
+      const isCsv = /\.csv$/i.test(file.name || "");
+      const wb = isCsv ? XLSX.read((await file.text()).replace(/^\uFEFF/, ""), {
+        type: "string",
+        cellNF: true
+      }) : XLSX.read(await file.arrayBuffer(), {
         type: "array",
         cellNF: true
       });

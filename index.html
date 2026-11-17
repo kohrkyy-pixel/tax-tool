@@ -514,11 +514,11 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.9";
+const APP_RELEASE = "2026.11.17.10";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
-  version: "2026.11.17.9",
+  version: "2026.11.17.10",
   ko: ["여러 건 올리기를 매출용과 매입·경비용으로 나눴어요 — 매출 인보이스는 위쪽, 영수증·매입 증빙은 ‘매입·경비 증빙’ 아래에서 올려요", "매출 쪽에 매입 증빙을 잘못 올리면 알려 주고 등록하지 않아요"],
   en: ["Bulk upload is now separate for sales and for receipts — sales invoices at the top, receipts and purchase invoices under “Receipts & purchase invoices”", "If purchase documents are uploaded on the sales side, the app warns you and does not register them"]
 }, {
@@ -4141,7 +4141,8 @@ const KM_DICT = {
   "Upload many SALES invoices at once (PDF · Excel)": "ផ្ទុកវិក្កយបត្រលក់ច្រើនក្នុងពេលតែមួយ (PDF · Excel)",
   "Upload many RECEIPTS / purchase invoices at once (PDF · Excel)": "ផ្ទុកបង្កាន់ដៃ / វិក្កយបត្រទិញច្រើនក្នុងពេលតែមួយ (PDF · Excel)",
   "Choose sales PDF or Excel file": "ជ្រើសរើសឯកសារ PDF ឬ Excel នៃការលក់",
-  "Choose receipts PDF or Excel file": "ជ្រើសរើសឯកសារ PDF ឬ Excel នៃបង្កាន់ដៃ"
+  "Choose receipts PDF or Excel file": "ជ្រើសរើសឯកសារ PDF ឬ Excel នៃបង្កាន់ដៃ",
+  "Amount read as {0}, but the handwritten “$” was probably read as 8 — matched to {1} on the same date. Please check.": "ចំនួនត្រូវបានអានជា {0} ប៉ុន្តែសញ្ញា “$” សរសេរដៃទំនងត្រូវបានអានជាលេខ 8 — បានផ្គូផ្គងនឹង {1} នៅថ្ងៃដដែល។ សូមពិនិត្យ។"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -10218,7 +10219,8 @@ For each document:
 - "party_vattin": that party's VAT TIN (one letter + 3 digits + 9 digits, e.g. K001-901234567) or null. Never return our own company's TIN.
 - "description": short English description of what was ${kind === "sales" ? "sold" : "bought or paid for"} (max 8 words).
 - "subtotal": amount BEFORE VAT; "vat": VAT amount (0 if no VAT is charged); "total": final amount.
-- "currency": "USD" or "KHR" (the currency the total is mainly stated in). Handwritten receipts without a currency sign: whole amounts of 1,000 or more are riel (KHR). "exchange_rate": KHR per 1 USD if printed, else null.
+- "currency": "USD" or "KHR" (the currency the total is mainly stated in). Handwritten receipts without a currency sign: whole amounts of 1,000 or more are riel (KHR). On handwritten receipts a "$" written right after the number (e.g. "2$" in the "Total As USD" box) is the dollar sign, not the digit 8 — read "2$" as 2 USD, never 28 or 2.8.
+- Bank transfer / fee slips (ABA etc.): "invoice_no" is the "Reference #" (e.g. 100FT39279216915); "party_name" is the bank for a "Fees & Charges" slip, otherwise the receiver. "exchange_rate": KHR per 1 USD if printed, else null.
 - "non_taxable": true if no VAT is charged (non-taxable / exempt supply, commercial invoice or receipt without VAT), else false.
 ${kind === "sales" ? '- "buyer_type": "taxpayer" if a customer VAT TIN is printed (tax invoice), otherwise "consumer" (commercial invoice).' : '- "category": one of "purchase_invoice" (goods/materials), "rent", "service_fee", "telecom", "utilities" (electricity/water), "supplies", "vehicle", "entertainment" (meals with guests), "travel", "commission" (bank fees/commissions), "welfare", "fines", "donation", "other".'}
 Return ONLY raw JSON:
@@ -10471,6 +10473,7 @@ function BulkImportPanel({
   // 이미 등록된 문서와 겹치는 행은 처음부터 선택을 빼 둔다 (PDF와 엑셀을 둘 다 올려도 두 번 잡히지 않게)
   // PDF 쪽이 이미 등록된 건과 맞으면 새로 등록하지 않고 '스캔본만 붙이기'로 돌린다
   const matchRef = useRef(null);
+  const usedRef = useRef(new Set()); // 이번 올리기에서 이미 스캔본을 붙이기로 한 문서
   // 매출로 올렸는데 '고객'이 우리 회사로 읽히면 매입 증빙을 잘못 올린 것 — 선택을 빼고 알려 준다
   const ownKey = String(ownName || "").toLowerCase().replace(/\b(co|ltd|limited|company|plc|inc)\b|[^a-z0-9\u1780-\u17ff가-힣]/g, "").slice(0, 14);
   const isSelf = name => {
@@ -10485,12 +10488,15 @@ function BulkImportPanel({
     };
     if (!x.include) return x;
     const m = pdf && matchRef.current ? matchRef.current(x, k) : null;
-    if (m) return {
-      ...x,
-      include: false,
-      attachTo: m.id,
-      matchNote: m.note
-    };
+    if (m) {
+      usedRef.current.add(m.id);
+      return {
+        ...x,
+        include: false,
+        attachTo: m.id,
+        matchNote: m.note
+      };
+    }
     return dupRef.current && dupRef.current(x, k) ? {
       ...x,
       include: false
@@ -10499,6 +10505,7 @@ function BulkImportPanel({
   const runPdf = async (file, k) => {
     const token = ++runRef.current;
     pagesRef.current = {};
+    usedRef.current = new Set();
     setJob({
       kind: k,
       type: "pdf",
@@ -10745,6 +10752,15 @@ function BulkImportPanel({
           }
         }
       }
+      // 손으로 쓴 "2$"의 $가 8로 읽히는 경우 (28, 2.8 → 2): 같은 통화에서 끝의 8만 떼면 같은 금액
+      let misread = false;
+      if (!amt && d.currency === row.currency && d.currency === "USD") {
+        const digits = n => String(r2(n)).replace(".", "");
+        if (digits(total) === digits(d.total) + "8" && dayDiff(d.date, row.date) <= 5) {
+          amt = 1;
+          misread = true;
+        }
+      }
       if (!amt) continue;
       const noOk = row.invoiceNo && d.no && alnum(row.invoiceNo).length >= 3 && (alnum(d.no) === alnum(row.invoiceNo) || alnum(d.no).endsWith(alnum(row.invoiceNo)) || alnum(row.invoiceNo).endsWith(alnum(d.no)));
       const dd = dayDiff(d.date, row.date);
@@ -10756,20 +10772,31 @@ function BulkImportPanel({
         amt,
         support,
         dd,
+        misread,
         score: amt + support + (d.has ? 0 : 0.5),
         rateUsed
       });
     }
     if (!cands.length) return null;
     cands.sort((a, b) => b.score - a.score);
-    const best = cands[0],
-      second = cands[1];
+    let best = cands[0];
+    const second = cands[1];
+    // 금액·날짜·거래처가 똑같은 건이 여러 개면(같은 날 은행 수수료 2건 등) 아직 안 쓴 것부터 차례로 붙인다
+    const twins = cands.filter(c => c.score === best.score && c.cross === best.cross && c.d.total === best.d.total && c.d.date === best.d.date && alnum(c.d.party) === alnum(best.d.party));
+    if (twins.length > 1) best = twins.find(c => !usedRef.current.has(c.d.id)) || twins[0];
     // 같은 통화: 금액이 같은 문서가 하나뿐이면 충분. 통화가 다르면 날짜·거래처·번호 중 하나는 맞아야 한다
     // (손으로 쓴 간이영수증처럼 판매처 이름이 없고 날짜가 며칠 어긋나는 경우: 환율이 딱 맞고 후보가 하나뿐이며 5일 이내면 연결)
     const loneExact = best.cross && best.amt === 2 && cands.length === 1 && (best.dd <= 5 || !row.date);
     const enough = best.cross ? best.support >= 2 || loneExact : best.support >= 1 || cands.filter(c => !c.cross).length === 1 || cands.filter(c => !c.cross && !c.d.has).length === 1;
-    if (!enough || second && second.score >= best.score && !(best.cross === false && second.cross)) return null;
+    const misreadOk = best.misread && cands.filter(c => c.misread).length === 1 && !best.d.has;
+    if (best.misread && !misreadOk) return null;
+    if (!enough && !misreadOk) return null;
+    if (twins.length <= 1 && second && second.score >= best.score && !(best.cross === false && second.cross)) return null;
     const money = (n, c) => c === "KHR" ? `${fmt(n)} KHR` : `$${fmtUsd(n)}`;
+    if (best.misread) return {
+      id: best.d.id,
+      note: en ? `Amount read as ${money(total, row.currency)}, but the handwritten “$” was probably read as 8 — matched to ${money(best.d.total, best.d.currency)} on the same date. Please check.` : `금액이 ${money(total, row.currency)}로 읽혔지만 손글씨 “$”를 8로 읽은 것으로 보여요 — 같은 날짜의 ${money(best.d.total, best.d.currency)} 건에 연결했어요. 확인해 주세요.`
+    };
     return {
       id: best.d.id,
       note: best.cross ? en ? `Matched after converting: ${money(total, row.currency)} ≈ ${money(best.d.total, best.d.currency)} (rate ${fmt(Math.round(best.rateUsed))})` : `환산해서 일치: ${money(total, row.currency)} ≈ ${money(best.d.total, best.d.currency)} (환율 ${fmt(Math.round(best.rateUsed))})` : ""

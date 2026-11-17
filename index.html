@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.18";
+const APP_RELEASE = "2026.11.17.19";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.19",
+  ko: ["세목마다 고유한 색을 넣었어요 — 급여세(남색)·선납이윤세(자주)·원천세(주황)·VAT(초록)·기타 세목(청록). 탭, 계산 카드, 신고서 표에서 같은 색으로 보여요"],
+  en: ["Each tax now has its own colour — salary tax (indigo), prepayment (plum), withholding (orange), VAT (green), other taxes (cyan) — used the same way on the tabs, the calculation card and the return table"]
+}, {
   version: "2026.11.17.18",
   ko: ["화면을 정리했어요 — VAT 탭을 ‘매출’과 ‘매입·경비’ 두 구역으로 나누고, 구역 안의 묶음은 가는 선과 작은 제목으로 구분해요", "카드 안의 카드, 왼쪽 색 띠, 점선 상자를 없애 한눈에 읽히게 했어요 (입력 내용과 계산은 그대로)"],
   en: ["Cleaner layout — the VAT tab is now two sections, Sales and Purchases & expenses, with sub-groups separated by a thin line and a small heading", "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)"]
@@ -4257,7 +4261,8 @@ const KM_DICT = {
   "Enter amounts before VAT. VAT and riel are calculated for you.": "បញ្ចូលចំនួនទឹកប្រាក់មិនរួម VAT។ VAT និងប្រាក់រៀលត្រូវបានគណនាដោយស្វ័យប្រវត្តិ។",
   "Upload each purchase invoice or receipt. The date and amount are read automatically — check them, choose the type, and register.": "បង្ហោះវិក្កយបត្រទិញ ឬបង្កាន់ដៃនីមួយៗ។ កាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ត្រូវបានអានដោយស្វ័យប្រវត្តិ — ពិនិត្យ ជ្រើសរើសប្រភេទ រួចចុះបញ្ជី។",
   "Cleaner layout — the VAT tab is now two sections, Sales and Purchases & expenses, with sub-groups separated by a thin line and a small heading": "ប្លង់កាន់តែច្បាស់ — ផ្ទាំង VAT ឥឡូវចែកជាពីរផ្នែក គឺការលក់ និងការទិញ និងចំណាយ ដោយក្រុមរងបំបែកដោយបន្ទាត់ស្តើង និងចំណងជើងតូច",
-  "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)": "បានដកកាតក្នុងកាត ឆ្នូតពណ៌ចំហៀង និងប្រអប់បន្ទាត់ដាច់ៗ ដើម្បីឱ្យអេក្រង់ងាយមើល (ទិន្នន័យ និងការគណនានៅដដែល)"
+  "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)": "បានដកកាតក្នុងកាត ឆ្នូតពណ៌ចំហៀង និងប្រអប់បន្ទាត់ដាច់ៗ ដើម្បីឱ្យអេក្រង់ងាយមើល (ទិន្នន័យ និងការគណនានៅដដែល)",
+  "Each tax now has its own colour — salary tax (indigo), prepayment (plum), withholding (orange), VAT (green), other taxes (cyan) — used the same way on the tabs, the calculation card and the return table": "ពន្ធនីមួយៗឥឡូវមានពណ៌ផ្ទាល់ខ្លួន — ពន្ធលើប្រាក់បៀវត្ស (ខៀវចាស់) ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (ស្វាយ) ពន្ធកាត់ទុក (ទឹកក្រូច) VAT (បៃតង) ពន្ធផ្សេងៗ (ខៀវបៃតង) — ប្រើដូចគ្នានៅលើផ្ទាំង កាតគណនា និងតារាងលិខិតប្រកាស"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8435,7 +8440,10 @@ function MonthlyView({
       onClick: () => goStep(st.n),
       style: {
         ...S.taxTabBtn,
-        ...(current ? S.taxTabBtnOn : {}),
+        ...(current ? {
+          background: TAX_TONE[st.n].c,
+          border: `1px solid ${TAX_TONE[st.n].c}`
+        } : {}),
         ...(st.total && !current ? {
           background: PALETTE.paper
         } : {})
@@ -8443,20 +8451,32 @@ function MonthlyView({
     }, /*#__PURE__*/React.createElement("span", {
       "aria-hidden": "true",
       style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        maxWidth: "100%",
         fontSize: 13,
         fontWeight: current ? 700 : 600,
-        color: current ? PALETTE.tealDeep : PALETTE.ink,
+        color: current ? "#fff" : PALETTE.ink,
         whiteSpace: "nowrap",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement(ToneChip, {
+      tab: st.n,
+      size: 8,
+      color: current ? "#fff" : undefined
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
         overflow: "hidden",
         textOverflow: "ellipsis"
       }
-    }, en ? st.shortEn : st.shortKo), /*#__PURE__*/React.createElement("span", {
+    }, en ? st.shortEn : st.shortKo)), /*#__PURE__*/React.createElement("span", {
       "aria-hidden": "true",
       "data-notr": true,
       style: {
         fontSize: 13.5,
         fontWeight: 700,
-        color: st.amount > 0 ? current ? PALETTE.tealDeep : PALETTE.ink : "#9AA5B1",
+        color: current ? "#fff" : st.amount > 0 ? PALETTE.ink : "#6B7783",
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis"
@@ -8527,7 +8547,11 @@ function MonthlyView({
     style: S.attentionChip
   }, lang === "en" ? `${attention} item(s) to check — see the Review tab` : `확인할 항목 ${attention}건 — 확인·제출 탭에서 보기`), /*#__PURE__*/React.createElement("fieldset", {
     disabled: locked,
-    style: S.lockFieldset
+    style: {
+      ...S.lockFieldset,
+      "--tone": TAX_TONE[step].c,
+      "--tone-tint": TAX_TONE[step].t
+    }
   }, step === 1 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
     rate: calc.rate,
     code: "70013",
@@ -9229,6 +9253,13 @@ function MonthlyView({
         fontWeight: v ? 600 : 400
       }
     }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginRight: 7
+      }
+    }, /*#__PURE__*/React.createElement(ToneChip, {
+      tab: tab,
+      size: 8
+    })), /*#__PURE__*/React.createElement("span", {
       "data-notr": true,
       style: {
         color: PALETTE.inkSoft,
@@ -12826,6 +12857,57 @@ function PayrollDocsPanel({
   }, en ? "Cancel" : "취소"))));
 }
 
+// 세목별 색 — 바탕은 무채색, 세목만 제 색을 가진다 (탭·계산 카드·신고서 표에서 같은 색)
+const TAX_TONE = {
+  1: {
+    c: "#4453C4",
+    t: "#ECEEFB"
+  },
+  // 급여세
+  2: {
+    c: "#A23B8F",
+    t: "#F8EAF5"
+  },
+  // 선납이윤세
+  3: {
+    c: "#B4560A",
+    t: "#FCEFDF"
+  },
+  // 원천세
+  4: {
+    c: "#0E7A5F",
+    t: "#E6F4EF"
+  },
+  // VAT
+  5: {
+    c: "#0E7490",
+    t: "#E3F3F7"
+  },
+  // 기타 세목
+  6: {
+    c: "#17212B",
+    t: "#EEF1F4"
+  } // 확인·제출 (합계)
+};
+function ToneChip({
+  tab,
+  size = 10,
+  color
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    "data-tone-chip": true,
+    style: {
+      display: "inline-block",
+      width: size,
+      height: size,
+      borderRadius: 3,
+      background: color || (tab ? TAX_TONE[tab].c : "var(--tone)"),
+      flexShrink: 0
+    }
+  });
+}
+
 // 세목 탭 맨 위의 계산 카드: 이 세목의 납부세액이 어떻게 나왔는지 한눈에
 function TaxCalcCard({
   code,
@@ -12850,7 +12932,9 @@ function TaxCalcCard({
       gap: 8,
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("h2", {
+  }, /*#__PURE__*/React.createElement(ToneChip, {
+    size: 11
+  }), /*#__PURE__*/React.createElement("h2", {
     style: S.secTitle
   }, title), /*#__PURE__*/React.createElement("span", {
     "data-notr": true,
@@ -12911,8 +12995,8 @@ function TaxCalcCard({
       padding: "10px 12px",
       marginTop: 6,
       borderRadius: 10,
-      background: PALETTE.tealTint,
-      color: PALETTE.tealDeep,
+      background: "var(--tone-tint)",
+      color: "var(--tone)",
       fontWeight: 700
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -20879,7 +20963,7 @@ const S = {
     margin: 0,
     fontSize: 15.5,
     fontWeight: 700,
-    color: PALETTE.tealDeep
+    color: "var(--tone, #17212B)"
   },
   subHint: {
     fontSize: 13.5,
@@ -20916,11 +21000,6 @@ const S = {
     cursor: "pointer",
     fontFamily: FONT.body,
     minHeight: 52
-  },
-  taxTabBtnOn: {
-    background: PALETTE.tealTint,
-    border: `1px solid ${PALETTE.teal}`,
-    boxShadow: `inset 0 0 0 1px ${PALETTE.teal}`
   },
   stepBarBtn: {
     width: "100%",

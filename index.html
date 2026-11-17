@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.19";
+const APP_RELEASE = "2026.11.17.20";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.20",
+  ko: ["통화를 색과 크기 둘 다로 구분해요 — 리엘(신고 통화)은 초록·굵고 크게, 달러는 파랑·한 단계 작게. 순서도 달러 → 리엘로 통일했어요"],
+  en: ["Currencies now differ in both colour and size — riel (the filing currency) is green, bold and larger; US dollars are blue and one step smaller. The order is always dollars, then riel"]
+}, {
   version: "2026.11.17.19",
   ko: ["세목마다 고유한 색을 넣었어요 — 급여세(남색)·선납이윤세(자주)·원천세(주황)·VAT(초록)·기타 세목(청록). 탭, 계산 카드, 신고서 표에서 같은 색으로 보여요"],
   en: ["Each tax now has its own colour — salary tax (indigo), prepayment (plum), withholding (orange), VAT (green), other taxes (cyan) — used the same way on the tabs, the calculation card and the return table"]
@@ -4262,7 +4266,8 @@ const KM_DICT = {
   "Upload each purchase invoice or receipt. The date and amount are read automatically — check them, choose the type, and register.": "បង្ហោះវិក្កយបត្រទិញ ឬបង្កាន់ដៃនីមួយៗ។ កាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ត្រូវបានអានដោយស្វ័យប្រវត្តិ — ពិនិត្យ ជ្រើសរើសប្រភេទ រួចចុះបញ្ជី។",
   "Cleaner layout — the VAT tab is now two sections, Sales and Purchases & expenses, with sub-groups separated by a thin line and a small heading": "ប្លង់កាន់តែច្បាស់ — ផ្ទាំង VAT ឥឡូវចែកជាពីរផ្នែក គឺការលក់ និងការទិញ និងចំណាយ ដោយក្រុមរងបំបែកដោយបន្ទាត់ស្តើង និងចំណងជើងតូច",
   "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)": "បានដកកាតក្នុងកាត ឆ្នូតពណ៌ចំហៀង និងប្រអប់បន្ទាត់ដាច់ៗ ដើម្បីឱ្យអេក្រង់ងាយមើល (ទិន្នន័យ និងការគណនានៅដដែល)",
-  "Each tax now has its own colour — salary tax (indigo), prepayment (plum), withholding (orange), VAT (green), other taxes (cyan) — used the same way on the tabs, the calculation card and the return table": "ពន្ធនីមួយៗឥឡូវមានពណ៌ផ្ទាល់ខ្លួន — ពន្ធលើប្រាក់បៀវត្ស (ខៀវចាស់) ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (ស្វាយ) ពន្ធកាត់ទុក (ទឹកក្រូច) VAT (បៃតង) ពន្ធផ្សេងៗ (ខៀវបៃតង) — ប្រើដូចគ្នានៅលើផ្ទាំង កាតគណនា និងតារាងលិខិតប្រកាស"
+  "Each tax now has its own colour — salary tax (indigo), prepayment (plum), withholding (orange), VAT (green), other taxes (cyan) — used the same way on the tabs, the calculation card and the return table": "ពន្ធនីមួយៗឥឡូវមានពណ៌ផ្ទាល់ខ្លួន — ពន្ធលើប្រាក់បៀវត្ស (ខៀវចាស់) ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (ស្វាយ) ពន្ធកាត់ទុក (ទឹកក្រូច) VAT (បៃតង) ពន្ធផ្សេងៗ (ខៀវបៃតង) — ប្រើដូចគ្នានៅលើផ្ទាំង កាតគណនា និងតារាងលិខិតប្រកាស",
+  "Currencies now differ in both colour and size — riel (the filing currency) is green, bold and larger; US dollars are blue and one step smaller. The order is always dollars, then riel": "រូបិយប័ណ្ណឥឡូវខុសគ្នាទាំងពណ៌ និងទំហំ — រៀល (រូបិយប័ណ្ណប្រកាសពន្ធ) ពណ៌បៃតង ដិត និងធំជាង; ដុល្លារអាមេរិកពណ៌ខៀវ និងតូចជាងមួយកម្រិត។ លំដាប់តែងតែជាដុល្លារ រួចរៀល"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -12969,23 +12974,22 @@ function TaxCalcCard({
       whiteSpace: "nowrap",
       fontWeight: v ? 600 : 400
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(Usd, {
+    v: Math.abs(v) / r,
+    style: {
+      fontSize: 12.5,
+      marginRight: 10
+    }
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
       color: CCY_COLOR.KHR
     }
   }, v < 0 ? "−" : "", fmt(Math.abs(v)), /*#__PURE__*/React.createElement("span", {
     style: {
-      fontWeight: 400,
-      fontSize: 12.5
+      fontWeight: 500,
+      fontSize: 12
     }
-  }, " KHR")), /*#__PURE__*/React.createElement(Usd, {
-    v: Math.abs(v) / r,
-    style: {
-      fontWeight: 400,
-      fontSize: 12.5,
-      marginLeft: 8
-    }
-  })))), /*#__PURE__*/React.createElement("div", {
+  }, " KHR"))))), /*#__PURE__*/React.createElement("div", {
     "data-taxcard-total": true,
     style: {
       display: "flex",
@@ -13577,10 +13581,10 @@ function AttachDocBox({
     }
   }, error));
 }
-// 통화별 글자색: 달러는 파랑, 리엘은 초록 — 어느 통화인지 색으로 바로 구분
+// 통화별 글자: 리엘(신고 통화)은 초록·굵고 크게, 달러는 파랑·한 단계 작게 — 색과 크기 둘 다로 구분
 const CCY_COLOR = {
-  USD: "#1F4E8C",
-  KHR: "#0B6B55"
+  USD: "#1A56DB",
+  KHR: "#0A7A40"
 };
 function Usd({
   v,
@@ -13592,6 +13596,8 @@ function Usd({
     style: {
       color: CCY_COLOR.USD,
       whiteSpace: "nowrap",
+      fontSize: "0.86em",
+      fontWeight: 400,
       ...(style || {})
     }
   }, approx ? "≈ " : "", "$", fmtUsd(v));
@@ -13605,9 +13611,15 @@ function Khr({
     style: {
       color: CCY_COLOR.KHR,
       whiteSpace: "nowrap",
+      fontWeight: 600,
       ...(style || {})
     }
-  }, fmt(v), " KHR");
+  }, fmt(v), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: "0.82em",
+      fontWeight: 500
+    }
+  }, " KHR"));
 }
 // 두 통화를 나란히 (좁으면 줄바꿈)
 function BothMoney({
@@ -13628,7 +13640,8 @@ function BothMoney({
       display: "inline-flex",
       flexWrap: "wrap",
       justifyContent: "flex-end",
-      columnGap: 8
+      alignItems: "baseline",
+      columnGap: 10
     }
   }, first === "KHR" ? [b, a] : [a, b]);
 }
@@ -13677,7 +13690,8 @@ function DualAmount({
   }) : /*#__PURE__*/React.createElement(Khr, {
     v: a * r,
     style: {
-      fontSize: 12
+      fontSize: 12,
+      fontWeight: 400
     }
   }));
 }
@@ -20258,18 +20272,18 @@ function NumberRow({
       fontSize: big ? 20 : 14,
       color: big ? PALETTE.teal : PALETTE.ink
     }
-  }, noFmt ? value : usdRate > 0 ? /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: CCY_COLOR.KHR
-    }
-  }, `${fmt(value)} KHR`) : `${fmt(value)} KHR`, !noFmt && usdRate > 0 && value > 0 ? /*#__PURE__*/React.createElement(Usd, {
+  }, !noFmt && usdRate > 0 && value > 0 ? /*#__PURE__*/React.createElement(Usd, {
     v: value / usdRate,
     style: {
       fontFamily: FONT.body,
-      fontWeight: 500,
-      marginLeft: 8
+      marginRight: 10
     }
-  }) : null));
+  }) : null, noFmt ? value : usdRate > 0 ? /*#__PURE__*/React.createElement(Khr, {
+    v: value,
+    style: {
+      fontWeight: "inherit"
+    }
+  }) : `${fmt(value)} KHR`));
 }
 function VatBreakdownRow({
   bd

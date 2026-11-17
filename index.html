@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.3";
+const APP_RELEASE = "2026.11.17.4";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.4",
+  ko: ["올린 증빙·인보이스 사진을 누르면 크게 볼 수 있어요 — 매출·매입 인보이스 목록, 올리는 중인 사진, 납부 영수증 모두", "사무소 계정은 크게 보기에서 Google Drive 원본으로 더 선명하게 보이고, [원본 열기]로 바로 열 수 있어요"],
+  en: ["Tap any uploaded receipt or invoice photo to view it large — sales / purchase invoice lists, photos being uploaded and payment receipts", "Office accounts see the sharper Google Drive original in the viewer and can open it with Open original"]
+}, {
   version: "2026.11.17.3",
   ko: ["월별 신고 화면이 국세청 신고서(P101)와 같은 세목별 탭으로 바뀌었어요 — 급여세 · 선납이윤세 · 원천세 · VAT · 기타 세목 · 확인·제출", "탭마다 지금 입력한 자료로 계산한 납부세액과 계산 근거를 보여 줘요", "매출·매입·증빙은 VAT 탭에서 입력해요. 확인·제출 탭에는 신고서와 같은 세목별 표가 나와요"],
   en: ["Monthly filing now has one tab per tax, in the order of the GDT return (P101) — Salary tax · Prepayment · Withholding · VAT · Other taxes · Review & file", "Each tab shows the tax calculated from what has been entered, and how it was worked out", "Sales, purchases and receipts are entered in the VAT tab. The Review tab shows the same table as the return"]
@@ -1142,6 +1146,7 @@ async function artifactSave(data) {
   return true;
 }
 const LangContext = createContext("ko");
+const ClientRoleContext = createContext(false); // 고객사 로그인 여부 (사무소 Drive 원본 링크를 감출 때 사용)
 function useLang() {
   return useContext(LangContext);
 }
@@ -4083,7 +4088,10 @@ const KM_DICT = {
   "Please fix the following and press Request review again in the Review tab:": "សូមកែចំណុចខាងក្រោម រួចចុច ស្នើសុំពិនិត្យ ម្តងទៀតក្នុងផ្ទាំងពិនិត្យ៖",
   "{0} document(s) registered as receipts (VAT tab).": "បានចុះបញ្ជីឯកសារ {0} ជាបង្កាន់ដៃ (ផ្ទាំង អតប)។",
   "Sales invoices are added to Sales; purchase invoices are registered as receipts below. You can edit everything afterwards.": "វិក្កយបត្រលក់ត្រូវបូកចូលការលក់ ហើយវិក្កយបត្រទិញត្រូវចុះបញ្ជីជាបង្កាន់ដៃខាងក្រោម។ អ្នកអាចកែទាំងអស់នៅពេលក្រោយ។",
-  "Receipts are picked up by their type in the VAT tab of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group.": "បង្កាន់ដៃត្រូវបានប្រមូលតាមប្រភេទរបស់វាក្នុងផ្ទាំង អតប នៃការប្រកាសប្រចាំខែ (ការកម្សាន្ត ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)។ បើបង្កាន់ដៃនៅខុសក្រុម សូមកែប្រភេទនៅទីនោះ។"
+  "Receipts are picked up by their type in the VAT tab of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group.": "បង្កាន់ដៃត្រូវបានប្រមូលតាមប្រភេទរបស់វាក្នុងផ្ទាំង អតប នៃការប្រកាសប្រចាំខែ (ការកម្សាន្ត ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)។ បើបង្កាន់ដៃនៅខុសក្រុម សូមកែប្រភេទនៅទីនោះ។",
+  "Tap any uploaded receipt or invoice photo to view it large — sales / purchase invoice lists, photos being uploaded and payment receipts": "ចុចលើរូបថតបង្កាន់ដៃ ឬវិក្កយបត្រដែលបានផ្ទុកឡើង ដើម្បីមើលធំ — បញ្ជីវិក្កយបត្រលក់ / ទិញ រូបថតដែលកំពុងផ្ទុកឡើង និងបង្កាន់ដៃបង់ប្រាក់",
+  "Office accounts see the sharper Google Drive original in the viewer and can open it with Open original": "គណនីការិយាល័យឃើញរូបដើមច្បាស់ពី Google Drive ក្នុងផ្ទាំងមើល ហើយអាចបើកវាដោយ បើករូបដើម",
+  "Open original": "បើករូបដើម"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -5323,7 +5331,9 @@ function CambodiaTaxApp() {
       onSignIn: signIn
     }));
   }
-  return /*#__PURE__*/React.createElement(LangContext.Provider, {
+  return /*#__PURE__*/React.createElement(ClientRoleContext.Provider, {
+    value: isClient
+  }, /*#__PURE__*/React.createElement(LangContext.Provider, {
     value: lang
   }, /*#__PURE__*/React.createElement("div", {
     style: S.app,
@@ -5736,7 +5746,7 @@ function CambodiaTaxApp() {
     backend: backend,
     backendError: backendError,
     onSave: saveBackendConfig
-  }))));
+  })))));
 }
 
 /* ---------------- Dashboard ---------------- */
@@ -9612,10 +9622,9 @@ function PaymentPanel({
       alignItems: "center",
       flexWrap: "wrap"
     }
-  }, thumb && /*#__PURE__*/React.createElement("img", {
+  }, /*#__PURE__*/React.createElement(ZoomThumb, {
     src: thumb,
-    alt: en ? "Payment receipt" : "납부 영수증",
-    style: S.thumbSmall
+    caption: en ? "Payment receipt" : "납부 영수증"
   }), /*#__PURE__*/React.createElement("input", {
     ref: fileRef,
     type: "file",
@@ -9664,6 +9673,8 @@ function PaymentPanel({
     }
   }, en ? "Pay the GDT by the deadline (bank e-Payment or counter), then record it here with the receipt photo." : "마감일까지 국세청에 납부(은행 e-Payment 또는 창구)한 뒤, 영수증 사진과 함께 여기에 기록해 주세요.")), viewing && pay.proofThumb && /*#__PURE__*/React.createElement(ImageViewer, {
     src: pay.proofThumb,
+    driveId: pay.proofDriveId,
+    link: pay.proofDriveUrl,
     caption: en ? "Payment receipt" : "납부 영수증",
     onClose: () => setViewing(false)
   }));
@@ -11309,6 +11320,8 @@ function BulkImportPanel({
   }, regLabel)), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
+    driveId: viewing.driveId,
+    link: viewing.link,
     onClose: () => setViewing(null)
   }));
 }
@@ -11719,10 +11732,11 @@ function InvoiceDocsPanel({
     return /*#__PURE__*/React.createElement("div", {
       key: d.id,
       style: S.evidenceRow
-    }, d.thumbnail && /*#__PURE__*/React.createElement("img", {
+    }, /*#__PURE__*/React.createElement(ZoomThumb, {
       src: d.thumbnail,
-      alt: "",
-      style: S.thumbSmall
+      driveId: d.driveId,
+      link: d.driveUrl,
+      caption: [d.date || d.txDate, d.invoiceNo, d.customer || d.vendor].filter(Boolean).join(" · ")
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
@@ -11833,9 +11847,9 @@ function InvoiceDocsPanel({
       gap: 10,
       alignItems: "center"
     }
-  }, pending.thumb && /*#__PURE__*/React.createElement("img", {
+  }, /*#__PURE__*/React.createElement(ZoomThumb, {
     src: pending.thumb,
-    alt: "",
+    caption: en ? "Uploaded photo" : "올린 사진",
     style: {
       ...S.thumbSmall,
       width: 64,
@@ -12083,9 +12097,9 @@ function PayrollDocsPanel({
       gap: 10,
       alignItems: "center"
     }
-  }, pending.thumb && /*#__PURE__*/React.createElement("img", {
+  }, /*#__PURE__*/React.createElement(ZoomThumb, {
     src: pending.thumb,
-    alt: "",
+    caption: en ? "Uploaded photo" : "올린 사진",
     style: {
       ...S.thumbSmall,
       width: 64,
@@ -12738,13 +12752,64 @@ function UpdatePopup({
     onClick: onClose
   }, en ? "OK" : "확인"))));
 }
+
+// 목록의 작은 증빙 사진: 누르면 크게 보기 (보기 상태를 스스로 관리)
+function ZoomThumb({
+  src,
+  caption,
+  driveId,
+  link,
+  style
+}) {
+  const lang = useLang();
+  const [open, setOpen] = useState(false);
+  if (!src) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.thumbButton,
+    onClick: () => setOpen(true),
+    "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: src,
+    alt: "",
+    style: style || S.thumbSmall
+  })), open && /*#__PURE__*/React.createElement(ImageViewer, {
+    src: src,
+    caption: caption,
+    driveId: driveId,
+    link: link,
+    onClose: () => setOpen(false)
+  }));
+}
 function ImageViewer({
   src,
   caption,
-  onClose
+  onClose,
+  driveId,
+  link
 }) {
   const lang = useLang();
   const closeRef = React.useRef(null);
+  const isClientRole = useContext(ClientRoleContext); // 원본은 사무소 Google Drive 에 있어 고객사는 열 수 없다
+  if (isClientRole) {
+    driveId = null;
+    link = null;
+  }
+  // 앱에는 작은 사진만 저장돼 있으므로, Google Drive 원본을 불러올 수 있으면 그것으로 바꿔 보여 준다
+  const [hi, setHi] = useState(null);
+  useEffect(() => {
+    setHi(null);
+    if (!driveId || !/^[\w-]{10,}$/.test(String(driveId))) return;
+    let alive = true;
+    const im = new Image();
+    im.onload = () => {
+      if (alive && im.naturalWidth > 700) setHi(im.src);
+    };
+    im.src = `https://drive.google.com/thumbnail?id=${driveId}&sz=w2000`;
+    return () => {
+      alive = false;
+    };
+  }, [driveId]);
   useEffect(() => {
     const onKey = e => {
       if (e.key === "Escape") onClose();
@@ -12770,12 +12835,22 @@ function ImageViewer({
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("span", {
     style: {
+      flex: 1,
       minWidth: 0,
       overflow: "hidden",
       textOverflow: "ellipsis",
       whiteSpace: "nowrap"
     }
-  }, caption), /*#__PURE__*/React.createElement("button", {
+  }, caption), link && /^https:\/\//.test(link) && /*#__PURE__*/React.createElement("a", {
+    href: link,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      ...S.viewerClose,
+      textDecoration: "none",
+      whiteSpace: "nowrap"
+    }
+  }, lang === "en" ? "Open original" : "원본 열기"), /*#__PURE__*/React.createElement("button", {
     ref: closeRef,
     type: "button",
     style: S.viewerClose,
@@ -12784,7 +12859,7 @@ function ImageViewer({
     style: S.viewerStage,
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("img", {
-    src: src,
+    src: hi || src,
     alt: caption || "",
     style: S.viewerImg
   })), /*#__PURE__*/React.createElement("div", {
@@ -13458,7 +13533,9 @@ function EvidencePanel({
         style: S.thumbButton,
         onClick: () => setViewing({
           src: e.thumbnail,
-          caption
+          caption,
+          driveId: e.driveId,
+          link: e.driveUrl
         }),
         "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
       }, /*#__PURE__*/React.createElement("img", {
@@ -13638,7 +13715,9 @@ function EvidencePanel({
       style: S.thumbButton,
       onClick: () => setViewing({
         src: e.thumbnail,
-        caption
+        caption,
+        driveId: e.driveId,
+        link: e.driveUrl
       }),
       "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
     }, /*#__PURE__*/React.createElement("img", {
@@ -13725,6 +13804,8 @@ function EvidencePanel({
   }))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
+    driveId: viewing.driveId,
+    link: viewing.link,
     onClose: () => setViewing(null)
   }), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
@@ -14113,9 +14194,9 @@ function WithholdingPanel({
     onChange: e => setDescription(e.target.value)
   }), pendingPreview && /*#__PURE__*/React.createElement("div", {
     style: S.pendingPreviewRow
-  }, /*#__PURE__*/React.createElement("img", {
+  }, /*#__PURE__*/React.createElement(ZoomThumb, {
     src: pendingPreview,
-    alt: "preview",
+    caption: lang === "en" ? "Uploaded photo" : "올린 사진",
     style: S.thumb
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -14259,7 +14340,9 @@ function WithholdingPanel({
       style: S.thumbButton,
       onClick: () => setViewing({
         src: w.thumbnail,
-        caption
+        caption,
+        driveId: w.driveId,
+        link: w.driveUrl
       }),
       "aria-label": lang === "en" ? "View photo large" : "사진 크게 보기"
     }, /*#__PURE__*/React.createElement("img", {
@@ -14314,6 +14397,8 @@ function WithholdingPanel({
   })), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
+    driveId: viewing.driveId,
+    link: viewing.link,
     onClose: () => setViewing(null)
   }), items.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15721,6 +15806,7 @@ function AnnualItemRow({
     }
   }, en ? "Original on Drive" : "Drive 원본"), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: st.proofThumb,
+    link: st.proofDriveUrl,
     caption: en ? it.en : it.ko,
     onClose: () => setViewing(false)
   }));
@@ -20418,11 +20504,10 @@ const S = {
     overflow: "auto"
   },
   viewerImg: {
-    maxWidth: "100%",
+    width: "min(100%, 900px)",
     maxHeight: "100%",
     objectFit: "contain",
-    borderRadius: 6,
-    background: "#fff"
+    borderRadius: 6
   },
   evidenceRow: {
     display: "flex",

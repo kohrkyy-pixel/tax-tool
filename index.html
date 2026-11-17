@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.17";
+const APP_RELEASE = "2026.11.17.18";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.18",
+  ko: ["화면을 정리했어요 — VAT 탭을 ‘매출’과 ‘매입·경비’ 두 구역으로 나누고, 구역 안의 묶음은 가는 선과 작은 제목으로 구분해요", "카드 안의 카드, 왼쪽 색 띠, 점선 상자를 없애 한눈에 읽히게 했어요 (입력 내용과 계산은 그대로)"],
+  en: ["Cleaner layout — the VAT tab is now two sections, Sales and Purchases & expenses, with sub-groups separated by a thin line and a small heading", "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)"]
+}, {
   version: "2026.11.17.17",
   ko: ["매입은 한 곳에서만 — 위쪽은 매출 인보이스 전용으로 바꾸고, 매입 인보이스·영수증은 모두 아래 ‘매입·경비 증빙’에서 올려요", "증빙 사진을 올리면 공급자 이름, 인보이스 번호, VAT 여부도 함께 읽어 채워요"],
   en: ["Purchases in one place — the top section is now for sales invoices only; purchase invoices and receipts all go under “Receipts & purchase invoices”", "A receipt photo now also fills in the supplier name, invoice number and whether VAT was charged"]
@@ -4246,7 +4250,14 @@ const KM_DICT = {
   "A receipt photo now also fills in the supplier name, invoice number and whether VAT was charged": "រូបថតបង្កាន់ដៃឥឡូវបំពេញឈ្មោះអ្នកផ្គត់ផ្គង់ លេខវិក្កយបត្រ និងថាតើមាន អតប ឬអត់",
   "Invoices you issued to customers. Each one is added to Sales; you can edit everything afterwards. Purchase invoices and receipts go under “Receipts & purchase invoices” below.": "វិក្កយបត្រដែលអ្នកចេញឱ្យអតិថិជន។ នីមួយៗត្រូវបូកចូលការលក់ ហើយអ្នកអាចកែទាំងអស់នៅពេលក្រោយ។ វិក្កយបត្រទិញ និងបង្កាន់ដៃ សូមដាក់នៅក្រោម “បង្កាន់ដៃ និងវិក្កយបត្រទិញ” ខាងក្រោម។",
   "Invoice / receipt no. (optional)": "លេខវិក្កយបត្រ / បង្កាន់ដៃ (ស្រេចចិត្ត)",
-  "Invoice or receipt number": "លេខវិក្កយបត្រ ឬបង្កាន់ដៃ"
+  "Invoice or receipt number": "លេខវិក្កយបត្រ ឬបង្កាន់ដៃ",
+  "Sales to declare": "ការលក់ដែលត្រូវប្រកាស",
+  "Other purchases & credits": "ការទិញផ្សេងទៀត និងឥណទាន",
+  "Staff salaries": "ប្រាក់បៀវត្សបុគ្គលិក",
+  "Enter amounts before VAT. VAT and riel are calculated for you.": "បញ្ចូលចំនួនទឹកប្រាក់មិនរួម VAT។ VAT និងប្រាក់រៀលត្រូវបានគណនាដោយស្វ័យប្រវត្តិ។",
+  "Upload each purchase invoice or receipt. The date and amount are read automatically — check them, choose the type, and register.": "បង្ហោះវិក្កយបត្រទិញ ឬបង្កាន់ដៃនីមួយៗ។ កាលបរិច្ឆេទ និងចំនួនទឹកប្រាក់ត្រូវបានអានដោយស្វ័យប្រវត្តិ — ពិនិត្យ ជ្រើសរើសប្រភេទ រួចចុះបញ្ជី។",
+  "Cleaner layout — the VAT tab is now two sections, Sales and Purchases & expenses, with sub-groups separated by a thin line and a small heading": "ប្លង់កាន់តែច្បាស់ — ផ្ទាំង VAT ឥឡូវចែកជាពីរផ្នែក គឺការលក់ និងការទិញ និងចំណាយ ដោយក្រុមរងបំបែកដោយបន្ទាត់ស្តើង និងចំណងជើងតូច",
+  "Removed cards inside cards, the coloured side stripe and dashed boxes so the screen reads at a glance (entries and calculations are unchanged)": "បានដកកាតក្នុងកាត ឆ្នូតពណ៌ចំហៀង និងប្រអប់បន្ទាត់ដាច់ៗ ដើម្បីឱ្យអេក្រង់ងាយមើល (ទិន្នន័យ និងការគណនានៅដដែល)"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8537,12 +8548,15 @@ function MonthlyView({
     disabled: locked,
     onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "payroll") : null
   }), /*#__PURE__*/React.createElement("div", {
+    style: S.sub
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
+  }, lang === "en" ? "Staff salaries" : "직원별 급여"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
       gap: 8,
       flexWrap: "wrap",
-      margin: "4px 0 10px",
       fontSize: 13.5,
       color: PALETTE.inkSoft
     }
@@ -8701,10 +8715,10 @@ function MonthlyView({
         display: "block"
       }
     }, lang === "en" ? `Fringe benefit tax (20%, paid by employer): ${fmt(fringeTax)} KHR` : `현물급여세 (20%, 회사 부담): ${fmt(fringeTax)} KHR`)) : null);
-  }), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("button", {
     style: S.buttonGhost,
     onClick: addEmployee
-  }, lang === "en" ? "+ Add employee" : "+ 직원 추가")), /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "+ Add employee" : "+ 직원 추가")))), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 16
     }
@@ -8786,24 +8800,18 @@ function MonthlyView({
   }), /*#__PURE__*/React.createElement("section", {
     style: {
       ...S.panel,
+      padding: "12px 20px",
+      marginBottom: 16,
       display: "flex",
       flexDirection: "column",
-      gap: 16
+      gap: 10
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      margin: 0,
-      fontSize: 19,
-      fontWeight: 700,
-      color: PALETTE.ink
+      ...S.ratePill,
+      background: "transparent",
+      padding: 0
     }
-  }, en ? "This month's sales and purchases" : "이번 달 매출과 매입"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.stepIntro,
-      margin: "4px 0 0"
-    }
-  }, en ? "Enter USD amounts before VAT. VAT and riel are calculated for you." : "VAT를 빼고 USD로 입력하세요. VAT와 리엘은 자동 계산돼요.")), /*#__PURE__*/React.createElement("div", {
-    style: S.ratePill
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 14
@@ -8830,7 +8838,17 @@ function MonthlyView({
     onChangeRate: changeRate,
     settings: settings,
     onUpdateSettings: onUpdateSettings
-  }), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
+  })), /*#__PURE__*/React.createElement("section", {
+    "data-sales": true,
+    style: {
+      ...S.panel,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: S.secTitle
+  }, en ? "Sales" : "매출"), /*#__PURE__*/React.createElement("p", {
+    style: S.secIntro
+  }, en ? "Enter amounts before VAT. VAT and riel are calculated for you." : "VAT를 뺀 금액으로 입력하세요. VAT와 리엘은 자동 계산돼요."), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
     local: local,
     setLocal: setLocal,
     rate: calc.rate,
@@ -8847,7 +8865,11 @@ function MonthlyView({
     kinds: ["sales"],
     ownName: selectedClient?.name,
     onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
-  }), /*#__PURE__*/React.createElement(MoneyField, {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: S.sub
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
+  }, en ? "Sales to declare" : "신고할 매출액"), /*#__PURE__*/React.createElement(MoneyField, {
     id: "mf-revenue",
     label: en ? "Sales" : "매출액",
     ariaLabel: en ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)",
@@ -8876,7 +8898,78 @@ function MonthlyView({
     helper: Number(local.nonTaxableRevenue) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", /*#__PURE__*/React.createElement(Khr, {
       v: calc.nonTaxableKHR
     }))
-  }), /*#__PURE__*/React.createElement(MoneyField, {
+  }))), /*#__PURE__*/React.createElement("section", {
+    "data-evidence": true,
+    style: S.panel
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: S.secTitle
+  }, en ? "Purchases & expenses" : "매입·경비"), /*#__PURE__*/React.createElement("p", {
+    style: S.secIntro
+  }, lang === "en" ? "Upload each purchase invoice or receipt. The date and amount are read automatically — check them, choose the type, and register." : "매입 인보이스와 영수증을 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement("div", {
+    style: S.sub
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
+  }, en ? "Receipts & purchase invoices" : "매입·경비 증빙"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(BulkImportPanel, {
+    embedded: true,
+    openRef: evBulkRef,
+    local: local,
+    setLocal: setLocal,
+    rate: calc.rate,
+    disabled: locked,
+    kinds: ["purchase"],
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
+  })), /*#__PURE__*/React.createElement(EvidencePanel, {
+    onPickFile: () => evBulkRef.current && evBulkRef.current(),
+    withholding: local.withholding || [],
+    evidence: local.evidence || [],
+    exchangeRate: local.exchangeRate,
+    onChangeExchangeRate: changeRate,
+    onAdd: (item, whtItem) => setLocal({
+      ...local,
+      evidence: [...(local.evidence || []), item],
+      withholding: whtItem ? [...(local.withholding || []), whtItem] : local.withholding || []
+    }),
+    onUpdate: (id, patch) => {
+      const rate = local.exchangeRate || DEFAULT_EXCHANGE_RATE;
+      let updated = null;
+      const evidence = (local.evidence || []).map(e => {
+        if (e.id !== id) return e;
+        updated = recalcEvidence({
+          ...e,
+          ...patch
+        }, rate);
+        return updated;
+      });
+      // 이 증빙에서 자동 생성된 원천세 항목도 바뀐 내용으로 맞춘다
+      const others = (local.withholding || []).filter(w => w.fromEvidenceId !== id);
+      const prevLinked = (local.withholding || []).find(w => w.fromEvidenceId === id);
+      const linked = updated ? linkedWithholdingFor(updated, prevLinked, rate, lang) : prevLinked;
+      setLocal({
+        ...local,
+        evidence,
+        withholding: linked ? [...others, linked] : others
+      });
+    },
+    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null,
+    onAttachDrive: (id, info) => setLocal(prev => ({
+      ...prev,
+      evidence: (prev.evidence || []).map(e => e.id === id ? {
+        ...e,
+        ...info
+      } : e)
+    })),
+    showDrive: canManageClients,
+    onRemove: id => setLocal({
+      ...local,
+      evidence: (local.evidence || []).filter(e => e.id !== id),
+      // 이 증빙에서 자동 생성된 원천세 항목도 함께 제거한다
+      withholding: (local.withholding || []).filter(w => w.fromEvidenceId !== id)
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    style: S.sub
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
+  }, en ? "Other purchases & credits" : "그 밖의 매입·공제"), /*#__PURE__*/React.createElement(MoneyField, {
     id: "mf-purchase",
     label: en ? "Purchases" : "매입액",
     sub: en ? "— only those without an uploaded invoice" : "— 증빙을 안 올린 분만",
@@ -8966,85 +9059,7 @@ function MonthlyView({
       fontSize: 13,
       color: PALETTE.inkSoft
     }
-  }, en ? `Input VAT exceeds output VAT — ${fmt(calc.vatCreditCF)} KHR carries forward to next month.` : `매입세액이 매출세액보다 많아요 — ${fmt(calc.vatCreditCF)} KHR이 다음 달로 이월돼요.`))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 16
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    "data-evidence": true
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      margin: "0 0 4px",
-      fontSize: 19,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
-  }, en ? "Receipts & purchase invoices" : "매입·경비 증빙"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.stepIntro,
-      marginTop: 0
-    }
-  }, lang === "en" ? "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register." : "영수증·세금계산서를 사진으로 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement(BulkImportPanel, {
-    embedded: true,
-    openRef: evBulkRef,
-    local: local,
-    setLocal: setLocal,
-    rate: calc.rate,
-    disabled: locked,
-    kinds: ["purchase"],
-    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
-  })), /*#__PURE__*/React.createElement(EvidencePanel, {
-    onPickFile: () => evBulkRef.current && evBulkRef.current(),
-    withholding: local.withholding || [],
-    evidence: local.evidence || [],
-    exchangeRate: local.exchangeRate,
-    onChangeExchangeRate: changeRate,
-    onAdd: (item, whtItem) => setLocal({
-      ...local,
-      evidence: [...(local.evidence || []), item],
-      withholding: whtItem ? [...(local.withholding || []), whtItem] : local.withholding || []
-    }),
-    onUpdate: (id, patch) => {
-      const rate = local.exchangeRate || DEFAULT_EXCHANGE_RATE;
-      let updated = null;
-      const evidence = (local.evidence || []).map(e => {
-        if (e.id !== id) return e;
-        updated = recalcEvidence({
-          ...e,
-          ...patch
-        }, rate);
-        return updated;
-      });
-      // 이 증빙에서 자동 생성된 원천세 항목도 바뀐 내용으로 맞춘다
-      const others = (local.withholding || []).filter(w => w.fromEvidenceId !== id);
-      const prevLinked = (local.withholding || []).find(w => w.fromEvidenceId === id);
-      const linked = updated ? linkedWithholdingFor(updated, prevLinked, rate, lang) : prevLinked;
-      setLocal({
-        ...local,
-        evidence,
-        withholding: linked ? [...others, linked] : others
-      });
-    },
-    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null,
-    onAttachDrive: (id, info) => setLocal(prev => ({
-      ...prev,
-      evidence: (prev.evidence || []).map(e => e.id === id ? {
-        ...e,
-        ...info
-      } : e)
-    })),
-    showDrive: canManageClients,
-    onRemove: id => setLocal({
-      ...local,
-      evidence: (local.evidence || []).filter(e => e.id !== id),
-      // 이 증빙에서 자동 생성된 원천세 항목도 함께 제거한다
-      withholding: (local.withholding || []).filter(w => w.fromEvidenceId !== id)
-    })
-  }))), step === 5 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+  }, en ? `Input VAT exceeds output VAT — ${fmt(calc.vatCreditCF)} KHR carries forward to next month.` : `매입세액이 매출세액보다 많아요 — ${fmt(calc.vatCreditCF)} KHR이 다음 달로 이월돼요.`))))), step === 5 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
     rate: calc.rate,
     code: "70035 · 70031 · 70034 · 70045",
     title: en ? "Other taxes" : "기타 세목",
@@ -11594,13 +11609,12 @@ function BulkImportPanel({
     style: embedded && !job && !doneMsg ? {
       display: "contents"
     } : {
-      border: `1px dashed #B9C9C2`,
-      borderRadius: 14,
+      borderRadius: 10,
       padding: 14,
       display: "flex",
       flexDirection: "column",
       gap: 10,
-      background: "#FAFCFB"
+      background: PALETTE.paper
     }
   }, !embedded && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -12306,14 +12320,7 @@ function InvoiceDocsPanel({
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        ...S.statusBadge,
-        marginRight: 6,
-        background: k === "sales" ? "#E8F0FB" : PALETTE.tealTint,
-        color: k === "sales" ? "#1F4E8C" : PALETTE.tealDeep
-      }
-    }, k === "sales" ? en ? "Sales" : "매출" : en ? "Purchase" : "매입"), name || (en ? "Name not read" : "이름 없음")), /*#__PURE__*/React.createElement("div", {
+    }, name || (en ? "Name not read" : "이름 없음")), /*#__PURE__*/React.createElement("div", {
       style: S.evidenceMeta
     }, !hasDoc(d) && /*#__PURE__*/React.createElement("span", {
       "data-nodoc": true,
@@ -12343,27 +12350,11 @@ function InvoiceDocsPanel({
   };
   return /*#__PURE__*/React.createElement("section", {
     "aria-label": en ? "Invoices by photo" : "인보이스 사진으로 입력",
-    style: {
-      border: `1px dashed #B9C9C2`,
-      borderRadius: 14,
-      padding: 14,
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      background: "#FAFCFB"
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 15.5,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
+    style: S.sub
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
   }, en ? "Sales invoices" : "매출 인보이스"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft,
-      lineHeight: 1.6
-    }
+    style: S.subHint
   }, en ? "Invoices you issued to customers. Each one is added to Sales; you can edit everything afterwards. Purchase invoices and receipts go under “Receipts & purchase invoices” below." : "고객에게 발행한 인보이스예요. 올리면 매출액에 더해지고, 읽은 내용은 언제든 고칠 수 있어요. 매입 인보이스와 영수증은 아래 ‘매입·경비 증빙’에 올리세요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -12679,27 +12670,13 @@ function PayrollDocsPanel({
   return /*#__PURE__*/React.createElement("section", {
     "aria-label": en ? "Payroll by photo" : "급여 자료 사진으로 입력",
     style: {
-      border: `1px dashed #B9C9C2`,
-      borderRadius: 14,
-      padding: 14,
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      background: "#FAFCFB",
-      marginBottom: 14
+      ...S.sub,
+      marginTop: 0
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 15.5,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
   }, en ? "Enter from a payroll sheet or payslips" : "급여대장·급여명세서 사진으로 입력"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft,
-      lineHeight: 1.6
-    }
+    style: S.subHint
   }, en ? "Names and salaries are read for you. Check the table, then apply — existing employees with the same name are updated." : "직원 이름과 월급을 읽어 와요. 표에서 확인한 뒤 반영하면, 같은 이름의 직원은 금액만 바뀌고 새 직원은 추가돼요.", docs.length > 0 && (en ? ` · ${docs.length} document(s) uploaded this month` : ` · 이번 달 올린 자료 ${docs.length}건`))), !pending && !disabled && /*#__PURE__*/React.createElement(PhotoPickButtons, {
     onPick: pickFile,
     cameraLabel: en ? "Take photo" : "사진 찍기",
@@ -12864,8 +12841,7 @@ function TaxCalcCard({
     "data-taxcard": true,
     style: {
       ...S.panel,
-      marginBottom: 16,
-      borderLeft: `4px solid ${PALETTE.teal}`
+      marginBottom: 16
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -12875,12 +12851,7 @@ function TaxCalcCard({
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      margin: 0,
-      fontSize: 19,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
+    style: S.secTitle
   }, title), /*#__PURE__*/React.createElement("span", {
     "data-notr": true,
     style: {
@@ -14571,22 +14542,21 @@ function EvidencePanel({
       fontSize: 15
     },
     onClick: handleRegister
-  }, lang === "en" ? "Register this receipt" : "이 영수증 등록"))), evidence.length > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? "Register this receipt" : "이 영수증 등록"))), evidence.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
       alignItems: "baseline",
       gap: 8,
-      padding: "4px 2px 8px",
+      padding: "4px 0 8px",
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      margin: 0,
-      fontSize: 16,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: S.subTitle
   }, lang === "en" ? `Registered receipts (${evidence.length})` : `등록한 증빙 ${evidence.length}건`), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 13.5,
@@ -14625,12 +14595,7 @@ function EvidencePanel({
     value: sortMode,
     onChange: setSortMode,
     withCategory: true
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...S.panel,
-      padding: "4px 14px"
-    }
-  }, (listOpen || onlyMissing && missingCount > 0 ? sortDocs(evidence, sortMode, e => e.txDate, e => categoryLabel(e.category, lang)) : []).filter(e => !onlyMissing || !missingCount || !hasDoc(e) || editingId === e.id).map((e, idx, arr) => {
+  })), /*#__PURE__*/React.createElement("div", null, (listOpen || onlyMissing && missingCount > 0 ? sortDocs(evidence, sortMode, e => e.txDate, e => categoryLabel(e.category, lang)) : []).filter(e => !onlyMissing || !missingCount || !hasDoc(e) || editingId === e.id).map((e, idx, arr) => {
     const groupHead = sortMode === "category" && (idx === 0 || arr[idx - 1].category !== e.category) ? (() => {
       const g = evidence.filter(x => x.category === e.category);
       return /*#__PURE__*/React.createElement("div", {
@@ -14958,8 +14923,14 @@ function EvidencePanel({
       key: e.id
     }, groupHead, rowEl) : rowEl;
   }), /*#__PURE__*/React.createElement("div", {
-    style: S.divider
-  }), /*#__PURE__*/React.createElement(NumberRow, {
+    "data-ev-totals": true,
+    style: {
+      marginTop: 8,
+      padding: "6px 12px",
+      borderRadius: 10,
+      background: PALETTE.paper
+    }
+  }, /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Supply before VAT" : "공급가액 합계 (VAT 제외)",
     value: totalExpenseKHR - totalVatKHR,
     usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
@@ -14977,7 +14948,7 @@ function EvidencePanel({
     label: lang === "en" ? "Withholding tax on these receipts" : "원천세 합계 (이 증빙에서 생긴 것)",
     value: (withholding || []).filter(w => w.fromEvidenceId && evidence.some(x => x.id === w.fromEvidenceId)).reduce((a, w) => a + (Number(w.taxKHR) || 0), 0),
     usdRate: Number(exchangeRate) || DEFAULT_EXCHANGE_RATE
-  }))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
+  })))), viewing && /*#__PURE__*/React.createElement(ImageViewer, {
     src: viewing.src,
     caption: viewing.caption,
     driveId: viewing.driveId,
@@ -20875,11 +20846,46 @@ const S = {
     gridTemplateColumns: "1.1fr 1fr",
     gap: 20
   },
+  // 1단계: 구역(흰 판) · 2단계: 구역 안의 묶음(가는 선으로 나눔) · 3단계: 목록·합계
   panel: {
     background: PALETTE.panel,
     border: `1px solid ${PALETTE.line}`,
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 20
+  },
+  secTitle: {
+    margin: 0,
+    fontFamily: FONT.display,
+    fontSize: 19,
+    fontWeight: 700,
+    color: PALETTE.ink,
+    letterSpacing: -0.2
+  },
+  secIntro: {
+    fontSize: 14,
+    color: PALETTE.inkSoft,
+    lineHeight: 1.65,
+    margin: "4px 0 0"
+  },
+  sub: {
+    marginTop: 20,
+    paddingTop: 18,
+    borderTop: `1px solid ${PALETTE.line}`,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+  subTitle: {
+    margin: 0,
+    fontSize: 15.5,
+    fontWeight: 700,
+    color: PALETTE.tealDeep
+  },
+  subHint: {
+    fontSize: 13.5,
+    color: PALETTE.inkSoft,
+    lineHeight: 1.6,
+    margin: "2px 0 0"
   },
   /* ── 새 디자인 (Claude Design 시안) ── */
   stepBar: {
@@ -20914,7 +20920,7 @@ const S = {
   taxTabBtnOn: {
     background: PALETTE.tealTint,
     border: `1px solid ${PALETTE.teal}`,
-    boxShadow: `inset 0 -3px 0 ${PALETTE.teal}`
+    boxShadow: `inset 0 0 0 1px ${PALETTE.teal}`
   },
   stepBarBtn: {
     width: "100%",
@@ -21038,8 +21044,8 @@ const S = {
     padding: "0 8px"
   },
   entryBtn: {
-    minHeight: 58,
-    borderRadius: 14,
+    minHeight: 56,
+    borderRadius: 10,
     border: "1px solid #CDD3DA",
     background: "#fff",
     fontFamily: FONT.body,
@@ -21229,10 +21235,11 @@ const S = {
   },
   panelTitle: {
     fontFamily: FONT.display,
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: 700,
     color: PALETTE.ink,
-    marginBottom: 14
+    marginBottom: 14,
+    letterSpacing: -0.2
   },
   employeeRow: {
     display: "flex",

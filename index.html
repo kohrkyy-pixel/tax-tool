@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.15";
+const APP_RELEASE = "2026.11.17.16";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.16",
+  ko: ["입력 방법을 한 줄에 나란히 — 파일 고르기(PDF·엑셀) · 촬영 · 사진 고르기 · 직접 입력 버튼을 같은 크기로, 색 아이콘과 함께 (매출·매입 인보이스와 경비 증빙 모두)", "매출·매입 인보이스도 사진 없이 직접 입력할 수 있어요"],
+  en: ["Ways to enter are side by side — Choose file (PDF · Excel) · Take photo · Choose photo · Enter by hand, same size with coloured icons (sales / purchase invoices and receipts)", "Sales and purchase invoices can now be entered by hand without a photo"]
+}, {
   version: "2026.11.17.15",
   ko: ["금액을 달러와 리엘로 함께 보여 줘요 — 달러는 파란색, 리엘은 초록색 (목록의 각 건, 합계, 세목별 계산, 신고서 표)", "입력할 때 통화를 고를 수 있어요 — 매출·매입·경비 금액, 직원 급여, 원천세 지급액을 USD나 KHR로 입력"],
   en: ["Amounts are shown in both dollars and riel — each row, the totals, the tax calculations and the return table", "Choose the currency when entering — sales, purchases, expenses, salaries and withholding payments in USD or KHR"]
@@ -2805,6 +2809,8 @@ function navGroupOf(view) {
 
 /* 선 아이콘 (시안과 동일한 24px 획 아이콘) */
 const ICON_PATHS = {
+  filePlus: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M12 12v6M9 15h6"],
+  pencil: ["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"],
   dashboard: ["M3 10.5L12 3l9 7.5V21H3z"],
   monthly: ["M12 20h9", "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"],
   reports: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6", "M8 13h8M8 17h5"],
@@ -4212,7 +4218,16 @@ const KM_DICT = {
   "Net (KHR)": "សុទ្ធ (KHR)",
   "Gross (KHR)": "ដុល (KHR)",
   "Net paid (KHR)": "បានបង់សុទ្ធ (KHR)",
-  "Gross payment (KHR)": "ការបង់ដុល (KHR)"
+  "Gross payment (KHR)": "ការបង់ដុល (KHR)",
+  "Ways to enter are side by side — Choose file (PDF · Excel) · Take photo · Choose photo · Enter by hand, same size with coloured icons (sales / purchase invoices and receipts)": "វិធីបញ្ចូលនៅជាប់គ្នា — ជ្រើសរើសឯកសារ (PDF · Excel) · ថតរូប · ជ្រើសរើសរូបថត · បញ្ចូលដោយដៃ ទំហំដូចគ្នា ជាមួយរូបតំណាងពណ៌ (វិក្កយបត្រលក់ / ទិញ និងបង្កាន់ដៃ)",
+  "Sales and purchase invoices can now be entered by hand without a photo": "វិក្កយបត្រលក់ និងទិញ ឥឡូវអាចបញ្ចូលដោយដៃដោយគ្មានរូបថត",
+  "Choose file": "ជ្រើសរើសឯកសារ",
+  "PDF · Excel": "PDF · Excel",
+  "One receipt": "មួយសន្លឹក",
+  "One invoice": "មួយសន្លឹក",
+  "From album": "ពីអាល់ប៊ុម",
+  "Without a photo": "គ្មានរូបថត",
+  "Fill in the invoice, then press Add.": "បំពេញវិក្កយបត្រ រួចចុច បន្ថែម។"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -8154,6 +8169,8 @@ function MonthlyView({
     done: !!local.filed || local.reviewStatus === "submitted"
   }];
   const LAST_STEP = 6;
+  const salesBulkRef = useRef(null),
+    evBulkRef = useRef(null); // [파일 고르기] 버튼 → 여러 건 올리기 칸의 파일 선택창
   // 입력 통화: 칸마다 USD/KHR을 고를 수 있다 (저장 값은 USD, 고른 통화는 inputCcy 에 기억)
   const ccyOf = field => local.inputCcy && local.inputCcy[field] || "USD";
   const setCcy = (field, c) => setLocal({
@@ -8799,8 +8816,14 @@ function MonthlyView({
     setLocal: setLocal,
     rate: calc.rate,
     disabled: locked,
+    onPickFile: k => {
+      const r = k === "purchase" ? evBulkRef : salesBulkRef;
+      if (r.current) r.current();
+    },
     onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
   }), /*#__PURE__*/React.createElement(BulkImportPanel, {
+    embedded: true,
+    openRef: salesBulkRef,
     local: local,
     setLocal: setLocal,
     rate: calc.rate,
@@ -8950,6 +8973,8 @@ function MonthlyView({
       marginBottom: 12
     }
   }, /*#__PURE__*/React.createElement(BulkImportPanel, {
+    embedded: true,
+    openRef: evBulkRef,
     local: local,
     setLocal: setLocal,
     rate: calc.rate,
@@ -8957,6 +8982,7 @@ function MonthlyView({
     kinds: ["purchase"],
     onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
   })), /*#__PURE__*/React.createElement(EvidencePanel, {
+    onPickFile: () => evBulkRef.current && evBulkRef.current(),
     withholding: local.withholding || [],
     evidence: local.evidence || [],
     exchangeRate: local.exchangeRate,
@@ -10175,6 +10201,87 @@ function MessagesPanel({
 }
 
 // 사진 고르기(촬영/앨범) 버튼 한 쌍
+// 입력 방법 버튼 줄: 파일 고르기 · 촬영 · 사진 고르기 · 직접 입력을 같은 크기로 나란히, 버튼마다 색 아이콘
+const ENTRY_TONE = {
+  file: {
+    icon: "filePlus",
+    fg: "#6B3FA0",
+    bg: "#F1EAFB"
+  },
+  camera: {
+    icon: "camera",
+    fg: "#0E6B57",
+    bg: "#E3F3EE"
+  },
+  gallery: {
+    icon: "gallery",
+    fg: "#1F4E8C",
+    bg: "#E8F0FB"
+  },
+  manual: {
+    icon: "pencil",
+    fg: "#B4610B",
+    bg: "#FCEFDD"
+  }
+};
+function EntryActions({
+  items,
+  disabled
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    "data-entry-actions": true,
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+      gap: 8
+    }
+  }, items.filter(Boolean).map(it => {
+    const t = ENTRY_TONE[it.tone];
+    return /*#__PURE__*/React.createElement("button", {
+      key: it.tone,
+      type: "button",
+      "data-entry": it.tone,
+      disabled: disabled,
+      onClick: it.onClick,
+      style: S.entryBtn
+    }, /*#__PURE__*/React.createElement("span", {
+      "aria-hidden": "true",
+      style: {
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        background: t.bg,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: t.icon,
+      size: 20,
+      color: t.fg
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        minWidth: 0,
+        textAlign: "left",
+        lineHeight: 1.3
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 14.5,
+        fontWeight: 700,
+        color: PALETTE.ink
+      }
+    }, it.label), it.sub && /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 12,
+        color: PALETTE.inkSoft
+      }
+    }, it.sub)));
+  }));
+}
 function PhotoPickButtons({
   onPick,
   disabled,
@@ -10594,7 +10701,9 @@ function BulkImportPanel({
   onUploadImage,
   disabled,
   kinds = ["sales", "purchase"],
-  ownName
+  ownName,
+  embedded,
+  openRef
 }) {
   const lang = useLang();
   const en = lang === "en";
@@ -10613,6 +10722,11 @@ function BulkImportPanel({
     runRef.current++;
     pagesRef.current = {};
     setJob(null);
+  };
+  // 바깥의 [파일 고르기] 버튼이 이 칸의 파일 선택창을 열 수 있게 한다
+  if (openRef) openRef.current = () => {
+    setDoneMsg("");
+    if (fileRef.current) fileRef.current.click();
   };
   const dupRef = useRef(null);
   // 이미 등록된 문서와 겹치는 행은 처음부터 선택을 빼 둔다 (PDF와 엑셀을 둘 다 올려도 두 번 잡히지 않게)
@@ -11461,7 +11575,9 @@ function BulkImportPanel({
   return /*#__PURE__*/React.createElement("section", {
     "data-bulk-kind": kinds.join("+"),
     "aria-label": en ? "Bulk upload" : "여러 건 한 번에 올리기",
-    style: {
+    style: embedded && !job && !doneMsg ? {
+      display: "contents"
+    } : {
       border: `1px dashed #B9C9C2`,
       borderRadius: 14,
       padding: 14,
@@ -11470,7 +11586,7 @@ function BulkImportPanel({
       gap: 10,
       background: "#FAFCFB"
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, !embedded && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 15.5,
       fontWeight: 700,
@@ -11482,7 +11598,20 @@ function BulkImportPanel({
       color: PALETTE.inkSoft,
       lineHeight: 1.6
     }
-  }, en ? "A scanned PDF with many invoices is split page by page and read automatically. An Excel sales/purchase record is read row by row. Check the list, then register everything together." : "여러 증빙을 스캔한 PDF는 쪽별로 나눠 자동으로 읽어요. 엑셀 매출·매입 장부는 행별로 읽어요. 목록을 확인한 뒤 한 번에 등록하세요.", " ", en ? "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it." : "이미 등록된 문서(예: 엑셀로 올린 건)와 같은 쪽은 다시 등록하지 않고 스캔본만 그 문서에 붙여요.")), doneMsg && /*#__PURE__*/React.createElement("div", {
+  }, en ? "A scanned PDF with many invoices is split page by page and read automatically. An Excel sales/purchase record is read row by row. Check the list, then register everything together." : "여러 증빙을 스캔한 PDF는 쪽별로 나눠 자동으로 읽어요. 엑셀 매출·매입 장부는 행별로 읽어요. 목록을 확인한 뒤 한 번에 등록하세요.", " ", en ? "Pages that match a document already registered (e.g. from Excel) are not added again — only the scan is attached to it." : "이미 등록된 문서(예: 엑셀로 올린 건)와 같은 쪽은 다시 등록하지 않고 스캔본만 그 문서에 붙여요."))), embedded && /*#__PURE__*/React.createElement("input", {
+    ref: fileRef,
+    type: "file",
+    accept: ".pdf,.xlsx,.xlsm,.xls,.csv,application/pdf",
+    style: {
+      display: "none"
+    },
+    "aria-label": en ? "PDF or Excel file" : "PDF 또는 엑셀 파일",
+    onChange: e => {
+      const f = e.target.files?.[0];
+      e.target.value = "";
+      start(f);
+    }
+  }), doneMsg && /*#__PURE__*/React.createElement("div", {
     role: "status",
     style: {
       fontSize: 13.5,
@@ -11491,7 +11620,7 @@ function BulkImportPanel({
       borderRadius: 10,
       padding: "8px 12px"
     }
-  }, doneMsg), !job && !disabled && /*#__PURE__*/React.createElement("div", {
+  }, doneMsg), !embedded && !job && !disabled && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -11694,8 +11823,11 @@ function InvoiceDocsPanel({
   setLocal,
   rate,
   onUploadImage,
-  disabled
+  disabled,
+  onPickFile
 }) {
+  const camRef = useRef(null),
+    galRef = useRef(null);
   const lang = useLang();
   const en = lang === "en";
   const [kind, setKind] = useState("sales");
@@ -12245,10 +12377,72 @@ function InvoiceDocsPanel({
       } : {})
     },
     onClick: () => setKind(k)
-  }, l))), /*#__PURE__*/React.createElement(PhotoPickButtons, {
-    onPick: f => pickFile(f, kind),
-    cameraLabel: en ? "Take photo" : "사진 찍기",
-    galleryLabel: en ? "Choose photo" : "사진 고르기"
+  }, l))), /*#__PURE__*/React.createElement("input", {
+    ref: camRef,
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    style: {
+      display: "none"
+    },
+    onChange: e => {
+      const f = e.target.files?.[0];
+      e.target.value = "";
+      if (f) pickFile(f, kind);
+    },
+    "aria-hidden": "true",
+    tabIndex: -1
+  }), /*#__PURE__*/React.createElement("input", {
+    ref: galRef,
+    type: "file",
+    accept: "image/*",
+    style: {
+      display: "none"
+    },
+    onChange: e => {
+      const f = e.target.files?.[0];
+      e.target.value = "";
+      if (f) pickFile(f, kind);
+    },
+    "aria-label": en ? "Choose photo" : "사진 고르기"
+  }), /*#__PURE__*/React.createElement(EntryActions, {
+    items: [onPickFile && {
+      tone: "file",
+      label: en ? "Choose file" : "파일 고르기",
+      sub: en ? "PDF · Excel" : "PDF · 엑셀",
+      onClick: () => onPickFile(kind)
+    }, {
+      tone: "camera",
+      label: en ? "Take photo" : "사진 찍기",
+      sub: en ? "One invoice" : "한 장씩",
+      onClick: () => camRef.current && camRef.current.click()
+    }, {
+      tone: "gallery",
+      label: en ? "Choose photo" : "사진 고르기",
+      sub: en ? "From album" : "앨범에서",
+      onClick: () => galRef.current && galRef.current.click()
+    }, {
+      tone: "manual",
+      label: en ? "Enter by hand" : "직접 입력",
+      sub: en ? "Without a photo" : "사진 없이",
+      onClick: () => setPending({
+        kind,
+        thumb: null,
+        hiRes: null,
+        reading: false,
+        manual: true,
+        f: {
+          date: "",
+          invoiceNo: "",
+          party: "",
+          partyTin: "",
+          subtotal: "",
+          vat: "",
+          currency: "USD",
+          taxType: "b2b"
+        }
+      })
+    }]
   })), pending && /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.panel,
@@ -12282,7 +12476,7 @@ function InvoiceDocsPanel({
       fontSize: 13,
       color: pending.error ? PALETTE.red : pending.confidence === "low" ? PALETTE.brassText : PALETTE.inkSoft
     }
-  }, pending.reading ? en ? "Reading the invoice…" : "인보이스를 읽는 중…" : pending.error ? pending.error : pending.confidence === "low" ? en ? "Hard to read — please check every field." : "잘 안 보여요 — 칸마다 꼭 확인해 주세요." : en ? "Read. Check and fix if needed, then Add." : "읽었어요. 확인하고 틀리면 고친 뒤 [등록]하세요."))), pending.f && fields(pending.f, x => setPending(p => ({
+  }, pending.manual ? en ? "Fill in the invoice, then press Add." : "인보이스 내용을 입력한 뒤 [추가]를 눌러 주세요." : pending.reading ? en ? "Reading the invoice…" : "인보이스를 읽는 중…" : pending.error ? pending.error : pending.confidence === "low" ? en ? "Hard to read — please check every field." : "잘 안 보여요 — 칸마다 꼭 확인해 주세요." : en ? "Read. Check and fix if needed, then Add." : "읽었어요. 확인하고 틀리면 고친 뒤 [등록]하세요."))), pending.f && fields(pending.f, x => setPending(p => ({
     ...p,
     f: {
       ...p.f,
@@ -13776,7 +13970,8 @@ function EvidencePanel({
   onUploadImage,
   onAttachDrive,
   showDrive,
-  withholding
+  withholding,
+  onPickFile
 }) {
   // 증빙(사진·스캔본)이 붙어 있는지 — 엑셀로만 올린 경비는 증빙이 없다
   const hasDoc = e => !!(e.thumbnail || e.driveUrl);
@@ -14052,49 +14247,36 @@ function EvidencePanel({
     style: S.hiddenFileInput,
     tabIndex: -1,
     "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement(EntryActions, {
+    items: [onPickFile && {
+      tone: "file",
+      label: lang === "en" ? "Choose file" : "파일 고르기",
+      sub: lang === "en" ? "PDF · Excel" : "PDF · 엑셀",
+      onClick: onPickFile
+    }, {
+      tone: "camera",
+      label: lang === "en" ? "Take photo" : "영수증 촬영",
+      sub: lang === "en" ? "One receipt" : "한 장씩",
+      onClick: () => cameraInputRef.current?.click()
+    }, {
+      tone: "gallery",
+      label: lang === "en" ? "Choose photo" : "사진 고르기",
+      sub: lang === "en" ? "From album" : "앨범에서",
+      onClick: () => fileInputRef.current?.click()
+    }, {
+      tone: "manual",
+      label: lang === "en" ? "Enter by hand" : "직접 입력",
+      sub: lang === "en" ? "Without a photo" : "사진 없이",
+      onClick: () => setManualOpen(true)
+    }]
   }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.captureBtnPrimary,
-    onClick: () => cameraInputRef.current?.click()
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "camera",
-    size: 20
-  }), lang === "en" ? "Take photo" : "영수증 촬영"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.captureBtn,
-    onClick: () => fileInputRef.current?.click()
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "gallery",
-    size: 20
-  }), lang === "en" ? "Choose photo" : "사진 고르기")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 8,
-      flexWrap: "wrap",
-      alignItems: "center",
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement("span", {
     className: "desktop-only",
     style: {
       fontSize: 13,
-      color: PALETTE.inkSoft
+      color: PALETTE.inkSoft,
+      marginTop: 8
     }
-  }, isDragging ? lang === "en" ? "Drop the image here" : "여기에 이미지를 놓으세요" : lang === "en" ? "or drag a receipt image here" : "또는 영수증 이미지를 이 영역에 끌어다 놓으세요"), !showForm && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: {
-      ...S.linkButton,
-      marginLeft: "auto"
-    },
-    onClick: () => setManualOpen(true)
-  }, lang === "en" ? "Enter without a photo" : "사진 없이 직접 입력"))), error && !showForm && /*#__PURE__*/React.createElement("div", {
+  }, isDragging ? lang === "en" ? "Drop the image here" : "여기에 이미지를 놓으세요" : lang === "en" ? "or drag a receipt image here" : "또는 영수증 이미지를 이 영역에 끌어다 놓으세요")), error && !showForm && /*#__PURE__*/React.createElement("div", {
     role: "alert",
     style: {
       color: PALETTE.red,
@@ -20845,6 +21027,19 @@ const S = {
     gap: 8,
     cursor: "pointer",
     padding: "0 8px"
+  },
+  entryBtn: {
+    minHeight: 58,
+    borderRadius: 14,
+    border: "1px solid #CDD3DA",
+    background: "#fff",
+    fontFamily: FONT.body,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    cursor: "pointer",
+    padding: "8px 12px",
+    width: "100%"
   },
   captureBtn: {
     minHeight: 56,

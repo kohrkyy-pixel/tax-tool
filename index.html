@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.2";
+const APP_RELEASE = "2026.11.17.3";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.17.3",
+  ko: ["월별 신고 화면이 국세청 신고서(P101)와 같은 세목별 탭으로 바뀌었어요 — 급여세 · 선납이윤세 · 원천세 · VAT · 기타 세목 · 확인·제출", "탭마다 지금 입력한 자료로 계산한 납부세액과 계산 근거를 보여 줘요", "매출·매입·증빙은 VAT 탭에서 입력해요. 확인·제출 탭에는 신고서와 같은 세목별 표가 나와요"],
+  en: ["Monthly filing now has one tab per tax, in the order of the GDT return (P101) — Salary tax · Prepayment · Withholding · VAT · Other taxes · Review & file", "Each tab shows the tax calculated from what has been entered, and how it was worked out", "Sales, purchases and receipts are entered in the VAT tab. The Review tab shows the same table as the return"]
+}, {
   version: "2026.11.17.2",
   ko: ["매출 인보이스에 인보이스별 환율이 있으면 그 환율로 KHR을 계산해요 — 국세청 신고 금액(인보이스 날짜 환율 기준)과 맞아요", "급여 환율을 월 환율과 따로 정할 수 있어요 (② 급여)"],
   en: ["Sales invoices with their own exchange rate are converted to KHR at that rate — matching the amounts filed with GDT", "A separate salary exchange rate can be set (step 2)"]
@@ -4025,7 +4029,61 @@ const KM_DICT = {
   "A separate salary exchange rate can be set (step 2)": "អាចកំណត់អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្សដោយឡែក (ជំហានទី 2)",
   "Salary exchange rate (KHR per USD)": "អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្ស (KHR ក្នុង 1 USD)",
   "Salary exchange rate": "អត្រាប្តូរប្រាក់សម្រាប់ប្រាក់បៀវត្ស",
-  "— leave empty to use the monthly rate ({0})": "— ទុកទទេដើម្បីប្រើអត្រាប្រចាំខែ ({0})"
+  "— leave empty to use the monthly rate ({0})": "— ទុកទទេដើម្បីប្រើអត្រាប្រចាំខែ ({0})",
+  "Monthly filing now has one tab per tax, in the order of the GDT return (P101) — Salary tax · Prepayment · Withholding · VAT · Other taxes · Review & file": "ការប្រកាសប្រចាំខែឥឡូវមានផ្ទាំងមួយសម្រាប់ពន្ធនីមួយៗ តាមលំដាប់នៃលិខិតប្រកាស អពដ (P101) — ពន្ធលើប្រាក់បៀវត្ស · ប្រាក់រំដោះ · ពន្ធកាត់ទុក · អតប · ពន្ធផ្សេងៗ · ពិនិត្យ និងដាក់ស្នើ",
+  "Each tab shows the tax calculated from what has been entered, and how it was worked out": "ផ្ទាំងនីមួយៗបង្ហាញប្រាក់ពន្ធដែលគណនាពីទិន្នន័យដែលបានបញ្ចូល និងរបៀបគណនា",
+  "Sales, purchases and receipts are entered in the VAT tab. The Review tab shows the same table as the return": "ការលក់ ការទិញ និងបង្កាន់ដៃ ត្រូវបញ្ចូលក្នុងផ្ទាំង អតប។ ផ្ទាំងពិនិត្យបង្ហាញតារាងដូចលិខិតប្រកាស",
+  "Each month, open Monthly filing and enter payroll, sales and receipts in the tax tabs, then press Save.": "រៀងរាល់ខែ បើកការប្រកាសប្រចាំខែ ហើយបញ្ចូលប្រាក់បៀវត្ស ការលក់ និងបង្កាន់ដៃក្នុងផ្ទាំងពន្ធ រួចចុច រក្សាទុក។",
+  "When done, press Request review in the Review tab. Kohr & Co. checks it, asks for changes if needed, and files with the GDT.": "ពេលរួចរាល់ ចុច ស្នើសុំពិនិត្យ ក្នុងផ្ទាំងពិនិត្យ។ Kohr & Co. នឹងពិនិត្យ ស្នើឱ្យកែបើចាំបាច់ ហើយប្រកាសជាមួយ អពដ។",
+  "Each month, open Monthly filing and enter payroll, sales and receipts in the tax tabs.": "រៀងរាល់ខែ បើកការប្រកាសប្រចាំខែ ហើយបញ្ចូលប្រាក់បៀវត្ស ការលក់ និងបង្កាន់ដៃក្នុងផ្ទាំងពន្ធ។",
+  "entered {0}/3 · docs {1}/{2}": "បានបញ្ចូល {0}/3 · ឯកសារ {1}/{2}",
+  "Shown to the client as a checklist in the Review tab every month.": "បង្ហាញជូនអតិថិជនជាបញ្ជីត្រួតពិនិត្យក្នុងផ្ទាំងពិនិត្យរៀងរាល់ខែ។",
+  "Salary tax": "ពន្ធលើប្រាក់បៀវត្ស",
+  "Prepayment": "ប្រាក់រំដោះ",
+  "Other taxes": "ពន្ធផ្សេងៗ",
+  "Tax tabs": "ផ្ទាំងពន្ធ",
+  "Fix it, then press Request review again in the Review tab.": "កែវា រួចចុច ស្នើសុំពិនិត្យ ម្តងទៀតក្នុងផ្ទាំងពិនិត្យ។",
+  "This month has been filed, so it can’t be changed. Send a message in the Review tab if something needs fixing.": "ខែនេះបានប្រកាសរួចហើយ ដូច្នេះមិនអាចកែបានទេ។ បើមានអ្វីត្រូវកែ សូមផ្ញើសារក្នុងផ្ទាំងពិនិត្យ។",
+  "{0} item(s) to check — see the Review tab": "មាន {0} ចំណុចត្រូវពិនិត្យ — មើលក្នុងផ្ទាំងពិនិត្យ",
+  "Salary Tax · Fringe Benefit Tax": "ពន្ធលើប្រាក់បៀវត្ស · ពន្ធលើអត្ថប្រយោជន៍បន្ថែម",
+  "Tax on salaries paid this month. Enter the staff below; the tax is calculated from their salaries and dependents.": "ពន្ធលើប្រាក់បៀវត្សដែលបានបើកក្នុងខែនេះ។ បញ្ចូលបុគ្គលិកខាងក្រោម ពន្ធនឹងគណនាពីប្រាក់បៀវត្ស និងអ្នកក្នុងបន្ទុក។",
+  "Fringe benefit tax (20% of benefits in kind)": "ពន្ធលើអត្ថប្រយោជន៍បន្ថែម (20% នៃអត្ថប្រយោជន៍ជាវត្ថុ)",
+  "Tax to pay": "ប្រាក់ពន្ធត្រូវបង់",
+  "Prepayment of Income Tax (1%)": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល (1%)",
+  "1% of this month's sales before VAT, including non-taxable sales. Sales are entered in the VAT tab.": "1% នៃការលក់ខែនេះមុន អតប រួមទាំងការលក់មិនជាប់អាករ។ ការលក់ត្រូវបញ្ចូលក្នុងផ្ទាំង អតប។",
+  "Taxable sales (before VAT)": "ការលក់ជាប់អាករ (មុន អតប)",
+  "Total sales": "ការលក់សរុប",
+  "Tax to pay (× 1%)": "ប្រាក់ពន្ធត្រូវបង់ (× 1%)",
+  "Sales invoices registered: {0}. To change sales, go to the VAT tab.": "វិក្កយបត្រលក់ដែលបានចុះបញ្ជី៖ {0}។ ដើម្បីកែការលក់ សូមទៅផ្ទាំង អតប។",
+  "No sales entered yet.": "មិនទាន់បានបញ្ចូលការលក់នៅឡើយ។",
+  "Enter sales in the VAT tab": "បញ្ចូលការលក់ក្នុងផ្ទាំង អតប",
+  "Withholding Tax": "ពន្ធកាត់ទុក",
+  "Tax withheld when paying rent, service fees, interest or non-residents. Receipts registered in the VAT tab with a withholding type appear here automatically; add others below.": "ពន្ធដែលកាត់ទុកពេលបង់ថ្លៃឈ្នួល ថ្លៃសេវា ការប្រាក់ ឬបង់ឱ្យអនិវាសនជន។ បង្កាន់ដៃដែលចុះបញ្ជីក្នុងផ្ទាំង អតប ដោយជ្រើសប្រភេទពន្ធកាត់ទុក នឹងបង្ហាញនៅទីនេះដោយស្វ័យប្រវត្តិ ហើយអាចបន្ថែមផ្សេងទៀតខាងក្រោម។",
+  "70014 Rental — 10%": "70014 ថ្លៃឈ្នួល — 10%",
+  "70012 Services, interest, royalties (resident) — 15%": "70012 សេវា ការប្រាក់ សួយសារ (និវាសនជន) — 15%",
+  "70012 Non-resident payments — 14%": "70012 ការបង់ឱ្យអនិវាសនជន — 14%",
+  "Value Added Tax": "អាករលើតម្លៃបន្ថែម",
+  "Output VAT on sales minus input VAT on purchases. Enter sales, purchases and receipts below.": "អតប ធាតុចេញលើការលក់ ដក អតប ធាតុចូលលើការទិញ។ បញ្ចូលការលក់ ការទិញ និងបង្កាន់ដៃខាងក្រោម។",
+  "Output VAT (10% of taxable sales)": "អតប ធាតុចេញ (10% នៃការលក់ជាប់អាករ)",
+  "Credit carried to next month: {0} KHR": "ឥណទានយោងទៅខែបន្ទាប់៖ {0} KHR",
+  "Receipts & purchase invoices": "បង្កាន់ដៃ និងវិក្កយបត្រទិញ",
+  "Public Lighting Tax, Specific Tax and Accommodation Tax. Most companies have nothing to enter here.": "អាករសម្រាប់បំភ្លឺសាធារណៈ អាករពិសេស និងអាករលើការស្នាក់នៅ។ ក្រុមហ៊ុនភាគច្រើនមិនមានអ្វីត្រូវបញ្ចូលនៅទីនេះទេ។",
+  "70035 Public Lighting Tax (5%)": "70035 អាករសម្រាប់បំភ្លឺសាធារណៈ (5%)",
+  "Specific Tax (70031 goods, 70034 services) and Accommodation Tax (70045) are not calculated in the app yet. If they apply to this company, tell Kohr & Co. in the Review tab.": "អាករពិសេស (70031 ទំនិញ, 70034 សេវា) និងអាករលើការស្នាក់នៅ (70045) មិនទាន់គណនាក្នុងកម្មវិធីនៅឡើយទេ។ បើក្រុមហ៊ុននេះជាប់ពន្ធទាំងនេះ សូមប្រាប់ Kohr & Co. ក្នុងផ្ទាំងពិនិត្យ។",
+  "Salary Tax": "ពន្ធលើប្រាក់បៀវត្ស",
+  "Fringe Benefit Tax": "ពន្ធលើអត្ថប្រយោជន៍បន្ថែម",
+  "Prepayment of Income Tax": "ប្រាក់រំដោះពន្ធលើប្រាក់ចំណូល",
+  "Withholding Tax (resident)": "ពន្ធកាត់ទុក (និវាសនជន)",
+  "Withholding Tax (non-resident)": "ពន្ធកាត់ទុក (អនិវាសនជន)",
+  "Withholding Tax on Rental": "ពន្ធកាត់ទុកលើថ្លៃឈ្នួល",
+  "Type of tax": "ប្រភេទពន្ធ",
+  "Credit last month": "ឥណទានយោងពីខែមុន",
+  "Credit next month": "ឥណទានយោងខែបន្ទាប់",
+  "Previous tab": "ផ្ទាំងមុន",
+  "Please fix the following and press Request review again in the Review tab:": "សូមកែចំណុចខាងក្រោម រួចចុច ស្នើសុំពិនិត្យ ម្តងទៀតក្នុងផ្ទាំងពិនិត្យ៖",
+  "{0} document(s) registered as receipts (VAT tab).": "បានចុះបញ្ជីឯកសារ {0} ជាបង្កាន់ដៃ (ផ្ទាំង អតប)។",
+  "Sales invoices are added to Sales; purchase invoices are registered as receipts below. You can edit everything afterwards.": "វិក្កយបត្រលក់ត្រូវបូកចូលការលក់ ហើយវិក្កយបត្រទិញត្រូវចុះបញ្ជីជាបង្កាន់ដៃខាងក្រោម។ អ្នកអាចកែទាំងអស់នៅពេលក្រោយ។",
+  "Receipts are picked up by their type in the VAT tab of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group.": "បង្កាន់ដៃត្រូវបានប្រមូលតាមប្រភេទរបស់វាក្នុងផ្ទាំង អតប នៃការប្រកាសប្រចាំខែ (ការកម្សាន្ត ប្រាក់ពិន័យ វិភាគទានសប្បុរសធម៌)។ បើបង្កាន់ដៃនៅខុសក្រុម សូមកែប្រភេទនៅទីនោះ។"
 }; /*KM_DICT_END*/
 const KM_MONTHS = {
   Jan: "មករា",
@@ -5901,7 +5959,7 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps, then press Save." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 [저장]을 누릅니다."), /*#__PURE__*/React.createElement("li", null, en ? "Snap receipts as you get them — the date and amount are read automatically." : "영수증은 받을 때마다 사진으로 올리세요 — 날짜·금액은 자동으로 읽어요."), /*#__PURE__*/React.createElement("li", null, en ? "When done, press Request review in step 4. Kohr & Co. checks it, asks for changes if needed, and files with the GDT." : "다 입력하면 4단계에서 [검토 요청]을 누르세요. Kohr & Co.가 확인하고, 필요하면 보완을 요청한 뒤 국세청에 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month have ready: sales invoices, payroll (incl. dependents), purchase receipts/VAT invoices, rent and service bills." : "매달 준비할 것: 매출 인보이스, 급여 내역(부양가족 포함), 매입 영수증·VAT 인보이스, 임차료·용역비 청구서")) : /*#__PURE__*/React.createElement("ol", {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter payroll, sales and receipts in the tax tabs, then press Save." : "매달 [월별 신고]에서 급여·매출·증빙을 세목별 탭에 입력하고 [저장]을 누릅니다."), /*#__PURE__*/React.createElement("li", null, en ? "Snap receipts as you get them — the date and amount are read automatically." : "영수증은 받을 때마다 사진으로 올리세요 — 날짜·금액은 자동으로 읽어요."), /*#__PURE__*/React.createElement("li", null, en ? "When done, press Request review in the Review tab. Kohr & Co. checks it, asks for changes if needed, and files with the GDT." : "다 입력하면 확인·제출 탭에서 [검토 요청]을 누르세요. Kohr & Co.가 확인하고, 필요하면 보완을 요청한 뒤 국세청에 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month have ready: sales invoices, payroll (incl. dependents), purchase receipts/VAT invoices, rent and service bills." : "매달 준비할 것: 매출 인보이스, 급여 내역(부양가족 포함), 매입 영수증·VAT 인보이스, 임차료·용역비 청구서")) : /*#__PURE__*/React.createElement("ol", {
     style: {
       margin: 0,
       paddingLeft: 20,
@@ -5909,7 +5967,7 @@ function Dashboard({
       lineHeight: 1.9,
       color: PALETTE.ink
     }
-  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter sales, payroll and receipts in 4 steps." : "매달 [월별 신고]에서 매출·급여·증빙을 4단계로 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Clients press Request review when ready — review those first, send change requests or file." : "고객사가 [검토 요청]한 곳부터 확인하고, 보완 요청을 보내거나 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "After filing on GDT e-Filing, enter the reference no. and mark as filed — the month locks for the client." : "e-Filing 신고 후 접수번호를 넣고 [신고 완료로 표시] — 고객사는 그 달을 더 고칠 수 없어요.")), /*#__PURE__*/React.createElement(ManualLink, {
+  }, /*#__PURE__*/React.createElement("li", null, en ? "Add your client companies under Clients." : "[고객사]에서 관리할 회사를 추가합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Each month, open Monthly filing and enter payroll, sales and receipts in the tax tabs." : "매달 [월별 신고]에서 급여·매출·증빙을 세목별 탭에 입력하고 저장합니다."), /*#__PURE__*/React.createElement("li", null, en ? "Clients press Request review when ready — review those first, send change requests or file." : "고객사가 [검토 요청]한 곳부터 확인하고, 보완 요청을 보내거나 신고합니다."), /*#__PURE__*/React.createElement("li", null, en ? "After filing on GDT e-Filing, enter the reference no. and mark as filed — the month locks for the client." : "e-Filing 신고 후 접수번호를 넣고 [신고 완료로 표시] — 고객사는 그 달을 더 고칠 수 없어요.")), /*#__PURE__*/React.createElement(ManualLink, {
     style: {
       marginTop: 10
     }
@@ -6069,7 +6127,7 @@ function Dashboard({
   }, STATUS[r.status].action)))), receiptTarget && /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.receiptShortcut,
-    onClick: () => onOpenClient(receiptTarget.c.id, 3)
+    onClick: () => onOpenClient(receiptTarget.c.id, 4)
   }, /*#__PURE__*/React.createElement("span", {
     "aria-hidden": "true",
     style: {
@@ -6366,7 +6424,7 @@ function Dashboard({
       padding: "14px 12px",
       color: r.status === "empty" ? PALETTE.inkSoft : PALETTE.ink
     }
-  }, r.status === "filed" ? filedText(r) + (r.filing?.filedRef ? ` · ${r.filing.filedRef}` : "") : en ? `${r.stepsDone}/4 steps · docs ${r.docsDone}/${r.docsTotal}` : `${r.stepsDone}/4단계 · 서류 ${r.docsDone}/${r.docsTotal}`), /*#__PURE__*/React.createElement("td", {
+  }, r.status === "filed" ? filedText(r) + (r.filing?.filedRef ? ` · ${r.filing.filedRef}` : "") : en ? `entered ${r.stepsDone}/3 · docs ${r.docsDone}/${r.docsTotal}` : `입력 ${r.stepsDone}/3 · 서류 ${r.docsDone}/${r.docsTotal}`), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "14px 12px",
       textAlign: "right",
@@ -6839,15 +6897,15 @@ function reminderText(r, year, month, due, withDue, en) {
     lines.push(`Hello ${r.c.name},`);
     if (r.status === "filed") {
       lines.push(`Your ${month}/${year} taxes have been filed. Amount due: ${fmt(r.calc ? r.calc.totalDue : 0)} KHR.`);
-      lines.push("Please pay by the deadline and upload the payment receipt in step 4 of the app (Tax payment).");
+      lines.push("Please pay by the deadline and upload the payment receipt in the Review tab of the app (Tax payment).");
     } else if (r.status === "changes") {
       lines.push(`For your ${month}/${year} filing, we need a few changes:`);
       if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
-      lines.push("Please update the app and press [Request review] in step 4.");
+      lines.push("Please update the app and press [Request review] in the Review tab.");
     } else if (r.status === "draft") {
-      lines.push(`Your ${month}/${year} data is partly entered. Please finish sales, payroll and receipts in the app and press [Request review] in step 4.`);
+      lines.push(`Your ${month}/${year} data is partly entered. Please finish sales, payroll and receipts in the app and press [Request review] in the Review tab.`);
     } else {
-      lines.push(`Please enter your ${month}/${year} sales, payroll and receipts in the app, then press [Request review] in step 4.`);
+      lines.push(`Please enter your ${month}/${year} sales, payroll and receipts in the app, then press [Request review] in the Review tab.`);
     }
     if (withDue) lines.push(`GDT filing deadline: ${gdtDueText(due, "en")} · NSSF: ${fmtMonthDay(due.nssf, "en")}`);
     lines.push(`App: ${APP_PUBLIC_URL}`);
@@ -6856,15 +6914,15 @@ function reminderText(r, year, month, due, withDue, en) {
     lines.push(`${r.c.name} 담당자님, 안녕하세요. Kohr & Co.입니다.`);
     if (r.status === "filed") {
       lines.push(`${year}년 ${month}월분 세금 신고를 마쳤어요. 납부할 세금: ${fmt(r.calc ? r.calc.totalDue : 0)} KHR`);
-      lines.push("마감일까지 납부하신 뒤, 앱 4단계 [세금 납부]에 납부 영수증을 올려 주세요.");
+      lines.push("마감일까지 납부하신 뒤, 앱의 확인·제출 탭 [세금 납부]에 납부 영수증을 올려 주세요.");
     } else if (r.status === "changes") {
       lines.push(`${year}년 ${month}월분 신고 자료에 보완이 필요해요.`);
       if (lastAdmin) lines.push(`“${lastAdmin.text}”`);
-      lines.push("앱에서 고친 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요.");
+      lines.push("앱에서 고친 뒤 확인·제출 탭에서 [검토 요청]을 다시 눌러 주세요.");
     } else if (r.status === "draft") {
-      lines.push(`${year}년 ${month}월분 자료가 아직 입력 중이에요. 매출·급여·영수증을 마저 입력하고 4단계에서 [검토 요청]을 눌러 주세요.`);
+      lines.push(`${year}년 ${month}월분 자료가 아직 입력 중이에요. 매출·급여·영수증을 마저 입력하고 확인·제출 탭에서 [검토 요청]을 눌러 주세요.`);
     } else {
-      lines.push(`${year}년 ${month}월분 매출·급여·영수증을 앱에 입력하고 4단계에서 [검토 요청]을 눌러 주세요.`);
+      lines.push(`${year}년 ${month}월분 매출·급여·영수증을 앱에 입력하고 확인·제출 탭에서 [검토 요청]을 눌러 주세요.`);
     }
     if (withDue) lines.push(`국세청 신고 마감: ${gdtDueText(due, "ko")} · NSSF 납부: ${fmtMonthDay(due.nssf, "ko")}`);
     lines.push(`앱 주소: ${APP_PUBLIC_URL}`);
@@ -7575,7 +7633,7 @@ function ClientsView({
       fontWeight: 400,
       color: PALETTE.inkSoft
     }
-  }, en ? "Shown to the client as a checklist in step 4 every month." : "매달 4단계에 체크리스트로 보여요. 고객사마다 다르게 정할 수 있어요.")), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Shown to the client as a checklist in the Review tab every month." : "매달 확인·제출 탭에 체크리스트로 보여요. 고객사마다 다르게 정할 수 있어요.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -7750,7 +7808,7 @@ function MonthlyView({
   const lang = useLang();
   const prevFilingRef = React.useRef(filing);
   const [externalChange, setExternalChange] = useState(false);
-  const [step, setStep] = useState(initialStep || 1); // 단계별 입력: 1 매출·매입 → 2 급여 → 3 증빙·원천세 → 4 확인·제출
+  const [step, setStep] = useState(initialStep || 1); // 세목 탭: 1 급여세 → 2 선납이윤세 → 3 원천세 → 4 VAT(매출·매입·증빙) → 5 기타 세목 → 6 확인·제출
   const firstStepRun = useRef(true);
   useEffect(() => {
     if (firstStepRun.current) {
@@ -7906,35 +7964,74 @@ function MonthlyView({
       })
     });
   };
+  const hasSales = Number(local.revenue) > 0 || Number(local.nonTaxableRevenue) > 0;
+  const hasVatData = hasSales || Number(local.purchase) > 0 || Number(local.expenses) > 0 || (local.evidence || []).length > 0;
+  // 탭 = 국세청 월별 신고서(P101)의 세목 순서. 탭마다 지금 입력한 자료로 계산한 납부세액을 보여 준다
   const stepsDef = [{
     n: 1,
-    ko: "매출·매입",
-    en: "Sales & purchases",
-    shortKo: "매출·매입",
-    shortEn: "Sales",
-    done: Number(local.revenue) > 0 || Number(local.purchase) > 0 || Number(local.expenses) > 0
-  }, {
-    n: 2,
-    ko: "급여",
-    en: "Payroll",
-    shortKo: "급여",
-    shortEn: "Payroll",
+    code: "70013",
+    ko: "급여세",
+    en: "Salary tax",
+    shortKo: "급여세",
+    shortEn: "Salary tax",
+    amount: calc.salaryTaxTotal + calc.fringeTaxTotal,
     done: (local.employees || []).length > 0
   }, {
+    n: 2,
+    code: "70012",
+    ko: "선납이윤세",
+    en: "Prepayment",
+    shortKo: "선납이윤세",
+    shortEn: "Prepayment",
+    amount: calc.ppt,
+    done: hasSales
+  }, {
     n: 3,
-    ko: "증빙·원천세",
-    en: "Receipts & WHT",
-    shortKo: "증빙",
-    shortEn: "Receipts",
-    done: (local.evidence || []).length + (local.withholding || []).length > 0
+    code: "70014",
+    ko: "원천세",
+    en: "Withholding",
+    shortKo: "원천세",
+    shortEn: "WHT",
+    amount: calc.withholdingTaxTotal,
+    done: (local.withholding || []).length > 0
   }, {
     n: 4,
+    code: "70022",
+    ko: "VAT",
+    en: "VAT",
+    shortKo: "VAT",
+    shortEn: "VAT",
+    amount: calc.vatPayable,
+    done: hasVatData
+  }, {
+    n: 5,
+    code: "70035",
+    ko: "기타 세목",
+    en: "Other taxes",
+    shortKo: "기타 세목",
+    shortEn: "Other",
+    amount: calc.plt,
+    done: Number(local.alcoholTobaccoRevenue) > 0
+  }, {
+    n: 6,
     ko: "확인·제출",
     en: "Review & file",
-    shortKo: "확인",
+    shortKo: "확인·제출",
     shortEn: "Review",
+    amount: calc.totalDue,
+    total: true,
     done: !!local.filed || local.reviewStatus === "submitted"
   }];
+  const LAST_STEP = 6;
+  const whtSplit = (local.withholding || []).reduce((a, w) => {
+    const k = w.category === "rent" ? "rent" : w.category === "nonresident" ? "nonresident" : "resident";
+    a[k] += Number(w.taxKHR) || 0;
+    return a;
+  }, {
+    rent: 0,
+    resident: 0,
+    nonresident: 0
+  });
   const attention = issues.filter(i => i.level === "error" || i.level === "warning").length;
   const prevVatCF = prevFiling ? Math.round(calcMonthly(prevFiling).vatCreditCF) : 0;
   const en = lang === "en";
@@ -8120,8 +8217,8 @@ function MonthlyView({
     key: y,
     value: y
   }, en ? y : `${y}년`)))), /*#__PURE__*/React.createElement("ol", {
-    style: S.stepBar,
-    "aria-label": en ? "Steps" : "입력 단계"
+    style: S.taxTabBar,
+    "aria-label": en ? "Tax tabs" : "세목 탭"
   }, stepsDef.map(st => {
     const current = st.n === step;
     return /*#__PURE__*/React.createElement("li", {
@@ -8132,30 +8229,39 @@ function MonthlyView({
       }
     }, /*#__PURE__*/React.createElement("button", {
       type: "button",
+      "data-tab": st.n,
       "aria-current": current ? "step" : undefined,
-      "aria-label": `${st.n}${en ? ". " : "단계 "}${en ? st.en : st.ko}${st.done ? en ? " (done)" : " (입력함)" : ""}`,
+      "aria-label": `${en ? st.en : st.ko} ${fmt(st.amount)} KHR`,
       onClick: () => goStep(st.n),
-      style: S.stepBarBtn
+      style: {
+        ...S.taxTabBtn,
+        ...(current ? S.taxTabBtnOn : {}),
+        ...(st.total && !current ? {
+          background: PALETTE.paper
+        } : {})
+      }
     }, /*#__PURE__*/React.createElement("span", {
       "aria-hidden": "true",
       style: {
-        height: 4,
-        borderRadius: 2,
-        background: current ? PALETTE.teal : st.done ? "#8DBFB1" : "#DDE3E8"
-      }
-    }), /*#__PURE__*/React.createElement("span", {
-      "aria-hidden": "true",
-      className: "step-label",
-      style: {
         fontSize: 13,
-        fontWeight: current ? 700 : 500,
-        color: current ? PALETTE.teal : PALETTE.inkSoft,
-        lineHeight: 1.35,
+        fontWeight: current ? 700 : 600,
+        color: current ? PALETTE.tealDeep : PALETTE.ink,
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis"
       }
-    }, "①②③④"[st.n - 1], " ", en ? st.shortEn : st.shortKo)));
+    }, en ? st.shortEn : st.shortKo), /*#__PURE__*/React.createElement("span", {
+      "aria-hidden": "true",
+      "data-notr": true,
+      style: {
+        fontSize: 13.5,
+        fontWeight: 700,
+        color: st.amount > 0 ? current ? PALETTE.tealDeep : PALETTE.ink : "#9AA5B1",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, st.amount > 0 ? fmt(st.amount) : st.done ? "0" : "—")));
   })), (isDirty || saveStatusText) && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -8212,208 +8318,23 @@ function MonthlyView({
       marginTop: 6,
       color: PALETTE.inkSoft
     }
-  }, en ? "Fix it, then press Request review again in step 4." : "고친 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요.")), locked && /*#__PURE__*/React.createElement("div", {
+  }, en ? "Fix it, then press Request review again in the Review tab." : "고친 뒤 확인·제출 탭에서 [검토 요청]을 다시 눌러 주세요.")), locked && /*#__PURE__*/React.createElement("div", {
     role: "note",
     style: S.noticeTeal
-  }, en ? "This month has been filed, so it can’t be changed. Send a message in step 4 if something needs fixing." : "신고가 끝난 달이라 고칠 수 없어요. 고칠 내용이 있으면 4단계에서 메시지로 알려 주세요."), step !== 4 && attention > 0 && /*#__PURE__*/React.createElement("button", {
+  }, en ? "This month has been filed, so it can’t be changed. Send a message in the Review tab if something needs fixing." : "신고가 끝난 달이라 고칠 수 없어요. 고칠 내용이 있으면 확인·제출 탭에서 메시지로 알려 주세요."), step !== LAST_STEP && attention > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
-    onClick: () => goStep(4),
+    onClick: () => goStep(LAST_STEP),
     style: S.attentionChip
-  }, lang === "en" ? `${attention} item(s) to check — see step 4` : `확인할 항목 ${attention}건 — 4단계에서 보기`), /*#__PURE__*/React.createElement("fieldset", {
+  }, lang === "en" ? `${attention} item(s) to check — see the Review tab` : `확인할 항목 ${attention}건 — 확인·제출 탭에서 보기`), /*#__PURE__*/React.createElement("fieldset", {
     disabled: locked,
     style: S.lockFieldset
-  }, step === 1 && /*#__PURE__*/React.createElement("section", {
-    style: {
-      ...S.panel,
-      display: "flex",
-      flexDirection: "column",
-      gap: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    style: {
-      margin: 0,
-      fontSize: 19,
-      fontWeight: 700,
-      color: PALETTE.ink
-    }
-  }, en ? "This month's sales and purchases" : "이번 달 매출과 매입"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...S.stepIntro,
-      margin: "4px 0 0"
-    }
-  }, en ? "Enter USD amounts before VAT. VAT and riel are calculated for you." : "VAT를 빼고 USD로 입력하세요. VAT와 리엘은 자동 계산돼요.")), /*#__PURE__*/React.createElement("div", {
-    style: S.ratePill
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: PALETTE.inkSoft
-    }
-  }, en ? "Exchange rate" : "적용 환율"), " ", /*#__PURE__*/React.createElement("strong", {
-    style: {
-      fontWeight: 600
-    }
-  }, "1 USD = ", fmt(calc.rate), " KHR")), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: {
-      ...S.linkButton,
-      textDecoration: "none",
-      padding: "6px 4px"
-    },
-    "aria-expanded": rateOpen,
-    onClick: () => setRateOpen(!rateOpen)
-  }, rateOpen ? en ? "Close" : "닫기" : en ? "Change" : "바꾸기")), rateOpen && /*#__PURE__*/React.createElement(ExchangeRatePanel, {
-    rate: local.exchangeRate,
-    onChangeRate: v => setLocal({
-      ...local,
-      exchangeRate: v
-    }),
-    settings: settings,
-    onUpdateSettings: onUpdateSettings
-  }), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
-    local: local,
-    setLocal: setLocal,
-    rate: calc.rate,
-    disabled: locked,
-    onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
-  }), /*#__PURE__*/React.createElement(BulkImportPanel, {
-    local: local,
-    setLocal: setLocal,
-    rate: calc.rate,
-    disabled: locked,
-    onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
-  }), /*#__PURE__*/React.createElement(MoneyField, {
-    id: "mf-revenue",
-    label: en ? "Sales" : "매출액",
-    ariaLabel: en ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)",
-    value: local.revenue,
-    onChange: v => setLocal({
-      ...local,
-      revenue: v
-    }),
-    helper: Number(local.revenue) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Incl. VAT 10% ", usd(calc.revenue.vatUSD), ": total ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "VAT 10% ", usd(calc.revenue.vatUSD), " 포함 총액 ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR"))
-  }), /*#__PURE__*/React.createElement(MoneyField, {
-    id: "mf-nontax",
-    label: en ? "Non-taxable sales" : "면세 매출",
-    sub: en ? "— no VAT (counted for the 1% prepayment)" : "— VAT 없는 매출 (선납이윤세 1%에는 포함)",
-    ariaLabel: en ? "Non-taxable sales (USD)" : "면세 매출 (USD)",
-    value: local.nonTaxableRevenue,
-    onChange: v => setLocal({
-      ...local,
-      nonTaxableRevenue: v
-    }),
-    helper: Number(local.nonTaxableRevenue) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt(calc.nonTaxableKHR), " KHR")
-  }), /*#__PURE__*/React.createElement(MoneyField, {
-    id: "mf-purchase",
-    label: en ? "Purchases" : "매입액",
-    sub: en ? "— only those without an uploaded invoice" : "— 증빙을 안 올린 분만",
-    ariaLabel: en ? "Purchases without an uploaded invoice (USD, before VAT)" : "매입액 — 증빙을 올리지 않은 분 (USD, VAT 제외)",
-    value: local.purchase,
-    onChange: v => setLocal({
-      ...local,
-      purchase: v
-    }),
-    helper: Number(local.purchase) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Input VAT credit ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "매입세액 공제 ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR"))
-  }), /*#__PURE__*/React.createElement(MoneyField, {
-    id: "mf-expenses",
-    label: en ? "Other expenses" : "기타 경비",
-    sub: en ? "— without receipts" : "— 증빙 없는 분",
-    ariaLabel: en ? "Other expenses without receipts (USD)" : "기타 경비 — 증빙 없는 분 (USD)",
-    value: local.expenses,
-    onChange: v => setLocal({
-      ...local,
-      expenses: v
-    }),
-    helper: Number(local.expenses) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt((Number(local.expenses) || 0) * calc.rate), " KHR")
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    htmlFor: "vat-credit-bf",
-    style: {
-      fontSize: 14.5,
-      fontWeight: 600,
-      color: PALETTE.ink
-    }
-  }, en ? "VAT credit brought forward" : "전월 이월 VAT 공제", /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: PALETTE.inkSoft
-    }
-  }, " ", en ? "— unused input VAT from last month (KHR)" : "— 지난달에 다 못 쓴 매입세액 (KHR)")), /*#__PURE__*/React.createElement("div", {
-    className: "money-field",
-    style: S.moneyField
-  }, /*#__PURE__*/React.createElement("input", {
-    id: "vat-credit-bf",
-    "aria-label": en ? "VAT credit brought forward (KHR)" : "전월 이월 VAT 공제 (KHR)",
-    type: "number",
-    inputMode: "numeric",
-    placeholder: "0",
-    value: local.vatCreditBF ?? "",
-    onChange: e => setLocal({
-      ...local,
-      vatCreditBF: e.target.value
-    }),
-    style: S.moneyInput
-  }), /*#__PURE__*/React.createElement("span", {
-    "aria-hidden": "true",
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft
-    }
-  }, "KHR")), prevVatCF > 0 && Math.round(Number(local.vatCreditBF) || 0) !== prevVatCF && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.brassText,
-      display: "flex",
-      gap: 8,
-      alignItems: "center",
-      flexWrap: "wrap"
-    }
-  }, en ? `Last month's return carried ${fmt(prevVatCF)} KHR forward.` : `지난달 신고에서 ${fmt(prevVatCF)} KHR이 이월됐어요.`, !locked && /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    style: S.buttonGhostSmall2,
-    onClick: () => setLocal({
-      ...local,
-      vatCreditBF: String(prevVatCF)
-    })
-  }, en ? "Apply" : "적용")), calc.vatCreditCF > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft
-    }
-  }, en ? `Input VAT exceeds output VAT — ${fmt(calc.vatCreditCF)} KHR carries forward to next month.` : `매입세액이 매출세액보다 많아요 — ${fmt(calc.vatCreditCF)} KHR이 다음 달로 이월돼요.`)), /*#__PURE__*/React.createElement("details", {
-    style: S.details,
-    open: Number(local.alcoholTobaccoRevenue) > 0 || undefined
-  }, /*#__PURE__*/React.createElement("summary", {
-    style: S.detailsSummary
-  }, lang === "en" ? "Sells alcohol or tobacco it produced or imported? (Public Lighting Tax)" : "직접 생산·수입한 주류·담배를 판매하나요? (공공조명세)"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 12
-    }
-  }, /*#__PURE__*/React.createElement(FieldRow, {
-    label: lang === "en" ? "First-supply value of alcohol/tobacco (USD)" : "주류·담배 최초 공급가액 (USD)"
-  }, /*#__PURE__*/React.createElement("input", {
-    style: S.input,
-    type: "number",
-    inputMode: "decimal",
-    value: local.alcoholTobaccoRevenue || "",
-    onChange: e => setLocal({
-      ...local,
-      alcoholTobaccoRevenue: e.target.value
-    }),
-    placeholder: "0"
-  })), local.alcoholTobaccoRevenue && Number(local.alcoholTobaccoRevenue) > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: PALETTE.inkSoft
-    }
-  }, lang === "en" ? `PLT: ${fmt(calc.pltBaseKHR)} KHR × 5% = ${fmt(calc.plt)} KHR` : `공공조명세: ${fmt(calc.pltBaseKHR)} KHR × 5% = ${fmt(calc.plt)} KHR`)))), step === 2 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("section", {
+  }, step === 1 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    code: "70013",
+    title: en ? "Salary Tax · Fringe Benefit Tax" : "급여세 · 부가급여세",
+    intro: en ? "Tax on salaries paid this month. Enter the staff below; the tax is calculated from their salaries and dependents." : "이번 달 지급한 급여에 대한 세금이에요. 아래에 직원을 입력하면 급여와 부양가족으로 세금이 계산돼요.",
+    rows: [[en ? `Salary tax (${(local.employees || []).length} staff)` : `급여세 (직원 ${(local.employees || []).length}명)`, calc.salaryTaxTotal], [en ? "Fringe benefit tax (20% of benefits in kind)" : "부가급여세 (현물급여의 20%)", calc.fringeTaxTotal]],
+    total: [en ? "Tax to pay" : "납부세액", calc.salaryTaxTotal + calc.fringeTaxTotal]
+  }), /*#__PURE__*/React.createElement("section", {
     style: S.panel
   }, /*#__PURE__*/React.createElement("div", {
     style: S.panelTitle
@@ -8601,23 +8522,246 @@ function MonthlyView({
       ...local,
       nssfApplicable: v
     })
-  })), step === 3 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+  })), step === 2 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    code: "70012",
+    title: en ? "Prepayment of Income Tax (1%)" : "선납이윤세 (매출의 1%)",
+    intro: en ? "1% of this month's sales before VAT, including non-taxable sales. Sales are entered in the VAT tab." : "이번 달 매출(VAT 제외)의 1%예요. 면세 매출도 포함돼요. 매출은 VAT 탭에서 입력해요.",
+    rows: [[en ? "Taxable sales (before VAT)" : "과세 매출 (VAT 제외)", calc.revenueKHR], [en ? "Non-taxable sales" : "면세 매출", calc.nonTaxableKHR], [en ? "Total sales" : "매출 합계", calc.turnoverKHR, true]],
+    total: [en ? "Tax to pay (× 1%)" : "납부세액 (× 1%)", calc.ppt]
+  }), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      minWidth: 200,
+      fontSize: 14,
+      color: PALETTE.inkSoft
+    }
+  }, calc.turnoverKHR > 0 ? en ? `Sales invoices registered: ${(local.salesDocs || []).length}. To change sales, go to the VAT tab.` : `등록된 매출 인보이스 ${(local.salesDocs || []).length}건. 매출을 고치려면 VAT 탭으로 가세요.` : en ? "No sales entered yet." : "아직 매출이 입력되지 않았어요."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhost,
+    onClick: () => goStep(4)
+  }, en ? "Enter sales in the VAT tab" : "VAT 탭에서 매출 입력"))), step === 3 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    code: "70014 · 70012",
+    title: en ? "Withholding Tax" : "원천세",
+    intro: en ? "Tax withheld when paying rent, service fees, interest or non-residents. Receipts registered in the VAT tab with a withholding type appear here automatically; add others below." : "임차료·용역비·이자나 비거주자에게 지급할 때 떼는 세금이에요. VAT 탭에서 원천세 유형을 고른 증빙은 여기에 자동으로 들어오고, 그 밖의 건은 아래에서 추가하세요.",
+    rows: [[en ? "70014 Rental — 10%" : "70014 임차료 — 10%", whtSplit.rent], [en ? "70012 Services, interest, royalties (resident) — 15%" : "70012 용역·이자·로열티 (거주자) — 15%", whtSplit.resident], [en ? "70012 Non-resident payments — 14%" : "70012 비거주자 지급분 — 14%", whtSplit.nonresident]],
+    total: [en ? "Tax to pay" : "납부세액", calc.withholdingTaxTotal]
+  }), /*#__PURE__*/React.createElement(WithholdingPanel, {
+    items: local.withholding || [],
+    exchangeRate: calc.rate,
+    onUpdate: (id, patch) => setLocal({
+      ...local,
+      withholding: (local.withholding || []).map(w => w.id === id ? {
+        ...w,
+        ...patch
+      } : w)
+    }),
+    onAdd: item => setLocal({
+      ...local,
+      withholding: [...(local.withholding || []), item]
+    }),
+    onRemove: id => setLocal({
+      ...local,
+      withholding: (local.withholding || []).filter(w => w.id !== id)
+    })
+  })), step === 4 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    code: "70022",
+    title: en ? "Value Added Tax" : "부가가치세 (VAT)",
+    intro: en ? "Output VAT on sales minus input VAT on purchases. Enter sales, purchases and receipts below." : "매출세액에서 매입세액을 뺀 금액이에요. 아래에 매출과 매입·경비 증빙을 입력하세요.",
+    rows: [[en ? "Output VAT (10% of taxable sales)" : "매출세액 (과세 매출의 10%)", calc.outputVAT], [en ? "Input VAT credit" : "매입세액 공제", -calc.inputVAT], ...(calc.vatCreditBF > 0 ? [[en ? "VAT credit brought forward" : "전월 이월 VAT 공제", -calc.vatCreditBF]] : [])],
+    total: [en ? "Tax to pay" : "납부세액", calc.vatPayable],
+    foot: calc.vatCreditCF > 0 ? en ? `Credit carried to next month: ${fmt(calc.vatCreditCF)} KHR` : `다음 달로 이월되는 공제: ${fmt(calc.vatCreditCF)} KHR` : null
+  }), /*#__PURE__*/React.createElement("section", {
+    style: {
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "This month's sales and purchases" : "이번 달 매출과 매입"), /*#__PURE__*/React.createElement("p", {
     style: {
       ...S.stepIntro,
-      marginTop: 0
+      margin: "4px 0 0"
     }
-  }, lang === "en" ? "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register." : "영수증·세금계산서를 사진으로 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Enter USD amounts before VAT. VAT and riel are calculated for you." : "VAT를 빼고 USD로 입력하세요. VAT와 리엘은 자동 계산돼요.")), /*#__PURE__*/React.createElement("div", {
+    style: S.ratePill
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
-      marginBottom: 12
+      fontSize: 14
     }
-  }, /*#__PURE__*/React.createElement(BulkImportPanel, {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: PALETTE.inkSoft
+    }
+  }, en ? "Exchange rate" : "적용 환율"), " ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      fontWeight: 600
+    }
+  }, "1 USD = ", fmt(calc.rate), " KHR")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: {
+      ...S.linkButton,
+      textDecoration: "none",
+      padding: "6px 4px"
+    },
+    "aria-expanded": rateOpen,
+    onClick: () => setRateOpen(!rateOpen)
+  }, rateOpen ? en ? "Close" : "닫기" : en ? "Change" : "바꾸기")), rateOpen && /*#__PURE__*/React.createElement(ExchangeRatePanel, {
+    rate: local.exchangeRate,
+    onChangeRate: v => setLocal({
+      ...local,
+      exchangeRate: v
+    }),
+    settings: settings,
+    onUpdateSettings: onUpdateSettings
+  }), /*#__PURE__*/React.createElement(InvoiceDocsPanel, {
     local: local,
     setLocal: setLocal,
     rate: calc.rate,
     disabled: locked,
-    kinds: ["purchase"],
-    onUploadImage: onUploadImage ? (dataUrl, name) => onUploadImage(dataUrl, name, "evidence") : null
-  })), /*#__PURE__*/React.createElement(EvidencePanel, {
+    onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
+  }), /*#__PURE__*/React.createElement(BulkImportPanel, {
+    local: local,
+    setLocal: setLocal,
+    rate: calc.rate,
+    disabled: locked,
+    onUploadImage: onUploadImage ? (dataUrl, name, kind) => onUploadImage(dataUrl, name, kind) : null
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-revenue",
+    label: en ? "Sales" : "매출액",
+    ariaLabel: en ? "Sales (USD, before VAT)" : "매출액 (USD, VAT 제외)",
+    value: local.revenue,
+    onChange: v => setLocal({
+      ...local,
+      revenue: v
+    }),
+    helper: Number(local.revenue) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Incl. VAT 10% ", usd(calc.revenue.vatUSD), ": total ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "VAT 10% ", usd(calc.revenue.vatUSD), " 포함 총액 ", /*#__PURE__*/React.createElement("b", null, usd(calc.revenue.totalUSD)), " · ", fmt(calc.revenue.totalKHR), " KHR"))
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-nontax",
+    label: en ? "Non-taxable sales" : "면세 매출",
+    sub: en ? "— no VAT (counted for the 1% prepayment)" : "— VAT 없는 매출 (선납이윤세 1%에는 포함)",
+    ariaLabel: en ? "Non-taxable sales (USD)" : "면세 매출 (USD)",
+    value: local.nonTaxableRevenue,
+    onChange: v => setLocal({
+      ...local,
+      nonTaxableRevenue: v
+    }),
+    helper: Number(local.nonTaxableRevenue) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt(calc.nonTaxableKHR), " KHR")
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-purchase",
+    label: en ? "Purchases" : "매입액",
+    sub: en ? "— only those without an uploaded invoice" : "— 증빙을 안 올린 분만",
+    ariaLabel: en ? "Purchases without an uploaded invoice (USD, before VAT)" : "매입액 — 증빙을 올리지 않은 분 (USD, VAT 제외)",
+    value: local.purchase,
+    onChange: v => setLocal({
+      ...local,
+      purchase: v
+    }),
+    helper: Number(local.purchase) > 0 && (en ? /*#__PURE__*/React.createElement(React.Fragment, null, "Input VAT credit ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR") : /*#__PURE__*/React.createElement(React.Fragment, null, "매입세액 공제 ", /*#__PURE__*/React.createElement("b", null, usd(calc.purchase.vatUSD)), " · ", fmt(calc.purchase.vatKHR), " KHR"))
+  }), /*#__PURE__*/React.createElement(MoneyField, {
+    id: "mf-expenses",
+    label: en ? "Other expenses" : "기타 경비",
+    sub: en ? "— without receipts" : "— 증빙 없는 분",
+    ariaLabel: en ? "Other expenses without receipts (USD)" : "기타 경비 — 증빙 없는 분 (USD)",
+    value: local.expenses,
+    onChange: v => setLocal({
+      ...local,
+      expenses: v
+    }),
+    helper: Number(local.expenses) > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, "≈ ", fmt((Number(local.expenses) || 0) * calc.rate), " KHR")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "vat-credit-bf",
+    style: {
+      fontSize: 14.5,
+      fontWeight: 600,
+      color: PALETTE.ink
+    }
+  }, en ? "VAT credit brought forward" : "전월 이월 VAT 공제", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400,
+      color: PALETTE.inkSoft
+    }
+  }, " ", en ? "— unused input VAT from last month (KHR)" : "— 지난달에 다 못 쓴 매입세액 (KHR)")), /*#__PURE__*/React.createElement("div", {
+    className: "money-field",
+    style: S.moneyField
+  }, /*#__PURE__*/React.createElement("input", {
+    id: "vat-credit-bf",
+    "aria-label": en ? "VAT credit brought forward (KHR)" : "전월 이월 VAT 공제 (KHR)",
+    type: "number",
+    inputMode: "numeric",
+    placeholder: "0",
+    value: local.vatCreditBF ?? "",
+    onChange: e => setLocal({
+      ...local,
+      vatCreditBF: e.target.value
+    }),
+    style: S.moneyInput
+  }), /*#__PURE__*/React.createElement("span", {
+    "aria-hidden": "true",
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, "KHR")), prevVatCF > 0 && Math.round(Number(local.vatCreditBF) || 0) !== prevVatCF && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.brassText,
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, en ? `Last month's return carried ${fmt(prevVatCF)} KHR forward.` : `지난달 신고에서 ${fmt(prevVatCF)} KHR이 이월됐어요.`, !locked && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    style: S.buttonGhostSmall2,
+    onClick: () => setLocal({
+      ...local,
+      vatCreditBF: String(prevVatCF)
+    })
+  }, en ? "Apply" : "적용")), calc.vatCreditCF > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, en ? `Input VAT exceeds output VAT — ${fmt(calc.vatCreditCF)} KHR carries forward to next month.` : `매입세액이 매출세액보다 많아요 — ${fmt(calc.vatCreditCF)} KHR이 다음 달로 이월돼요.`))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 16
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    "data-evidence": true
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: "0 0 4px",
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, en ? "Receipts & purchase invoices" : "매입·경비 증빙"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...S.stepIntro,
+      marginTop: 0
+    }
+  }, lang === "en" ? "Take a photo of each receipt or invoice. The date and amount are read automatically — check them, choose the type, and register." : "영수증·세금계산서를 사진으로 올리세요. 날짜와 금액은 자동으로 읽힙니다 — 확인하고 유형을 고른 뒤 [등록]을 누르세요."), /*#__PURE__*/React.createElement(EvidencePanel, {
     evidence: local.evidence || [],
     exchangeRate: local.exchangeRate,
     onChangeExchangeRate: v => setLocal({
@@ -8665,29 +8809,52 @@ function MonthlyView({
       // 이 증빙에서 자동 생성된 원천세 항목도 함께 제거한다
       withholding: (local.withholding || []).filter(w => w.fromEvidenceId !== id)
     })
-  }), /*#__PURE__*/React.createElement("div", {
+  }))), step === 5 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(TaxCalcCard, {
+    code: "70035 · 70031 · 70034 · 70045",
+    title: en ? "Other taxes" : "기타 세목",
+    intro: en ? "Public Lighting Tax, Specific Tax and Accommodation Tax. Most companies have nothing to enter here." : "공공조명세·특별세·숙박세예요. 대부분의 회사는 여기에 입력할 것이 없어요.",
+    rows: [[en ? "70035 Public Lighting Tax (5%)" : "70035 공공조명세 (5%)", calc.plt]],
+    total: [en ? "Tax to pay" : "납부세액", calc.plt]
+  }), /*#__PURE__*/React.createElement("section", {
     style: {
-      height: 16
+      ...S.panel,
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
     }
-  }), /*#__PURE__*/React.createElement(WithholdingPanel, {
-    items: local.withholding || [],
-    exchangeRate: calc.payRate,
-    onUpdate: (id, patch) => setLocal({
+  }, /*#__PURE__*/React.createElement("details", {
+    style: S.details,
+    open: Number(local.alcoholTobaccoRevenue) > 0 || undefined
+  }, /*#__PURE__*/React.createElement("summary", {
+    style: S.detailsSummary
+  }, lang === "en" ? "Sells alcohol or tobacco it produced or imported? (Public Lighting Tax)" : "직접 생산·수입한 주류·담배를 판매하나요? (공공조명세)"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement(FieldRow, {
+    label: lang === "en" ? "First-supply value of alcohol/tobacco (USD)" : "주류·담배 최초 공급가액 (USD)"
+  }, /*#__PURE__*/React.createElement("input", {
+    style: S.input,
+    type: "number",
+    inputMode: "decimal",
+    value: local.alcoholTobaccoRevenue || "",
+    onChange: e => setLocal({
       ...local,
-      withholding: (local.withholding || []).map(w => w.id === id ? {
-        ...w,
-        ...patch
-      } : w)
+      alcoholTobaccoRevenue: e.target.value
     }),
-    onAdd: item => setLocal({
-      ...local,
-      withholding: [...(local.withholding || []), item]
-    }),
-    onRemove: id => setLocal({
-      ...local,
-      withholding: (local.withholding || []).filter(w => w.id !== id)
-    })
-  }))), step === 4 && /*#__PURE__*/React.createElement("div", {
+    placeholder: "0"
+  })), local.alcoholTobaccoRevenue && Number(local.alcoholTobaccoRevenue) > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft
+    }
+  }, lang === "en" ? `PLT: ${fmt(calc.pltBaseKHR)} KHR × 5% = ${fmt(calc.plt)} KHR` : `공공조명세: ${fmt(calc.pltBaseKHR)} KHR × 5% = ${fmt(calc.plt)} KHR`))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.7
+    }
+  }, en ? "Specific Tax (70031 goods, 70034 services) and Accommodation Tax (70045) are not calculated in the app yet. If they apply to this company, tell Kohr & Co. in the Review tab." : "특별세(70031 물품, 70034 용역)와 숙박세(70045)는 아직 앱에서 계산하지 않아요. 해당되는 회사라면 확인·제출 탭에서 사무소에 알려 주세요.")))), step === 6 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -8733,21 +8900,111 @@ function MonthlyView({
       background: "#EEF1F4",
       margin: "14px 0 6px"
     }
-  }), [[en ? "VAT payable" : "부가가치세 (VAT)", calc.vatPayable], ...(calc.vatCreditCF > 0 ? [[en ? "VAT credit carried to next month" : "다음 달로 이월되는 VAT 공제", calc.vatCreditCF]] : []), [en ? "Prepayment Profit Tax (1% of sales)" : "선납이윤세 (매출 1%)", calc.ppt], ...(calc.plt > 0 || Number(local.alcoholTobaccoRevenue) > 0 ? [[en ? "Public Lighting Tax (5%)" : "공공조명세 (주류·담배 5%)", calc.plt]] : []), [en ? `Salary tax (${(local.employees || []).length} staff)` : `급여세 (직원 ${(local.employees || []).length}명)`, calc.salaryTaxTotal], ...(calc.fringeTaxTotal > 0 ? [[en ? "Fringe benefit tax (20%)" : "현물급여세 (20%)", calc.fringeTaxTotal]] : []), [en ? "Withholding tax (ToW)" : "원천세 (ToW)", calc.withholdingTaxTotal]].map(([label, v]) => /*#__PURE__*/React.createElement("div", {
-    key: label,
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      gap: 12,
-      padding: "7px 0",
-      fontSize: 14.5,
-      color: v ? PALETTE.ink : PALETTE.inkSoft
-    }
-  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: v ? 600 : 400
-    }
-  }, fmt(v)))), /*#__PURE__*/React.createElement("div", {
+  }), (() => {
+    const credit = calc.vatCreditBF > 0 || calc.vatCreditCF > 0;
+    const rows = [["70013", en ? "Salary Tax" : "급여세", calc.salaryTaxTotal, 1], ["70013", en ? "Fringe Benefit Tax" : "부가급여세", calc.fringeTaxTotal, 1], ["70012", en ? "Prepayment of Income Tax" : "선납이윤세", calc.ppt, 2], ["70012", en ? "Withholding Tax (resident)" : "원천세 (거주자 용역·이자 등)", whtSplit.resident, 3], ["70012", en ? "Withholding Tax (non-resident)" : "원천세 (비거주자)", whtSplit.nonresident, 3], ["70014", en ? "Withholding Tax on Rental" : "임대 원천세", whtSplit.rent, 3], ["70022", en ? "Value Added Tax" : "부가가치세 (VAT)", calc.vatPayable, 4, calc.vatCreditBF, calc.vatCreditCF], ["70035", en ? "Public Lighting Tax" : "공공조명세", calc.plt, 5]];
+    const num = {
+      textAlign: "right",
+      whiteSpace: "nowrap",
+      padding: "8px 0 8px 10px"
+    };
+    return /*#__PURE__*/React.createElement("table", {
+      "data-p101": true,
+      style: {
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 14
+      }
+    }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+      style: {
+        fontSize: 12,
+        color: PALETTE.inkSoft,
+        textAlign: "left"
+      }
+    }, /*#__PURE__*/React.createElement("th", {
+      scope: "col",
+      style: {
+        fontWeight: 600,
+        padding: "4px 0"
+      }
+    }, en ? "Type of tax" : "세목"), credit && /*#__PURE__*/React.createElement("th", {
+      scope: "col",
+      style: {
+        ...num,
+        fontWeight: 600,
+        padding: "4px 0 4px 10px"
+      }
+    }, en ? "Credit last month" : "전월 이월"), /*#__PURE__*/React.createElement("th", {
+      scope: "col",
+      style: {
+        ...num,
+        fontWeight: 600,
+        padding: "4px 0 4px 10px"
+      }
+    }, en ? "Tax to pay" : "납부세액"), credit && /*#__PURE__*/React.createElement("th", {
+      scope: "col",
+      style: {
+        ...num,
+        fontWeight: 600,
+        padding: "4px 0 4px 10px"
+      }
+    }, en ? "Credit next month" : "차월 이월"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(([code, label, v, tab, bf, cf], i) => /*#__PURE__*/React.createElement("tr", {
+      key: i,
+      style: {
+        borderTop: "1px solid #EEF1F4",
+        color: v ? PALETTE.ink : PALETTE.inkSoft
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "8px 0"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => goStep(tab),
+      style: {
+        ...S.linkButton,
+        textDecoration: "none",
+        padding: 0,
+        textAlign: "left",
+        color: "inherit",
+        fontSize: 14,
+        fontWeight: v ? 600 : 400
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      "data-notr": true,
+      style: {
+        color: PALETTE.inkSoft,
+        fontWeight: 400,
+        fontSize: 12.5
+      }
+    }, code), " ", label)), credit && /*#__PURE__*/React.createElement("td", {
+      style: num
+    }, bf ? fmt(bf) : "0"), /*#__PURE__*/React.createElement("td", {
+      style: {
+        ...num,
+        fontWeight: v ? 600 : 400
+      }
+    }, fmt(v)), credit && /*#__PURE__*/React.createElement("td", {
+      style: num
+    }, cf ? fmt(cf) : "0"))), /*#__PURE__*/React.createElement("tr", {
+      style: {
+        borderTop: "2px solid #CDD3DA",
+        fontWeight: 700,
+        color: PALETTE.ink
+      }
+    }, /*#__PURE__*/React.createElement("td", {
+      style: {
+        padding: "9px 0"
+      }
+    }, en ? "Total" : "합계"), credit && /*#__PURE__*/React.createElement("td", {
+      style: num
+    }, fmt(calc.vatCreditBF)), /*#__PURE__*/React.createElement("td", {
+      "data-p101-total": true,
+      style: num
+    }, fmt(calc.totalDue)), credit && /*#__PURE__*/React.createElement("td", {
+      style: num
+    }, fmt(calc.vatCreditCF)))));
+  })(), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -8797,9 +9054,9 @@ function MonthlyView({
       padding: "6px 16px"
     }
   }, [{
-    ok: stepsDef[0].done,
-    text: stepsDef[0].done ? en ? "Sales & purchases entered" : "매출·매입 입력 완료" : en ? "No sales or purchases entered" : "매출·매입 입력 없음",
-    go: 1
+    ok: hasVatData,
+    text: hasVatData ? en ? "Sales & purchases entered" : "매출·매입 입력 완료" : en ? "No sales or purchases entered" : "매출·매입 입력 없음",
+    go: 4
   }, {
     ok: true,
     text: en ? `Payroll ${(local.employees || []).length} · receipts ${(local.evidence || []).length} · withholding ${(local.withholding || []).length}` : `급여 ${(local.employees || []).length}명 · 증빙 ${(local.evidence || []).length}건 · 원천세 ${(local.withholding || []).length}건`
@@ -8973,7 +9230,7 @@ function MonthlyView({
     }
   }, step > 1 && /*#__PURE__*/React.createElement("button", {
     type: "button",
-    "aria-label": en ? "Previous step" : "이전 단계",
+    "aria-label": en ? "Previous tab" : "이전 탭",
     style: {
       ...S.barBtn,
       padding: 0
@@ -8996,7 +9253,7 @@ function MonthlyView({
     },
     onClick: handleSave,
     disabled: !isDirty || saveState === "saving" || locked
-  }, saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? en ? "Retry save" : "다시 저장" : isDirty ? en ? "Save" : "저장" : en ? "Saved" : "저장됨"), step < 4 ? /*#__PURE__*/React.createElement("button", {
+  }, saveState === "saving" ? en ? "Saving…" : "저장 중…" : saveState === "failed" && isDirty ? en ? "Retry save" : "다시 저장" : isDirty ? en ? "Save" : "저장" : en ? "Saved" : "저장됨"), step < LAST_STEP ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     style: S.barBtnPrimary,
     onClick: () => goStep(step + 1)
@@ -9502,7 +9759,7 @@ function AdminReviewPanel({
     recipient: recipient,
     subject: context.subject,
     disabled: !note.trim() || busy,
-    text: note.trim() ? `${context.header}\n${againText || (en ? "Please fix the following and press Request review again in step 4:" : "아래 내용을 보완한 뒤 4단계에서 [검토 요청]을 다시 눌러 주세요:")}\n${note.trim()}\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}` : "",
+    text: note.trim() ? `${context.header}\n${againText || (en ? "Please fix the following and press Request review again in the Review tab:" : "아래 내용을 보완한 뒤 확인·제출 탭에서 [검토 요청]을 다시 눌러 주세요:")}\n${note.trim()}\n\n${en ? "App" : "앱"}: ${APP_PUBLIC_URL}` : "",
     onRecord: () => {
       const t = note;
       setNote("");
@@ -10495,7 +10752,7 @@ function BulkImportPanel({
         }
       })();
     }
-    setDoneMsg([made.length ? k === "sales" ? en ? `${made.length} sales invoice(s) added to Sales.` : `매출 인보이스 ${made.length}건을 매출에 등록했어요.` : en ? `${made.length} document(s) registered as receipts (step 3).` : `증빙 ${made.length}건을 ③ 증빙으로 등록했어요.` : "", attachRows.length ? en ? `Scans attached to ${attachRows.length} existing document(s).` : `이미 등록된 ${attachRows.length}건에 스캔본을 붙였어요.` : ""].filter(Boolean).join(" "));
+    setDoneMsg([made.length ? k === "sales" ? en ? `${made.length} sales invoice(s) added to Sales.` : `매출 인보이스 ${made.length}건을 매출에 등록했어요.` : en ? `${made.length} document(s) registered as receipts (VAT tab).` : `증빙 ${made.length}건을 VAT 탭의 증빙으로 등록했어요.` : "", attachRows.length ? en ? `Scans attached to ${attachRows.length} existing document(s).` : `이미 등록된 ${attachRows.length}건에 스캔본을 붙였어요.` : ""].filter(Boolean).join(" "));
     runRef.current++;
     setJob(null);
   };
@@ -11529,7 +11786,7 @@ function InvoiceDocsPanel({
       color: PALETTE.inkSoft,
       lineHeight: 1.6
     }
-  }, en ? "Sales invoices are added to Sales; purchase invoices are registered as receipts (step 3). You can edit everything afterwards." : "매출 인보이스는 매출액에 더해지고, 매입 인보이스는 ③ 증빙으로 등록돼요. 읽은 내용은 언제든 고칠 수 있어요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
+  }, en ? "Sales invoices are added to Sales; purchase invoices are registered as receipts below. You can edit everything afterwards." : "매출 인보이스는 매출액에 더해지고, 매입 인보이스는 아래 증빙으로 등록돼요. 읽은 내용은 언제든 고칠 수 있어요.")), !pending && !disabled && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -11949,6 +12206,106 @@ function PayrollDocsPanel({
     style: S.buttonGhost,
     onClick: () => setPending(null)
   }, en ? "Cancel" : "취소"))));
+}
+
+// 세목 탭 맨 위의 계산 카드: 이 세목의 납부세액이 어떻게 나왔는지 한눈에
+function TaxCalcCard({
+  code,
+  title,
+  intro,
+  rows,
+  total,
+  foot
+}) {
+  return /*#__PURE__*/React.createElement("section", {
+    "data-taxcard": true,
+    style: {
+      ...S.panel,
+      marginBottom: 16,
+      borderLeft: `4px solid ${PALETTE.teal}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 19,
+      fontWeight: 700,
+      color: PALETTE.ink
+    }
+  }, title), /*#__PURE__*/React.createElement("span", {
+    "data-notr": true,
+    style: {
+      fontSize: 12.5,
+      fontWeight: 600,
+      color: PALETTE.inkSoft
+    }
+  }, code)), intro && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: PALETTE.inkSoft,
+      lineHeight: 1.65,
+      margin: "4px 0 10px"
+    }
+  }, intro), rows.map(([label, v, strong]) => /*#__PURE__*/React.createElement("div", {
+    key: label,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 12,
+      padding: "6px 0",
+      fontSize: 14.5,
+      color: v ? PALETTE.ink : PALETTE.inkSoft,
+      ...(strong ? {
+        borderTop: "1px solid #EEF1F4",
+        fontWeight: 600
+      } : {})
+    }
+  }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      whiteSpace: "nowrap",
+      fontWeight: v ? 600 : 400
+    }
+  }, v < 0 ? "−" : "", fmt(Math.abs(v))))), /*#__PURE__*/React.createElement("div", {
+    "data-taxcard-total": true,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: 12,
+      padding: "10px 12px",
+      marginTop: 6,
+      borderRadius: 10,
+      background: PALETTE.tealTint,
+      color: PALETTE.tealDeep,
+      fontWeight: 700
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14.5
+    }
+  }, total[0]), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 19,
+      whiteSpace: "nowrap"
+    }
+  }, fmt(total[1]), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600
+    }
+  }, "KHR"))), foot && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: PALETTE.inkSoft,
+      marginTop: 8
+    }
+  }, foot));
 }
 function MoneyField({
   id,
@@ -14521,7 +14878,7 @@ function AnnualFilingView({
       lineHeight: 1.6,
       marginTop: 4
     }
-  }, en ? "Receipts are picked up by their type in step 3 of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group." : "월별 신고 3단계에서 증빙의 지급 유형(접대비 · 벌금·가산세·과태료 · 기부금)으로 모아요. 잘못 들어간 증빙은 그 달 3단계에서 유형을 고치면 돼요.")), /*#__PURE__*/React.createElement("div", {
+  }, en ? "Receipts are picked up by their type in the VAT tab of the monthly filing (Entertainment, Fines & penalties, Charitable contributions). Fix the type there if a receipt is in the wrong group." : "월별 신고 VAT 탭에서 증빙의 지급 유형(접대비 · 벌금·가산세·과태료 · 기부금)으로 모아요. 잘못 들어간 증빙은 그 달 VAT 탭에서 유형을 고치면 돼요.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -19144,6 +19501,33 @@ const S = {
     gap: 6,
     padding: 0,
     margin: 0
+  },
+  taxTabBar: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))",
+    gap: 6,
+    padding: 0,
+    margin: 0
+  },
+  taxTabBtn: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    alignItems: "flex-start",
+    textAlign: "left",
+    background: "#fff",
+    border: "1px solid #DDE3E8",
+    borderRadius: 10,
+    padding: "8px 10px",
+    cursor: "pointer",
+    fontFamily: FONT.body,
+    minHeight: 52
+  },
+  taxTabBtnOn: {
+    background: PALETTE.tealTint,
+    border: `1px solid ${PALETTE.teal}`,
+    boxShadow: `inset 0 -3px 0 ${PALETTE.teal}`
   },
   stepBarBtn: {
     width: "100%",

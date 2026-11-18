@@ -514,10 +514,14 @@ function currentApkBuild() {
 // ── 업데이트 안내 팝업 ──
 // 새로 배포할 때마다 APP_RELEASE 를 올리고 RELEASE_NOTES 맨 앞에 바뀐 점을 적는다.
 // 사용자가 처음 보는 APP_RELEASE(또는 새 APK 빌드)로 앱을 열면 "업데이트되었어요" 팝업이 한 번 뜬다.
-const APP_RELEASE = "2026.11.17.20";
+const APP_RELEASE = "2026.11.18.1";
 // 사용 설명서(PDF) — GitHub 저장소 맨 위에 manual.pdf 로 올린다. 버전이 바뀌면 새로 받도록 ?v= 를 붙인다
 const MANUAL_URL = "https://kohrkyy-pixel.github.io/tax-tool/manual.pdf?v=" + APP_RELEASE;
 const RELEASE_NOTES = [{
+  version: "2026.11.18.1",
+  ko: ["NSSF 부담 구분을 현행 규정에 맞췄어요 — 건강보험 2.6%는 고용주 전액 부담(고용주 5.4%, 근로자는 연금 2%만)", "2026년 11월분부터 기여기준임금 상하한이 60만~150만 KHR로 자동 적용돼요 (10월분까지는 40만~120만)"],
+  en: ["NSSF split now follows the current rules — health care 2.6% is paid entirely by the employer (employer 5.4%, employee pension 2% only)", "From November 2026 the contributory wage band of 600,000–1,500,000 KHR applies automatically (400,000–1,200,000 up to October)"]
+}, {
   version: "2026.11.17.20",
   ko: ["통화를 색과 크기 둘 다로 구분해요 — 리엘(신고 통화)은 초록·굵고 크게, 달러는 파랑·한 단계 작게. 순서도 달러 → 리엘로 통일했어요"],
   en: ["Currencies now differ in both colour and size — riel (the filing currency) is green, bold and larger; US dollars are blue and one step smaller. The order is always dollars, then riel"]
@@ -1351,31 +1355,43 @@ function withholdingTotals(list) {
   };
 }
 
-// NSSF(사회보장기금) — 직원 8인 이상 사업장 의무가입, 매월 급여와 함께 신고·납부 (익월 15일까지)
-// 기여기준임금(Contributory Wage): 실제 총급여를 40만~120만 KHR 사이로 상하한 적용 (Sub-Decree No.144, Prakas No.449)
-const NSSF_WAGE_MIN = 400000;
-const NSSF_WAGE_MAX = 1200000;
+// NSSF(사회보장기금) — 직원 1인 이상 사업장 등록 (Prakas 448, 2017), 매월 급여와 함께 신고·납부 (익월 15일까지)
+// 기여기준임금(Contributory Wage) 상하한: 2026년 10월분까지 40만~120만 KHR,
+// 2026년 11월분부터 60만~150만 KHR (부처 합동 Prakas 234/26, NSSF 통지 3135/26)
+const NSSF_BAND_OLD = {
+  min: 400000,
+  max: 1200000
+};
+const NSSF_BAND_NEW = {
+  min: 600000,
+  max: 1500000
+};
+const NSSF_BAND_NEW_FROM = "2026-11";
+function nssfBand(period) {
+  return period && String(period) >= NSSF_BAND_NEW_FROM ? NSSF_BAND_NEW : NSSF_BAND_OLD;
+}
 const NSSF_RATES = {
   occupationalRiskEmployer: 0.008,
   // 직업재해 (고용주 전액 부담)
-  healthcareEmployer: 0.013,
-  // 건강보험 (고용주 분)
-  healthcareEmployee: 0.013,
-  // 건강보험 (근로자 분, 급여에서 원천공제)
+  healthcareEmployer: 0.026,
+  // 건강보험 (2018.1.1부터 고용주 전액 부담)
+  healthcareEmployee: 0,
+  // 건강보험 근로자 부담 없음
   pensionEmployer: 0.02,
   // 연금 (고용주 분)
   pensionEmployee: 0.02 // 연금 (근로자 분, 급여에서 원천공제)
 };
-function nssfContributoryWageKHR(grossKHR) {
+function nssfContributoryWageKHR(grossKHR, period) {
   const g = Number(grossKHR) || 0;
   if (g <= 0) return 0;
-  return Math.min(Math.max(g, NSSF_WAGE_MIN), NSSF_WAGE_MAX);
+  const b = nssfBand(period);
+  return Math.min(Math.max(g, b.min), b.max);
 }
-function calcEmployeeNssf(e, rate) {
+function calcEmployeeNssf(e, rate, period) {
   const grossKHR = employeeGrossKHR(e, rate);
   // 직원별 설정: NSSF 미가입이면 0, NSSF에 신고한 임금이 급여와 다르면 그 금액(KHR)을 기준으로 한다
   const declared = Number(e?.nssfWage) > 0 ? Number(e.nssfWage) : grossKHR;
-  const wage = e?.nssfExempt ? 0 : nssfContributoryWageKHR(declared);
+  const wage = e?.nssfExempt ? 0 : nssfContributoryWageKHR(declared, period);
   const employerOR = wage * NSSF_RATES.occupationalRiskEmployer;
   const employerHealthcare = wage * NSSF_RATES.healthcareEmployer;
   const employeeHealthcare = wage * NSSF_RATES.healthcareEmployee;
@@ -1395,9 +1411,9 @@ function calcEmployeeNssf(e, rate) {
     grandTotal: employerTotal + employeeTotal
   };
 }
-function calcNssfTotals(employees, rate) {
+function calcNssfTotals(employees, rate, period) {
   return (employees || []).reduce((acc, e) => {
-    const n = calcEmployeeNssf(e, rate);
+    const n = calcEmployeeNssf(e, rate, period);
     acc.employerTotal += n.employerTotal;
     acc.employeeTotal += n.employeeTotal;
     acc.grandTotal += n.grandTotal;
@@ -1601,7 +1617,7 @@ function vatBreakdown(supplyUSD, rate) {
     totalKHR: total * rate
   };
 }
-function calcMonthly(f) {
+function calcMonthly(f, period) {
   const rate = getRate(f);
   const revenue = vatBreakdown(f?.revenue, rate);
   // 매출 인보이스에 인보이스별 환율이 있으면 그 환율로 환산한 KHR이 되도록 차이만큼 보정한다
@@ -1653,7 +1669,7 @@ function calcMonthly(f) {
   const fringeTaxTotal = employees.reduce((s, e) => s + employeeFringeTax(e, payRate), 0);
   // NSSF는 가입 대상 사업장(직원 8인 이상 등)으로 지정된 경우에만 계산한다
   const nssfApplicable = f?.nssfApplicable === true;
-  const nssf = nssfApplicable ? calcNssfTotals(employees, payRate) : {
+  const nssf = nssfApplicable ? calcNssfTotals(employees, payRate, period || f?.period) : {
     employerTotal: 0,
     employeeTotal: 0,
     grandTotal: 0
@@ -1864,7 +1880,7 @@ function calcAnnual(filingsForClient, year, af) {
     const key = `${year}-${String(m).padStart(2, "0")}`;
     const f = filingsForClient?.[key];
     if (f) {
-      const monthly = calcMonthly(f);
+      const monthly = calcMonthly(f, key);
       revenue += monthly.turnoverKHR;
       expenses += monthly.totalExpenses;
       pptPaid += monthly.ppt;
@@ -5984,7 +6000,7 @@ function Dashboard({
       status,
       stepsDone,
       issues,
-      calc: hasData ? calcMonthly(filing) : null,
+      calc: hasData ? calcMonthly(filing, mKey) : null,
       paid,
       docsTotal: docsList.length,
       docsDone
@@ -8095,7 +8111,7 @@ function MonthlyView({
       text: lang === "en" ? "Add a client first under 'Clients'." : "먼저 [고객사] 메뉴에서 고객사를 추가하세요."
     }));
   }
-  const calc = calcMonthly(local);
+  const calc = calcMonthly(local, monthKey(selectedYear, selectedMonth));
   const issues = validateFiling(local, selectedClient, prevFiling, lang);
   const addEmployee = () => {
     setLocal({
@@ -8754,6 +8770,7 @@ function MonthlyView({
   }), /*#__PURE__*/React.createElement(NssfPanel, {
     employees: local.employees || [],
     exchangeRate: calc.payRate,
+    period: monthKey(selectedYear, selectedMonth),
     applicable: local.nssfApplicable,
     onChangeApplicable: v => setLocal({
       ...local,
@@ -15064,6 +15081,7 @@ function EvidencePanel({
 function NssfPanel({
   employees,
   exchangeRate,
+  period,
   applicable,
   onChangeApplicable,
   onUpdateEmployee,
@@ -15072,9 +15090,12 @@ function NssfPanel({
   const lang = useLang();
   const rows = employees.filter(e => e.name?.trim() && e.gross).map(e => ({
     e,
-    n: calcEmployeeNssf(e, exchangeRate)
+    n: calcEmployeeNssf(e, exchangeRate, period)
   }));
-  const totals = calcNssfTotals(employees, exchangeRate);
+  const totals = calcNssfTotals(employees, exchangeRate, period);
+  const band = nssfBand(period);
+  const bandKo = `${band.min / 10000}만~${band.max / 10000}만`,
+    bandEn = `${fmt(band.min)}–${fmt(band.max)}`;
   const empCount = employees.filter(e => e.name?.trim()).length;
   const enrolled = rows.filter(({
     e
@@ -15131,7 +15152,7 @@ function NssfPanel({
       color: PALETTE.brassMuted,
       lineHeight: 1.7
     }
-  }, lang === "en" ? "NSSF is not being calculated for this filing. Switch to 'Registered' if this client is enrolled (mandatory at 8+ employees; voluntary enrolment is also possible below that)." : "이 신고서에서는 NSSF를 계산하지 않습니다. 가입된 고객사라면 [가입 대상]으로 바꿔주세요 (8인 이상은 의무가입이며, 그 미만도 임의가입이 가능합니다)."));
+  }, lang === "en" ? "NSSF is not being calculated for this filing. Switch to 'Registered' if this client is enrolled (employers with one or more employees must register)." : "이 신고서에서는 NSSF를 계산하지 않습니다. 가입된 고객사라면 [가입 대상]으로 바꿔주세요 (직원이 1명 이상이면 등록 대상입니다)."));
   if (applicable !== true) {
     return /*#__PURE__*/React.createElement("div", {
       style: S.panel
@@ -15165,9 +15186,9 @@ function NssfPanel({
     style: S.th
   }, lang === "en" ? "Contributory wage" : "기여기준임금"), /*#__PURE__*/React.createElement("th", {
     style: S.th
-  }, lang === "en" ? "Employer (4.1%)" : "고용주 부담 (4.1%)"), /*#__PURE__*/React.createElement("th", {
+  }, lang === "en" ? "Employer (5.4%)" : "고용주 부담 (5.4%)"), /*#__PURE__*/React.createElement("th", {
     style: S.th
-  }, lang === "en" ? "Employee (3.3%)" : "근로자 부담 (3.3%)"), /*#__PURE__*/React.createElement("th", {
+  }, lang === "en" ? "Employee (2%)" : "근로자 부담 (2%)"), /*#__PURE__*/React.createElement("th", {
     style: S.th
   }, lang === "en" ? "Total" : "합계"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(({
     e,
@@ -15209,7 +15230,7 @@ function NssfPanel({
     inputMode: "numeric",
     disabled: disabled || !onUpdateEmployee,
     "aria-label": lang === "en" ? `${e.name}: wage declared to NSSF (KHR)` : `${e.name}: NSSF 신고 임금 (KHR)`,
-    placeholder: String(Math.round(nssfContributoryWageKHR(employeeGrossKHR(e, exchangeRate)))),
+    placeholder: String(Math.round(nssfContributoryWageKHR(employeeGrossKHR(e, exchangeRate), period))),
     value: e.nssfWage ?? "",
     onChange: ev => onUpdateEmployee(e.id, {
       nssfWage: ev.target.value
@@ -15240,7 +15261,7 @@ function NssfPanel({
       lineHeight: 1.7,
       marginTop: 8
     }
-  }, lang === "en" ? "Leave the wage empty to use the salary (capped at 400,000–1,200,000 KHR). Enter the wage declared to NSSF if it is different, and untick staff who are not registered." : "신고 임금을 비워 두면 급여(40만~120만 KHR 상하한)로 계산해요. NSSF에 신고한 임금이 급여와 다르면 그 금액을 넣고, 가입하지 않은 직원은 체크를 푸세요."), /*#__PURE__*/React.createElement("div", {
+  }, lang === "en" ? `Leave the wage empty to use the salary (capped at ${bandEn} KHR). Enter the wage declared to NSSF if it is different, and untick staff who are not registered.` : `신고 임금을 비워 두면 급여(${bandKo} KHR 상하한)로 계산해요. NSSF에 신고한 임금이 급여와 다르면 그 금액을 넣고, 가입하지 않은 직원은 체크를 푸세요.`), /*#__PURE__*/React.createElement("div", {
     "data-nssf-scheme": true,
     style: {
       marginTop: 10,
@@ -15271,14 +15292,14 @@ function NssfPanel({
     }
   }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Employer contribution" : "고용주 부담분"), /*#__PURE__*/React.createElement("span", null, fmt(totals.employerTotal), " KHR")), /*#__PURE__*/React.createElement("div", {
     style: S.draftRow
-  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Employee contribution (withheld from salary)" : "근로자 부담분 (급여에서 원천공제)"), /*#__PURE__*/React.createElement("span", null, fmt(totals.employeeTotal), " KHR")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Employee contribution (pension 2%, withheld from salary)" : "근로자 부담분 (연금 2%, 급여에서 원천공제)"), /*#__PURE__*/React.createElement("span", null, fmt(totals.employeeTotal), " KHR")), /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.draftTotal,
       marginTop: 6
     }
   }, /*#__PURE__*/React.createElement("span", null, lang === "en" ? "Total NSSF payment due" : "NSSF 총 납부액"), /*#__PURE__*/React.createElement("span", null, fmt(totals.grandTotal), " KHR")), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
-  }, lang === "en" ? "Mandatory for employers with 8+ employees (registration required within 45 days). Contributory wage is capped between 400,000–1,200,000 KHR regardless of actual salary. Due by the 15th of the following month, separately from the GDT monthly tax filing — verify current rates with NSSF (nssf.gov.kh) as they are being phased in." : "직원 8인 이상 사업장은 의무가입 대상입니다 (사업 개시 후 45일 이내 등록). 기여기준임금은 실제 급여와 무관하게 40만~120만 KHR 사이로 상하한이 적용됩니다. 국세청 월별 세무신고와 별도로 익월 15일까지 NSSF에 납부해야 하며, 요율이 단계적으로 인상되고 있으니 NSSF(nssf.gov.kh) 최신 공지로 재확인하세요."));
+  }, lang === "en" ? `Employers with one or more employees must register, and every employee must be registered. The employer pays occupational risk 0.8%, health care 2.6% and pension 2%; the employee pays pension 2%. The contributory wage is capped at ${bandEn} KHR (600,000–1,500,000 KHR from November 2026). Due by the 15th of the following month, separately from the GDT filing — verify current rates with NSSF (nssf.gov.kh).` : `직원이 1명 이상이면 사업장 등록 대상이며, 모든 직원을 등록해야 합니다. 고용주는 직업재해 0.8%·건강보험 2.6%·연금 2%를, 근로자는 연금 2%를 부담합니다. 기여기준임금은 ${bandKo} KHR 사이로 상하한이 적용됩니다 (2026년 11월분부터 60만~150만 KHR). 국세청 월별 세무신고와 별도로 익월 15일까지 NSSF에 납부하며, NSSF(nssf.gov.kh) 최신 공지로 재확인하세요.`));
 }
 function WithholdingPanel({
   items,
@@ -17795,7 +17816,7 @@ function DraftView({
     purchase: 0,
     employees: []
   };
-  const calc = calcMonthly(filing);
+  const calc = calcMonthly(filing, mKey);
   // 매출 인보이스가 등록돼 있으면 과세 매출을 사업자/소비자로 나눠 보여준다 (VAT 신고서 칸 구분용)
   const salesSplit = (() => {
     const docs = (filing.salesDocs || []).filter(d => d.taxType !== "nontax");
@@ -18710,7 +18731,7 @@ const GAS_CODE = `// ── 캄보디아 세무신고 관리 — Google 스프�
 const PASSPHRASE = '사무실공용암호';   // ← 관리자(사무소 직원) 암호. 앱에 입력할 암호와 똑같이 바꾸세요
 const SHEET_NAME = 'TaxAppData';
 const ACCESS_SHEET = 'ClientAccess';   // 고객사별 비밀번호(암호화된 값만 저장) — 직접 수정하지 마세요
-const SCRIPT_VERSION = 'v14-ccy';   // 배포 확인용 — 수정하지 마세요
+const SCRIPT_VERSION = 'v15-nssf';   // 배포 확인용 — 수정하지 마세요
 
 /* ── 권한 ──────────────────────────────────────────────
    · 관리자: PASSPHRASE — 모든 고객사 열람·편집, 고객사 등록·비밀번호 지정
@@ -19168,7 +19189,8 @@ var SUMMARY_SHEET = '월별요약';
 var VAT_RATE = 0.1;
 var PLT_RATE = 0.05;
 var DEFAULT_RATE = 4100;
-var NSSF_MIN = 400000, NSSF_MAX = 1200000;
+var NSSF_MIN = 400000, NSSF_MAX = 1200000;        // 2026년 10월분까지
+var NSSF_MIN_NEW = 600000, NSSF_MAX_NEW = 1500000;   // 2026년 11월분부터 (Prakas 234/26)
 var BRACKETS = [
   { lo: 0, hi: 1500000, rate: 0 },
   { lo: 1500000, hi: 2000000, rate: 0.05 },
@@ -19214,7 +19236,9 @@ function empGrossKHR(e, rate) {
   return e.mode === 'net' ? empGrossFromNet(e, entered) : entered;
 }
 
-function calcRow(f) {
+function calcRow(f, period) {
+  var nssfMin = period && String(period) >= '2026-11' ? NSSF_MIN_NEW : NSSF_MIN;
+  var nssfMax = period && String(period) >= '2026-11' ? NSSF_MAX_NEW : NSSF_MAX;
   var rate = Number(f && f.exchangeRate) || DEFAULT_RATE;
   var payRate = Number(f && f.salaryRate) > 0 ? Number(f.salaryRate) : rate;
   var revenueSupply = (Number(f && f.revenue) || 0) * rate;
@@ -19250,9 +19274,9 @@ function calcRow(f) {
     fbt += Math.round((Number(emps[k].fringe) || 0) * payRate * 0.2);
     if (nssfOn) {
       var declared = Number(emps[k].nssfWage) > 0 ? Number(emps[k].nssfWage) : g;
-      var wage = emps[k].nssfExempt ? 0 : (declared > 0 ? Math.min(Math.max(declared, NSSF_MIN), NSSF_MAX) : 0);
-      nssfEmployer += wage * 0.041;
-      nssfEmployee += wage * 0.033;
+      var wage = emps[k].nssfExempt ? 0 : (declared > 0 ? Math.min(Math.max(declared, nssfMin), nssfMax) : 0);
+      nssfEmployer += wage * 0.054;
+      nssfEmployee += wage * 0.02;
     }
   }
 
@@ -19309,7 +19333,7 @@ function rebuildSummary(ss, data) {
     for (var j = 0; j < keys.length; j++) {
       var key = keys[j];
       var parts = key.split('-');
-      var r = calcRow(cf[key]);
+      var r = calcRow(cf[key], key);
       rows.push([
         c.name || '', c.tin || '', c.type || '',
         Number(parts[0]) || '', Number(parts[1]) || '',
@@ -20121,9 +20145,9 @@ function RatesView() {
     style: S.td
   }, lang === "en" ? "Healthcare" : "건강보험"), /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, "1.3%"), /*#__PURE__*/React.createElement("td", {
+  }, "2.6%"), /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, "1.3%")), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+  }, "-")), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     style: S.td
   }, lang === "en" ? "Pension" : "연금"), /*#__PURE__*/React.createElement("td", {
     style: S.td
@@ -20133,15 +20157,15 @@ function RatesView() {
     style: S.td
   }, /*#__PURE__*/React.createElement("b", null, lang === "en" ? "Total" : "합계")), /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, /*#__PURE__*/React.createElement("b", null, "4.1%")), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("b", null, "5.4%")), /*#__PURE__*/React.createElement("td", {
     style: S.td
-  }, /*#__PURE__*/React.createElement("b", null, "3.3%")))))), /*#__PURE__*/React.createElement(NumberRow, {
+  }, /*#__PURE__*/React.createElement("b", null, "2%")))))), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Contributory wage band" : "기여기준임금 상하한",
-    value: `${fmt(NSSF_WAGE_MIN)} ~ ${fmt(NSSF_WAGE_MAX)} KHR`,
+    value: lang === "en" ? "600,000 ~ 1,500,000 KHR (from Nov 2026; 400,000 ~ 1,200,000 before)" : "600,000 ~ 1,500,000 KHR (2026년 11월분부터, 이전 400,000 ~ 1,200,000)",
     noFmt: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Mandatory registration" : "의무가입 대상",
-    value: lang === "en" ? "8+ employees, within 45 days" : "직원 8인 이상, 사업 개시 후 45일 이내",
+    value: lang === "en" ? "1+ employees; register staff within 3 days of hiring" : "직원 1인 이상, 채용 후 3일 이내 직원 등록",
     noFmt: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "Payment deadline" : "납부기한",
@@ -20206,7 +20230,7 @@ function RatesView() {
     noFmt: true
   }), /*#__PURE__*/React.createElement(NumberRow, {
     label: lang === "en" ? "NSSF Health Insurance" : "NSSF 건강보험",
-    value: lang === "en" ? "Employee 1.3% + Employer 1.3%" : "근로자 1.3% + 사업주 1.3%",
+    value: lang === "en" ? "Employer 2.6% (no employee share)" : "사업주 2.6% (근로자 부담 없음)",
     noFmt: true
   })), /*#__PURE__*/React.createElement("p", {
     style: S.disclaimer
